@@ -102,6 +102,8 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .photo-section-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .photo-slot{border-radius:var(--radius);overflow:hidden;position:relative;aspect-ratio:4/3;background:var(--gray-100);border:2px dashed var(--gray-300);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:0;transition:border-color .2s,background .2s}
 .photo-slot:hover{border-color:var(--primary);background:var(--primary-light)}
+.photo-slot.drag-over{border-color:var(--primary);background:var(--primary-light);box-shadow:inset 0 0 0 2px var(--primary)}
+.photo-extra-grid.drag-over{outline:2px dashed var(--primary);outline-offset:4px;border-radius:var(--radius);background:var(--primary-light)}
 .photo-slot.has-photo{border:2px solid var(--gray-200);background:transparent}
 .photo-slot img{width:100%;height:100%;object-fit:cover;display:block}
 .photo-overlay{position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;gap:8px;opacity:0;transition:opacity .2s}
@@ -351,7 +353,7 @@ optgroup{font-weight:700}
             <span class="photo-placeholder-icon">📷</span>
             <span class="photo-placeholder-label">全体写真</span>
             <span class="optional-tag">任意</span>
-            <span class="photo-placeholder-sub">タップして追加</span>
+            <span class="photo-placeholder-sub">タップ/ドラッグで追加</span>
           </div>
         </div>
         <div class="photo-slot" id="modal_slot_銘板" onclick="triggerModalPhoto('銘板')">
@@ -1057,7 +1059,7 @@ function renderDetail(){
             <span class="photo-placeholder-icon">${icon}</span>
             <span class="photo-placeholder-label">${key}写真</span>
             ${ocr?'<span class="ocr-auto-tag">📖 OCR対応</span>':'<span class="optional-tag">任意</span>'}
-            <span class="photo-placeholder-sub">タップして追加</span>
+            <span class="photo-placeholder-sub">タップ/ドラッグで追加</span>
           </div>`
       }
     </div>`;
@@ -1141,7 +1143,7 @@ function renderDetail(){
         ${detailPhotoSlot('銘板','🏷️',true)}
       </div>
       <div style="margin-top:12px;font-size:12px;font-weight:700;color:var(--gray-500);margin-bottom:6px">追加写真</div>
-      <div class="photo-extra-grid">
+      <div class="photo-extra-grid" id="detailExtraGrid">
         ${extraPhotos}
         <button class="btn-add-photo" onclick="triggerDetailExtraPhoto()">
           <span style="font-size:20px">＋</span><span>写真を追加</span>
@@ -1157,6 +1159,7 @@ function renderDetail(){
       <div class="history-list">${maintenanceHTML}</div>
     </div>
   `;
+  bindDetailPhotoDrop();
 }
 
 /* ════ DETAIL PHOTOS ════ */
@@ -1266,7 +1269,7 @@ function updateModalPhotoSlot(key){
         <span class="photo-placeholder-icon">📷</span>
         <span class="photo-placeholder-label">全体写真</span>
         <span class="optional-tag">任意</span>
-        <span class="photo-placeholder-sub">タップして追加</span>
+        <span class="photo-placeholder-sub">タップ/ドラッグで追加</span>
       </div>`;
     }
     slot.onclick=()=>triggerModalPhoto(key);
@@ -1278,6 +1281,41 @@ function openModalLightbox(key,e){
   document.getElementById('lightboxImg').src=modalPhotos[key];
   document.getElementById('lightboxLabel').textContent=key+'写真';
   document.getElementById('lightbox').classList.add('show');
+}
+
+/* ════ DRAG & DROP 写真アップロード ════ */
+// 単一スロット（全体写真・銘板写真）用：ドロップされたファイルを既存のinput change処理に流し込む
+function enablePhotoDrop(el,onFile){
+  if(!el||el._dndBound)return; // 二重バインド防止（renderDetail等で再描画されるため）
+  el._dndBound=true;
+  el.addEventListener('dragover',ev=>{
+    ev.preventDefault();ev.stopPropagation();
+    el.classList.add('drag-over');
+  });
+  el.addEventListener('dragleave',ev=>{
+    ev.preventDefault();ev.stopPropagation();
+    el.classList.remove('drag-over');
+  });
+  el.addEventListener('drop',ev=>{
+    ev.preventDefault();ev.stopPropagation();
+    el.classList.remove('drag-over');
+    const file=ev.dataTransfer?.files?.[0];
+    if(!file)return;
+    if(!file.type.startsWith('image/')){
+      showToast('⚠ 画像ファイルをドロップしてください','error');return;
+    }
+    onFile(file);
+  });
+}
+function bindModalPhotoDrop(){
+  enablePhotoDrop(document.getElementById('modal_slot_全体'),file=>handleModalPhoto({target:{files:[file],value:''}},'全体'));
+  enablePhotoDrop(document.getElementById('modal_slot_銘板'),file=>handleModalPhoto({target:{files:[file],value:''}},'銘板'));
+  enablePhotoDrop(document.getElementById('modalExtraGrid'),file=>handleModalExtraPhoto({target:{files:[file],value:''}}));
+}
+function bindDetailPhotoDrop(){
+  enablePhotoDrop(document.getElementById('detail_slot_全体'),file=>handleDetailPhoto({target:{files:[file],value:''}},'全体'));
+  enablePhotoDrop(document.getElementById('detail_slot_銘板'),file=>handleDetailPhoto({target:{files:[file],value:''}},'銘板'));
+  enablePhotoDrop(document.getElementById('detailExtraGrid'),file=>handleDetailExtraPhoto({target:{files:[file],value:''}}));
 }
 
 /* ════ OCR ════ */
@@ -1406,6 +1444,7 @@ function openAddModal(){
   document.getElementById('modalOverlay').classList.add('show');
   updateModalPhotoSlot('全体');updateModalPhotoSlot('銘板');
   renderModalExtraGrid();
+  bindModalPhotoDrop();
 }
 function openEditModal(){
   if(!currentEq)return;
@@ -1423,6 +1462,7 @@ function openEditModal(){
   document.getElementById('modalOverlay').classList.add('show');
   updateModalPhotoSlot('全体');updateModalPhotoSlot('銘板');
   renderModalExtraGrid();
+  bindModalPhotoDrop();
 }
 function closeModal(){document.getElementById('modalOverlay').classList.remove('show')}
 function handleOverlayClick(e){if(e.target===document.getElementById('modalOverlay'))closeModal()}
@@ -2213,6 +2253,13 @@ window.addEventListener('offline',()=>{
 });
 window.addEventListener('online',()=>{
   showToast('📶 通信が復帰しました','success');
+});
+
+// 写真スロット以外の場所に画像をドロップした際、ブラウザが別タブで
+// 画像を開いてしまう誤操作を防止（写真スロット自体は個別にdrop処理済み）
+window.addEventListener('dragover',ev=>ev.preventDefault());
+window.addEventListener('drop',ev=>{
+  if(!ev.target.closest('.photo-slot,.photo-extra-grid'))ev.preventDefault();
 });
 
 /* ════ INIT ════ */
