@@ -505,7 +505,7 @@ optgroup{font-weight:700}
     </div>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeModal()">キャンセル</button>
-      <button class="btn-save" onclick="saveEquipment()">💾 保存する</button>
+      <button class="btn-save" onclick="saveEquipment(event)">💾 保存する</button>
     </div>
   </div>
 </div>
@@ -907,6 +907,11 @@ let currentEq=null;
 let isEditMode=false;
 let filters={region:'',category:'',companyId:'',storeId:''};
 let modalPhotos={'全体':null,'銘板':null,extra:[]};
+let pendingNewEqId=null; // 新規登録モーダルで確定させる仮ID（写真アップロード先と保存時で一致させる）
+function _genEquipmentId(){
+  // タイムスタンプ+ランダム値で端末間のID衝突を防止
+  return Date.now()*1000+Math.floor(Math.random()*1000);
+}
 
 /* ════ FILTER HELPERS ════ */
 function getFilteredCompanies(){
@@ -1188,7 +1193,7 @@ async function handleModalExtraPhoto(e){
   const file=e.target.files[0];if(!file)return;
   e.target.value='';
   showToast('📤 Google Driveにアップロード中...','info');
-  const refEq=currentEq||{id:nextId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||''};
+  const refEq=currentEq||{id:pendingNewEqId||_genEquipmentId(),name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||''};
   const url=await _uploadWithFallback(file,refEq);
   modalPhotos.extra.push({name:file.name,data:url});
   renderModalExtraGrid();
@@ -1229,7 +1234,7 @@ async function handleModalPhoto(e,key){
     reader.readAsDataURL(file);
   }else{
     showToast('📤 Google Driveにアップロード中...','info');
-    const refEq=currentEq||{id:nextId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||''};
+    const refEq=currentEq||{id:pendingNewEqId||_genEquipmentId(),name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||''};
     const url=await _uploadWithFallback(file,refEq);
     modalPhotos[key]=url;
     updateModalPhotoSlot(key);
@@ -1381,6 +1386,7 @@ function onFormCompanyChange(){
 /* ════ EQUIPMENT MODAL ════ */
 function openAddModal(){
   isEditMode=false;
+  pendingNewEqId=_genEquipmentId(); // 写真アップロード先フォルダと保存時のIDを一致させるため先に確定
   modalPhotos={'全体':null,'銘板':null,extra:[]};
   document.getElementById('modalTitle').textContent='🔧 機器を追加';
   clearForm();
@@ -1469,7 +1475,8 @@ function updateElapsedPreview(){
 }
 
 /* ════ SAVE EQUIPMENT ════ */
-function saveEquipment(){
+async function saveEquipment(ev){
+  const btn=(ev&&ev.target)?ev.target.closest('button'):document.querySelector('.btn-save');
   const name=document.getElementById('f_name').value;
   const status=document.getElementById('f_status').value;
   const maker=document.getElementById('f_maker').value;
@@ -1481,31 +1488,59 @@ function saveEquipment(){
   if(!name||!maker||!model||!serial||!companyId||!storeId||!bay){
     showToast('⚠ 必須項目を全て入力・選択してください','error');return;
   }
-  if(isEditMode&&currentEq){
-    Object.assign(currentEq,{name,status,maker,model,serial,
-      date:document.getElementById('f_date').value,
-      nextcheck:document.getElementById('f_nextcheck').value,
-      companyId,storeId,bay,note:document.getElementById('f_note').value
-    });
-    if(modalPhotos['全体'])currentEq.photos['全体']=modalPhotos['全体'];
-    if(modalPhotos['銘板'])currentEq.photos['銘板']=modalPhotos['銘板'];
-    currentEq.photos.extra=modalPhotos.extra;
-    _saveEq(currentEq);
-    showToast('✅ 機器情報を更新しました','success');
-    renderDetail();renderList();
-  }else{
-    const eq={id:nextId++,name,status,maker,model,serial,
-      date:document.getElementById('f_date').value,
-      nextcheck:document.getElementById('f_nextcheck').value,
-      companyId,storeId,bay,note:document.getElementById('f_note').value,
-      photos:{'全体':modalPhotos['全体']||null,'銘板':modalPhotos['銘板']||null,extra:modalPhotos.extra},
-      maintenance:[]
-    };
-    equipments.push(eq);
-    _saveEq(eq);
-    showToast('✅ 機器を登録しました','success');renderList();
+  if(!navigator.onLine){
+    showToast('⚠ 通信がオフラインです。電波の良い場所で再度お試しください','error');
+    return;
   }
-  simulateCloudSync();closeModal();
+  // 二重送信防止（通信が遅い環境で連打されると重複登録・競合の原因になる）
+  if(btn){
+    if(btn.disabled)return;
+    btn.disabled=true;
+    var _origLabel=btn.innerHTML;
+    btn.innerHTML='⏳ 保存中…';
+  }
+  try{
+    if(isEditMode&&currentEq){
+      const backup=JSON.parse(JSON.stringify(currentEq));
+      Object.assign(currentEq,{name,status,maker,model,serial,
+        date:document.getElementById('f_date').value,
+        nextcheck:document.getElementById('f_nextcheck').value,
+        companyId,storeId,bay,note:document.getElementById('f_note').value
+      });
+      if(modalPhotos['全体'])currentEq.photos['全体']=modalPhotos['全体'];
+      if(modalPhotos['銘板'])currentEq.photos['銘板']=modalPhotos['銘板'];
+      currentEq.photos.extra=modalPhotos.extra;
+      const ok=await _saveEq(currentEq);
+      if(!ok){
+        // クラウド保存に失敗した場合はローカルの変更を巻き戻し、モーダルは開いたままにする
+        Object.assign(currentEq,backup);
+        return;
+      }
+      showToast('✅ 機器情報を更新しました','success');
+      renderDetail();renderList();
+    }else{
+      const eq={id:pendingNewEqId||_genEquipmentId(),name,status,maker,model,serial,
+        date:document.getElementById('f_date').value,
+        nextcheck:document.getElementById('f_nextcheck').value,
+        companyId,storeId,bay,note:document.getElementById('f_note').value,
+        photos:{'全体':modalPhotos['全体']||null,'銘板':modalPhotos['銘板']||null,extra:modalPhotos.extra},
+        maintenance:[]
+      };
+      const ok=await _saveEq(eq);
+      if(!ok){
+        // クラウドへの保存が確認できるまではローカル一覧にも追加しない
+        // （追加してしまうと、次のonSnapshotでサーバー側の古いデータに
+        //  上書きされ「登録したのに消えた」ように見える不具合の原因になるため）
+        return;
+      }
+      equipments.push(eq);
+      pendingNewEqId=null;
+      showToast('✅ 機器を登録しました','success');renderList();
+    }
+    simulateCloudSync();closeModal();
+  }finally{
+    if(btn){btn.disabled=false;btn.innerHTML=_origLabel;}
+  }
 }
 
 /* ════ ADD COMPANY MODAL ════ */
@@ -1938,6 +1973,11 @@ const firebaseConfig={
 firebase.initializeApp(firebaseConfig);
 const auth=firebase.auth();
 const db=firebase.firestore();
+// オフライン永続化：電波が不安定な環境（iPhoneのモバイル回線など）でも
+// 書き込みをローカルにキューイングし、通信復帰時に自動で再送する
+db.enablePersistence({synchronizeTabs:true}).catch(err=>{
+  console.warn('Firestore persistence not enabled:',err.code);
+});
 let _unsubEq=null,_unsubMd=null;
 
 /* ── 認証状態管理 ── */
@@ -2145,8 +2185,14 @@ async function _uploadWithFallback(file,eq){
 
 /* ── Firestore 書き込みヘルパー ── */
 async function _saveEq(eq){
-  try{await db.collection('equipments').doc(String(eq.id)).set(eq);}
-  catch(e){console.error(e);showToast('⚠ クラウド保存に失敗しました','error');}
+  try{
+    await db.collection('equipments').doc(String(eq.id)).set(eq);
+    return true;
+  }catch(e){
+    console.error(e);
+    showToast('⚠ クラウド保存に失敗しました。通信状況を確認してもう一度お試しください','error');
+    return false;
+  }
 }
 async function _delEq(id){
   try{await db.collection('equipments').doc(String(id)).delete();}
@@ -2160,6 +2206,14 @@ async function _saveMd(){
   });}
   catch(e){console.error(e);}
 }
+
+/* ════ ONLINE / OFFLINE 検知 ════ */
+window.addEventListener('offline',()=>{
+  showToast('📴 通信が切断されました。データ保存はできません','error');
+});
+window.addEventListener('online',()=>{
+  showToast('📶 通信が復帰しました','success');
+});
 
 /* ════ INIT ════ */
 rebuildCompanySelect();
