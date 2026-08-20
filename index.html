@@ -236,6 +236,9 @@ optgroup{font-weight:700}
 .login-loading.show{display:block}
 .btn-logout{background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.4);color:#fff;padding:3px 10px;border-radius:10px;font-size:11px;cursor:pointer;font-family:inherit}
 .btn-logout:hover{background:rgba(255,255,255,.35)}
+.btn-drive{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.4);color:#fff;padding:3px 10px;border-radius:10px;font-size:11px;cursor:pointer;font-family:inherit;transition:background .2s}
+.btn-drive:hover{background:rgba(255,255,255,.3)}
+.btn-drive.connected{background:rgba(134,239,172,.3);border-color:rgba(134,239,172,.6)}
 .header-user{font-size:11px;opacity:.85;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 </style>
 </head>
@@ -246,6 +249,7 @@ optgroup{font-weight:700}
   <div class="cloud-status" id="cloudStatus" style="display:none;gap:8px">
     <div class="cloud-dot"></div>
     <span class="header-user" id="loginUserEmail"></span>
+    <button class="btn-drive" id="btnDrive" onclick="connectDrive()" title="Google Driveに接続">📁 Drive未接続</button>
     <button class="btn-logout" onclick="doLogout()">ログアウト</button>
   </div>
 </div>
@@ -2014,28 +2018,54 @@ const _folderCache={};
 
 function _initDriveClient(){
   if(typeof google==='undefined'||!google.accounts)return;
+  if(_driveTokenClient)return; // 既に初期化済み
   _driveTokenClient=google.accounts.oauth2.initTokenClient({
-    client_id:GDRIVE_CLIENT_ID,scope:GDRIVE_SCOPE,callback:()=>{}
+    client_id:GDRIVE_CLIENT_ID,
+    scope:GDRIVE_SCOPE,
+    callback:resp=>{
+      if(resp.error){console.error('Drive auth error:',resp.error);return;}
+      _driveToken=resp.access_token;
+      _driveTokenExpiry=Date.now()+(resp.expires_in*1000);
+      const btn=document.getElementById('btnDrive');
+      if(btn){btn.textContent='📁 Drive接続済';btn.classList.add('connected');}
+      showToast('✅ Google Driveに接続しました','success');
+    },
+    error_callback:err=>{
+      console.error('Drive error_callback:',err);
+      showToast('⚠ Drive接続エラー: '+JSON.stringify(err),'error');
+    }
   });
 }
 // GISライブラリ読み込み後に初期化
 (function waitGIS(){
   if(typeof google!=='undefined'&&google.accounts){_initDriveClient();}
-  else{setTimeout(waitGIS,300);}
+  else{setTimeout(waitGIS,500);}
 })();
+
+// ヘッダーボタンから明示的に接続
+function connectDrive(){
+  if(_driveToken&&Date.now()<_driveTokenExpiry-60000){
+    showToast('✅ すでにDriveに接続済みです','success');return;
+  }
+  if(!_driveTokenClient){
+    if(typeof google!=='undefined'&&google.accounts){_initDriveClient();}
+    else{showToast('⚠ Google認証ライブラリが読み込まれていません。ページを再読み込みしてください','error');return;}
+  }
+  _driveTokenClient.requestAccessToken({prompt:'consent'});
+}
 
 async function _getDriveToken(){
   if(_driveToken&&Date.now()<_driveTokenExpiry-60000)return _driveToken;
   if(!_driveTokenClient){
     if(typeof google!=='undefined'&&google.accounts)_initDriveClient();
-    else throw new Error('Google認証ライブラリが読み込まれていません');
+    else throw new Error('Google認証ライブラリ未読み込み');
   }
   return new Promise((resolve,reject)=>{
+    const origCb=_driveTokenClient.callback;
     _driveTokenClient.callback=resp=>{
+      origCb&&origCb(resp);
       if(resp.error){reject(new Error(resp.error));return;}
-      _driveToken=resp.access_token;
-      _driveTokenExpiry=Date.now()+(resp.expires_in*1000);
-      resolve(_driveToken);
+      resolve(resp.access_token);
     };
     _driveTokenClient.requestAccessToken({prompt:''});
   });
