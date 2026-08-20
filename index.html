@@ -781,6 +781,7 @@ optgroup{font-weight:700}
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://accounts.google.com/gsi/client" async></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 /* ════ CONSTANTS ════ */
@@ -1151,26 +1152,24 @@ function renderDetail(){
 
 /* ════ DETAIL PHOTOS ════ */
 function triggerDetailPhoto(key){document.getElementById(`fi_detail_${key}`).click();}
-function handleDetailPhoto(e,key){
+async function handleDetailPhoto(e,key){
   const file=e.target.files[0];if(!file)return;
-  const reader=new FileReader();
-  reader.onload=(ev)=>{
-    currentEq.photos[key]=ev.target.result;
-    _saveEq(currentEq);
-    renderDetail();showToast(`✅ ${key}写真を追加しました`,'success');
-  };
-  reader.readAsDataURL(file);e.target.value='';
+  e.target.value='';
+  showToast('📤 Google Driveにアップロード中...','info');
+  const url=await _uploadWithFallback(file,currentEq);
+  currentEq.photos[key]=url;
+  await _saveEq(currentEq);
+  renderDetail();showToast(`✅ ${key}写真を追加しました`,'success');
 }
 function triggerDetailExtraPhoto(){document.getElementById('fi_detail_extra').click();}
-function handleDetailExtraPhoto(e){
+async function handleDetailExtraPhoto(e){
   const file=e.target.files[0];if(!file)return;
-  const reader=new FileReader();
-  reader.onload=(ev)=>{
-    currentEq.photos.extra.push({name:file.name,data:ev.target.result});
-    _saveEq(currentEq);
-    renderDetail();showToast('✅ 写真を追加しました','success');
-  };
-  reader.readAsDataURL(file);e.target.value='';
+  e.target.value='';
+  showToast('📤 Google Driveにアップロード中...','info');
+  const url=await _uploadWithFallback(file,currentEq);
+  currentEq.photos.extra.push({name:file.name,data:url});
+  await _saveEq(currentEq);
+  renderDetail();showToast('✅ 写真を追加しました','success');
 }
 function deleteExtraPhoto(i,e){
   e.stopPropagation();currentEq.photos.extra.splice(i,1);
@@ -1181,15 +1180,15 @@ function deleteExtraPhoto(i,e){
 /* ════ MODAL PHOTOS ════ */
 function triggerModalPhoto(key){document.getElementById(`fi_modal_${key}`).click();}
 function triggerModalExtraPhoto(){document.getElementById('fi_modal_extra').click();}
-function handleModalExtraPhoto(e){
+async function handleModalExtraPhoto(e){
   const file=e.target.files[0];if(!file)return;
-  const reader=new FileReader();
-  reader.onload=(ev)=>{
-    modalPhotos.extra.push({name:file.name,data:ev.target.result});
-    renderModalExtraGrid();
-    showToast('✅ 写真を追加しました','success');
-  };
-  reader.readAsDataURL(file);e.target.value='';
+  e.target.value='';
+  showToast('📤 Google Driveにアップロード中...','info');
+  const refEq=currentEq||{id:nextId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||''};
+  const url=await _uploadWithFallback(file,refEq);
+  modalPhotos.extra.push({name:file.name,data:url});
+  renderModalExtraGrid();
+  showToast('✅ 写真を追加しました','success');
 }
 function deleteModalExtraPhoto(i){
   modalPhotos.extra.splice(i,1);renderModalExtraGrid();
@@ -1212,16 +1211,26 @@ function openModalExtraLightbox(i){
   document.getElementById('lightboxLabel').textContent=p.name;
   document.getElementById('lightbox').classList.add('show');
 }
-function handleModalPhoto(e,key){
+async function handleModalPhoto(e,key){
   const file=e.target.files[0];if(!file)return;
-  const reader=new FileReader();
-  reader.onload=(ev)=>{
-    modalPhotos[key]=ev.target.result;
+  e.target.value='';
+  // 銘板はOCR用にbase64必須、それ以外はDrive
+  if(key==='銘板'){
+    const reader=new FileReader();
+    reader.onload=(ev)=>{
+      modalPhotos[key]=ev.target.result;
+      updateModalPhotoSlot(key);
+      runOCR();
+    };
+    reader.readAsDataURL(file);
+  }else{
+    showToast('📤 Google Driveにアップロード中...','info');
+    const refEq=currentEq||{id:nextId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||''};
+    const url=await _uploadWithFallback(file,refEq);
+    modalPhotos[key]=url;
     updateModalPhotoSlot(key);
-    if(key==='銘板'){runOCR();}
-    else{showToast('✅ 全体写真を追加しました','success');}
-  };
-  reader.readAsDataURL(file);e.target.value='';
+    showToast('✅ 全体写真を追加しました','success');
+  }
 }
 function updateModalPhotoSlot(key){
   const slot=document.getElementById(`modal_slot_${key}`);
@@ -1995,6 +2004,113 @@ function _initFirestore(){
       else closeDetail();
     }
   },err=>console.error('equipments snapshot error:',err));
+}
+
+/* ════ GOOGLE DRIVE ════ */
+const GDRIVE_CLIENT_ID='22968334682-471ud2u2kdkkap917m24hd8jga0vcmoh.apps.googleusercontent.com';
+const GDRIVE_SCOPE='https://www.googleapis.com/auth/drive.file';
+let _driveToken=null,_driveTokenExpiry=0,_driveTokenClient=null;
+const _folderCache={};
+
+function _initDriveClient(){
+  if(typeof google==='undefined'||!google.accounts)return;
+  _driveTokenClient=google.accounts.oauth2.initTokenClient({
+    client_id:GDRIVE_CLIENT_ID,scope:GDRIVE_SCOPE,callback:()=>{}
+  });
+}
+// GISライブラリ読み込み後に初期化
+(function waitGIS(){
+  if(typeof google!=='undefined'&&google.accounts){_initDriveClient();}
+  else{setTimeout(waitGIS,300);}
+})();
+
+async function _getDriveToken(){
+  if(_driveToken&&Date.now()<_driveTokenExpiry-60000)return _driveToken;
+  if(!_driveTokenClient){
+    if(typeof google!=='undefined'&&google.accounts)_initDriveClient();
+    else throw new Error('Google認証ライブラリが読み込まれていません');
+  }
+  return new Promise((resolve,reject)=>{
+    _driveTokenClient.callback=resp=>{
+      if(resp.error){reject(new Error(resp.error));return;}
+      _driveToken=resp.access_token;
+      _driveTokenExpiry=Date.now()+(resp.expires_in*1000);
+      resolve(_driveToken);
+    };
+    _driveTokenClient.requestAccessToken({prompt:''});
+  });
+}
+
+async function _driveGet(path,params={}){
+  const token=await _getDriveToken();
+  const qs=new URLSearchParams(params).toString();
+  const r=await fetch(`https://www.googleapis.com/drive/v3${path}${qs?'?'+qs:''}`,{
+    headers:{'Authorization':`Bearer ${token}`}
+  });
+  return r.json();
+}
+
+async function _findOrCreateFolder(name,parentId){
+  const key=`${parentId}::${name}`;
+  if(_folderCache[key])return _folderCache[key];
+  const safeName=name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const q=`name='${safeName}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`;
+  const resp=await _driveGet('/files',{q,fields:'files(id)',pageSize:1});
+  if(resp.files&&resp.files.length>0){
+    _folderCache[key]=resp.files[0].id;return resp.files[0].id;
+  }
+  const token=await _getDriveToken();
+  const r=await fetch('https://www.googleapis.com/drive/v3/files',{
+    method:'POST',
+    headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
+    body:JSON.stringify({name,mimeType:'application/vnd.google-apps.folder',parents:[parentId]})
+  });
+  const created=await r.json();
+  _folderCache[key]=created.id;return created.id;
+}
+
+async function _uploadToDrive(file,eq){
+  const token=await _getDriveToken();
+  const company=getCompany(eq.companyId);
+  const store=getStore(eq.companyId,eq.storeId);
+  const companyName=company?company.name:'未分類';
+  const storeName=store?store.name:'未分類';
+  const eqFolderName=`${String(eq.id).padStart(4,'0')}_${eq.name}`;
+  // フォルダ構造を作成
+  const rootId=await _findOrCreateFolder('設備機器管理','root');
+  const companyFId=await _findOrCreateFolder(companyName,rootId);
+  const storeFId=await _findOrCreateFolder(storeName,companyFId);
+  const eqFId=await _findOrCreateFolder(eqFolderName,storeFId);
+  // ファイルをアップロード
+  const metadata=JSON.stringify({name:file.name,parents:[eqFId]});
+  const form=new FormData();
+  form.append('metadata',new Blob([metadata],{type:'application/json'}));
+  form.append('file',file);
+  const uploadResp=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',{
+    method:'POST',headers:{'Authorization':`Bearer ${token}`},body:form
+  });
+  const uploaded=await uploadResp.json();
+  if(!uploaded.id)throw new Error('Upload failed:'+JSON.stringify(uploaded));
+  // 公開設定（URLで閲覧可能）
+  await fetch(`https://www.googleapis.com/drive/v3/files/${uploaded.id}/permissions`,{
+    method:'POST',
+    headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
+    body:JSON.stringify({role:'reader',type:'anyone'})
+  });
+  return `https://drive.google.com/thumbnail?id=${uploaded.id}&sz=w800`;
+}
+
+async function _uploadWithFallback(file,eq){
+  try{
+    return await _uploadToDrive(file,eq);
+  }catch(err){
+    console.warn('Drive upload failed, using base64:',err);
+    return new Promise(resolve=>{
+      const reader=new FileReader();
+      reader.onload=ev=>resolve(ev.target.result);
+      reader.readAsDataURL(file);
+    });
+  }
 }
 
 /* ── Firestore 書き込みヘルパー ── */
