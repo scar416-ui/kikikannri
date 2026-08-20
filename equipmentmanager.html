@@ -1,0 +1,2270 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>設備機器管理システム</title>
+<style>
+:root{
+  --primary:#c0282a;--primary-dark:#9b1c1e;--primary-mid:#e03335;
+  --primary-light:#fff0f0;--primary-border:#fecaca;
+  --ok:#16a34a;--ok-bg:#dcfce7;--ok-border:#bbf7d0;
+  --caution:#d97706;--caution-bg:#fef3c7;--caution-border:#fde68a;
+  --parts:#7c3aed;--parts-bg:#ede9fe;--parts-border:#ddd6fe;
+  --danger:#c0282a;--danger-bg:#fee2e2;--danger-border:#fecaca;
+  --gray-50:#f9fafb;--gray-100:#f3f4f6;--gray-200:#e5e7eb;--gray-300:#d1d5db;
+  --gray-400:#9ca3af;--gray-500:#6b7280;--gray-600:#4b5563;
+  --gray-700:#374151;--gray-800:#1f2937;--gray-900:#111827;
+  --radius:8px;
+  --shadow:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+  --shadow-md:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI','Hiragino Sans',sans-serif;background:var(--gray-100);color:var(--gray-800);min-height:100vh}
+
+/* ── HEADER ── */
+.header{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 60%,var(--primary-mid) 100%);color:#fff;padding:0 20px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(192,40,42,.4)}
+.header-title{font-size:17px;font-weight:700;letter-spacing:.02em}
+.cloud-status{font-size:12px;background:rgba(255,255,255,.18);padding:4px 10px;border-radius:20px;display:flex;align-items:center;gap:5px;border:1px solid rgba(255,255,255,.25)}
+.cloud-dot{width:7px;height:7px;border-radius:50%;background:#86efac}
+
+/* ── LAYOUT ── */
+.app{display:flex;flex-direction:column;height:calc(100vh - 56px)}
+.filter-bar{background:#fff;padding:10px 16px;border-bottom:2px solid var(--primary-border);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.filter-label{font-size:12px;color:var(--primary);font-weight:700;white-space:nowrap}
+select{border:1px solid var(--gray-300);border-radius:6px;padding:6px 28px 6px 10px;font-size:13px;color:var(--gray-700);background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 8px center;-webkit-appearance:none;appearance:none;cursor:pointer}
+select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(192,40,42,.12)}
+.filter-arrow{color:var(--primary);font-size:16px;font-weight:700;flex-shrink:0}
+.filter-group{display:flex;align-items:center;gap:4px}
+.btn-filter-add{background:var(--primary);color:#fff;border:none;width:26px;height:26px;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;line-height:1}
+.btn-filter-add:hover{background:var(--primary-dark)}
+.main{flex:1;overflow:hidden;display:flex}
+
+/* ── LIST ── */
+.list-panel{width:100%;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;transition:width .3s}
+.list-panel.split{width:40%;min-width:300px;border-right:2px solid var(--primary-border)}
+.list-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.list-count{font-size:13px;color:var(--gray-500)}
+.btn-add{background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;box-shadow:0 2px 4px rgba(192,40,42,.3)}
+.btn-add:hover{background:var(--primary-dark)}
+
+.equipment-card{background:#fff;border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow);cursor:pointer;border:2px solid transparent;transition:border-color .15s,box-shadow .15s}
+.equipment-card:hover{border-color:var(--primary-border);box-shadow:var(--shadow-md)}
+.equipment-card.active{border-color:var(--primary);box-shadow:0 0 0 3px rgba(192,40,42,.1)}
+.card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.card-name{font-weight:600;font-size:14px;flex:1}
+.card-meta{margin-top:6px;font-size:12px;color:var(--gray-500);display:flex;gap:12px;flex-wrap:wrap}
+.card-location{margin-top:8px;display:flex;flex-wrap:wrap;gap:4px}
+.location-tag{display:inline-flex;align-items:center;gap:3px;background:var(--primary-light);color:var(--primary);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;border:1px solid var(--primary-border)}
+.card-elapsed{margin-top:6px;font-size:11px;color:var(--gray-400)}
+.elapsed-warn{color:var(--caution);font-weight:700}
+
+.badge{font-size:11px;font-weight:700;padding:3px 8px;border-radius:12px;white-space:nowrap;flex-shrink:0;border:1px solid transparent}
+.badge-ok{background:var(--ok-bg);color:var(--ok);border-color:var(--ok-border)}
+.badge-caution{background:var(--caution-bg);color:var(--caution);border-color:var(--caution-border)}
+.badge-parts{background:var(--parts-bg);color:var(--parts);border-color:var(--parts-border)}
+.badge-danger{background:var(--danger-bg);color:var(--danger);border-color:var(--danger-border)}
+
+/* ── DETAIL ── */
+.detail-panel{display:none;flex:1;overflow-y:auto;background:#fff}
+.detail-panel.visible{display:block}
+.detail-header{padding:14px 20px;border-bottom:2px solid var(--primary-border);display:flex;align-items:center;gap:12px;position:sticky;top:0;background:#fff;z-index:10}
+.btn-back{background:var(--primary-light);border:1px solid var(--primary-border);padding:6px 12px;border-radius:6px;font-size:13px;cursor:pointer;color:var(--primary);font-weight:600}
+.btn-back:hover{background:var(--primary-border)}
+.detail-title{font-size:17px;font-weight:700;flex:1}
+.btn-edit{background:var(--primary);color:#fff;border:none;padding:7px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 2px 4px rgba(192,40,42,.3)}
+.btn-delete-eq{background:#fff;border:1px solid var(--primary-border);color:var(--primary);padding:7px 10px;border-radius:6px;font-size:13px;cursor:pointer}
+.btn-delete-eq:hover{background:var(--primary);color:#fff}
+/* ── MANAGE LIST (in modals) ── */
+.manage-section{margin-bottom:18px}
+.manage-section-title{font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+.manage-list{display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;margin-bottom:4px}
+.manage-item{display:flex;align-items:center;gap:8px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:6px;padding:8px 10px}
+.manage-item-name{flex:1;font-size:13px;font-weight:600;color:var(--gray-800)}
+.manage-item-meta{font-size:11px;color:var(--gray-400);white-space:nowrap}
+.btn-del-item{background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:15px;padding:2px 5px;border-radius:4px;flex-shrink:0;line-height:1}
+.btn-del-item:hover{color:var(--primary);background:var(--primary-light)}
+.manage-empty{font-size:13px;color:var(--gray-400);text-align:center;padding:12px;background:var(--gray-50);border-radius:6px}
+.btn-edit:hover{background:var(--primary-dark)}
+.detail-body{padding:20px}
+
+.section{margin-bottom:24px}
+.section-title{font-size:12px;font-weight:700;color:var(--primary);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;padding-bottom:6px;border-bottom:2px solid var(--primary-border);display:flex;align-items:center;justify-content:space-between}
+.section-title-label{display:flex;align-items:center;gap:6px}
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.info-item-label{font-size:11px;color:var(--gray-400);font-weight:600;margin-bottom:3px;text-transform:uppercase}
+.info-item-value{font-size:14px;color:var(--gray-800);font-weight:500}
+.elapsed-badge{display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;border-radius:12px;margin-top:4px;border:1px solid}
+.elapsed-badge.normal{background:var(--primary-light);color:var(--primary);border-color:var(--primary-border)}
+.elapsed-badge.old{background:var(--caution-bg);color:var(--caution);border-color:var(--caution-border)}
+
+/* ── PHOTOS (shared) ── */
+.photo-section-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.photo-slot{border-radius:var(--radius);overflow:hidden;position:relative;aspect-ratio:4/3;background:var(--gray-100);border:2px dashed var(--gray-300);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:0;transition:border-color .2s,background .2s}
+.photo-slot:hover{border-color:var(--primary);background:var(--primary-light)}
+.photo-slot.drag-over{border-color:var(--primary);background:var(--primary-light);box-shadow:inset 0 0 0 2px var(--primary)}
+.photo-extra-grid.drag-over{outline:2px dashed var(--primary);outline-offset:4px;border-radius:var(--radius);background:var(--primary-light)}
+.photo-slot.has-photo{border:2px solid var(--gray-200);background:transparent}
+.photo-slot img{width:100%;height:100%;object-fit:cover;display:block}
+.photo-overlay{position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;gap:8px;opacity:0;transition:opacity .2s}
+.photo-slot.has-photo:hover .photo-overlay{opacity:1}
+.photo-overlay button{background:rgba(255,255,255,.9);border:none;padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600;color:var(--gray-800)}
+.photo-placeholder{text-align:center;padding:8px;pointer-events:none}
+.photo-placeholder-icon{font-size:26px;display:block;margin-bottom:4px}
+.photo-placeholder-label{font-size:12px;font-weight:700;color:var(--gray-700);display:block}
+.photo-placeholder-sub{font-size:11px;color:var(--gray-400);display:block;margin-top:2px}
+.ocr-auto-tag{display:inline-block;background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;border:1px solid #bfdbfe;margin-top:4px}
+.optional-tag{display:inline-block;background:var(--gray-100);color:var(--gray-500);font-size:10px;font-weight:600;padding:2px 6px;border-radius:10px;margin-top:3px}
+
+/* Extra photos */
+.photo-extra-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.photo-extra-item{aspect-ratio:4/3;border-radius:6px;overflow:hidden;position:relative;cursor:pointer;background:var(--gray-100)}
+.photo-extra-item img{width:100%;height:100%;object-fit:cover}
+.photo-extra-del{position:absolute;top:3px;right:3px;background:rgba(0,0,0,.55);color:#fff;border:none;width:20px;height:20px;border-radius:50%;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .2s}
+.photo-extra-item:hover .photo-extra-del{opacity:1}
+.btn-add-photo{background:var(--gray-50);border:2px dashed var(--gray-300);border-radius:6px;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;cursor:pointer;font-size:12px;color:var(--gray-500);font-weight:600;width:100%;transition:border-color .2s,color .2s;font-family:inherit}
+.btn-add-photo:hover{border-color:var(--primary);color:var(--primary)}
+
+/* ── MAINTENANCE HISTORY ── */
+.history-list{display:flex;flex-direction:column;gap:10px}
+.history-card{background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);padding:12px 14px}
+.history-card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px}
+.history-date{font-size:12px;font-weight:700;color:var(--primary);background:var(--primary-light);padding:2px 10px;border-radius:12px;border:1px solid var(--primary-border)}
+.history-nss{font-size:12px;color:var(--gray-500)}
+.history-content{font-size:13px;color:var(--gray-700);font-weight:600;line-height:1.5;margin-bottom:4px}
+.history-note{font-size:12px;color:var(--gray-500);line-height:1.5}
+.btn-del-history{background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:14px;padding:2px 4px;border-radius:4px;flex-shrink:0}
+.btn-del-history:hover{color:var(--primary);background:var(--primary-light)}
+.history-empty{text-align:center;padding:24px;color:var(--gray-400);font-size:13px}
+.btn-add-history{background:#fff;border:2px dashed var(--primary-border);color:var(--primary);padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px}
+.btn-add-history:hover{background:var(--primary-light)}
+
+/* ── MODALS ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;align-items:flex-end;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal{background:#fff;width:100%;max-width:600px;max-height:92vh;border-radius:16px 16px 0 0;overflow:hidden;display:flex;flex-direction:column;animation:slideUp .25s ease}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.modal-header{padding:16px 20px;border-bottom:2px solid var(--primary-border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0;background:var(--primary-light)}
+.modal-title{font-size:16px;font-weight:700;color:var(--primary)}
+.btn-close{background:#fff;border:1px solid var(--primary-border);width:32px;height:32px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--primary)}
+.btn-close:hover{background:var(--primary-border)}
+.modal-body{padding:20px;overflow-y:auto;flex:1}
+.modal-footer{padding:14px 20px;border-top:2px solid var(--primary-border);display:flex;gap:10px;justify-content:flex-end;flex-shrink:0;background:#fff}
+
+/* ── FORM ── */
+.form-group{margin-bottom:14px}
+.form-label{display:block;font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:5px}
+.form-label .required{color:var(--primary);margin-left:2px}
+.form-label .ocr-tag{background:#e0f2fe;color:#0369a1;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:6px;font-weight:600}
+.form-input{width:100%;border:1px solid var(--gray-300);border-radius:6px;padding:9px 12px;font-size:14px;color:var(--gray-800);transition:border-color .15s;background:#fff;font-family:inherit}
+.form-input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(192,40,42,.12)}
+.form-input.error{border-color:var(--primary);background:var(--primary-light)}
+textarea.form-input{resize:vertical;min-height:72px}
+.error-msg{font-size:11px;color:var(--primary);margin-top:4px;display:flex;align-items:center;gap:4px;font-weight:600}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form-divider{display:flex;align-items:center;gap:10px;margin:18px 0;font-size:12px;color:var(--primary);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.form-divider::before,.form-divider::after{content:'';flex:1;height:2px;background:var(--primary-border)}
+
+.btn-cancel{background:#fff;border:1px solid var(--gray-300);padding:9px 20px;border-radius:6px;font-size:14px;cursor:pointer;color:var(--gray-700);font-weight:500}
+.btn-cancel:hover{background:var(--gray-50)}
+.btn-save{background:var(--primary);color:#fff;border:none;padding:9px 24px;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:8px;box-shadow:0 2px 4px rgba(192,40,42,.3)}
+.btn-save:hover{background:var(--primary-dark)}
+
+/* OCR progress (in modal) */
+.ocr-progress{display:none;align-items:center;gap:12px;padding:12px 14px;background:var(--primary-light);border-radius:var(--radius);margin-bottom:14px;border:1px solid var(--primary-border)}
+.ocr-progress.show{display:flex}
+.spinner{width:18px;height:18px;border:2px solid var(--primary-border);border-top-color:var(--primary);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ocr-progress-text{font-size:13px;color:var(--primary);font-weight:600}
+
+/* Bay number input */
+.bay-num-wrap{display:flex;gap:8px;align-items:center}
+.bay-num-wrap input{width:80px;flex-shrink:0}
+.bay-num-label{font-size:14px;color:var(--gray-600);font-weight:500}
+
+/* ── MISC ── */
+.sync-banner{display:none;background:#fef3c7;color:#92400e;padding:7px 16px;font-size:12px;font-weight:600;align-items:center;gap:8px;border-bottom:1px solid #fde68a}
+.sync-banner.show{display:flex}
+#elapsedPreview{font-size:12px;margin-top:-8px;margin-bottom:12px;padding:6px 12px;background:var(--primary-light);border-radius:6px;border:1px solid var(--primary-border);display:none}
+.lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:500;align-items:center;justify-content:center;flex-direction:column;gap:12px}
+.lightbox.show{display:flex}
+.lightbox img{max-width:90vw;max-height:80vh;border-radius:8px;object-fit:contain}
+.lightbox-close{background:rgba(255,255,255,.15);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.lightbox-label{color:#fff;font-size:14px;font-weight:600}
+.confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:300;align-items:center;justify-content:center;padding:20px}
+.confirm-overlay.show{display:flex}
+.confirm-box{background:#fff;border-radius:12px;padding:24px;max-width:400px;width:100%;box-shadow:var(--shadow-md);border-top:4px solid var(--primary)}
+.confirm-title{font-size:16px;font-weight:700;margin-bottom:8px;color:var(--primary)}
+.confirm-msg{font-size:14px;color:var(--gray-600);line-height:1.6}
+.confirm-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
+.btn-danger{background:var(--primary);color:#fff;border:none;padding:9px 20px;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer}
+.btn-danger:hover{background:var(--primary-dark)}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--gray-900);color:#fff;padding:12px 20px;border-radius:8px;font-size:13px;font-weight:600;z-index:999;transition:transform .3s;white-space:nowrap;box-shadow:var(--shadow-md)}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.toast-success{background:#065f46}
+.toast-error{background:var(--primary)}
+.empty-state{text-align:center;padding:48px 24px;color:var(--gray-400)}
+.empty-icon{font-size:48px;margin-bottom:12px}
+optgroup{font-weight:700}
+/* ── EXPORT ── */
+.btn-export{background:#fff;border:2px solid var(--primary);color:var(--primary);padding:7px 13px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px}
+.btn-export:hover{background:var(--primary-light)}
+.scope-options{display:flex;gap:8px;margin-bottom:4px}
+.scope-option{flex:1}
+.scope-option input[type=radio]{display:none}
+.scope-option label{display:block;text-align:center;padding:9px 4px;border:2px solid var(--gray-200);border-radius:6px;font-size:13px;cursor:pointer;font-weight:600;color:var(--gray-500);transition:all .15s}
+.scope-option input[type=radio]:checked+label{border-color:var(--primary);color:var(--primary);background:var(--primary-light)}
+.export-preview{background:var(--gray-50);border:1px solid var(--gray-200);border-radius:6px;padding:10px 14px;font-size:12px;color:var(--gray-600);margin-top:4px;line-height:1.7}
+.export-preview strong{color:var(--gray-800)}
+@media(min-width:768px){.modal{border-radius:12px;max-height:88vh;margin:auto}.modal-overlay{align-items:center}}
+
+/* ── LOGIN SCREEN ── */
+.login-overlay{position:fixed;inset:0;background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 60%,#e55557 100%);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px}
+.login-overlay.hide{display:none}
+.login-box{background:#fff;border-radius:16px;padding:36px 32px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.login-logo{text-align:center;margin-bottom:28px}
+.login-logo-icon{font-size:44px;display:block;margin-bottom:8px}
+.login-logo-title{font-size:20px;font-weight:800;color:var(--primary);letter-spacing:.02em}
+.login-logo-sub{font-size:12px;color:var(--gray-500);margin-top:4px}
+.login-form-group{margin-bottom:16px}
+.login-label{display:block;font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:6px}
+.login-input{width:100%;border:1.5px solid var(--gray-300);border-radius:8px;padding:11px 14px;font-size:15px;color:var(--gray-800);outline:none;transition:border-color .15s;font-family:inherit}
+.login-input:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(192,40,42,.12)}
+.btn-login{width:100%;background:var(--primary);color:#fff;border:none;padding:13px;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin-top:4px;box-shadow:0 4px 12px rgba(192,40,42,.35);transition:background .15s;font-family:inherit}
+.btn-login:hover{background:var(--primary-dark)}
+.login-error{background:#fee2e2;color:var(--primary);border:1px solid var(--primary-border);border-radius:6px;padding:9px 12px;font-size:13px;margin-top:12px;display:none;font-weight:600}
+.login-error.show{display:block}
+.login-loading{display:none;text-align:center;padding:8px;color:var(--gray-500);font-size:13px}
+.login-loading.show{display:block}
+.btn-logout{background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.4);color:#fff;padding:3px 10px;border-radius:10px;font-size:11px;cursor:pointer;font-family:inherit}
+.btn-logout:hover{background:rgba(255,255,255,.35)}
+.btn-drive{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.4);color:#fff;padding:3px 10px;border-radius:10px;font-size:11px;cursor:pointer;font-family:inherit;transition:background .2s}
+.btn-drive:hover{background:rgba(255,255,255,.3)}
+.btn-drive.connected{background:rgba(134,239,172,.3);border-color:rgba(134,239,172,.6)}
+.header-user{font-size:11px;opacity:.85;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-title">🔧 設備機器管理システム</div>
+  <div class="cloud-status" id="cloudStatus" style="display:none;gap:8px">
+    <div class="cloud-dot"></div>
+    <span class="header-user" id="loginUserEmail"></span>
+    <button class="btn-drive" id="btnDrive" onclick="connectDrive()" title="Google Driveに接続">📁 Drive未接続</button>
+    <button class="btn-logout" onclick="doLogout()">ログアウト</button>
+  </div>
+</div>
+<div class="sync-banner" id="syncBanner"></div>
+
+<div class="app">
+  <!-- FILTER BAR: 地域 › 類別 › 販社[＋] › 店舗[＋] -->
+  <div class="filter-bar">
+    <span class="filter-label">▼ 絞り込み</span>
+
+    <div class="filter-group">
+      <select id="filterRegion" onchange="onFilterRegionChange()">
+        <option value="">地域 (全て)</option>
+        <optgroup label="東海4県">
+          <option value="愛知県">愛知県</option>
+          <option value="岐阜県">岐阜県</option>
+          <option value="三重県">三重県</option>
+          <option value="静岡県">静岡県</option>
+        </optgroup>
+        <optgroup label="北陸">
+          <option value="富山県">富山県</option>
+          <option value="石川県">石川県</option>
+          <option value="福井県">福井県</option>
+          <option value="新潟県">新潟県</option>
+        </optgroup>
+      </select>
+    </div>
+
+    <span class="filter-arrow">›</span>
+
+    <div class="filter-group">
+      <select id="filterCategory" onchange="onFilterCategoryChange()">
+        <option value="">類別 (全て)</option>
+        <option value="販設">販設</option>
+        <option value="再販">再販</option>
+        <option value="直販">直販</option>
+      </select>
+    </div>
+
+    <span class="filter-arrow">›</span>
+
+    <div class="filter-group">
+      <select id="filterCompany" onchange="onFilterCompanyChange()">
+        <option value="">販社 (全て)</option>
+      </select>
+      <button class="btn-filter-add" onclick="openAddCompanyModal()" title="販社を追加">＋</button>
+    </div>
+
+    <span class="filter-arrow">›</span>
+
+    <div class="filter-group">
+      <select id="filterStore" onchange="onFilterStoreChange()">
+        <option value="">店舗 (全て)</option>
+      </select>
+      <button class="btn-filter-add" onclick="openAddStoreModal()" title="店舗を追加">＋</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <!-- LIST -->
+    <div class="list-panel" id="listPanel">
+      <div class="list-header">
+        <span class="list-count" id="listCount">読み込み中...</span>
+        <div style="display:flex;gap:8px">
+          <button class="btn-export" onclick="openExportModal()">📥 Excel出力</button>
+          <button class="btn-add" onclick="openAddModal()">＋ 機器追加</button>
+        </div>
+      </div>
+      <div id="equipmentList"></div>
+    </div>
+
+    <!-- DETAIL -->
+    <div class="detail-panel" id="detailPanel">
+      <div class="detail-header">
+        <button class="btn-back" onclick="closeDetail()">← 一覧</button>
+        <div class="detail-title" id="detailTitle"></div>
+        <button class="btn-delete-eq" onclick="confirmDeleteEquipment()" title="機器を削除">🗑</button>
+        <button class="btn-edit" onclick="openEditModal()">編集</button>
+      </div>
+      <div class="detail-body" id="detailBody"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ 機器追加/編集モーダル ════ -->
+<div class="modal-overlay" id="modalOverlay" onclick="handleOverlayClick(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modalTitle">機器を追加</div>
+      <button class="btn-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- ── 写真セクション（モーダル内） ── -->
+      <div class="form-divider">📷 写真</div>
+      <div class="photo-section-grid" style="margin-bottom:10px">
+        <div class="photo-slot" id="modal_slot_全体" onclick="triggerModalPhoto('全体')">
+          <div class="photo-placeholder" id="modal_ph_全体">
+            <span class="photo-placeholder-icon">📷</span>
+            <span class="photo-placeholder-label">全体写真</span>
+            <span class="optional-tag">任意</span>
+            <span class="photo-placeholder-sub">タップ/ドラッグで追加</span>
+          </div>
+        </div>
+        <div class="photo-slot" id="modal_slot_銘板" onclick="triggerModalPhoto('銘板')">
+          <div class="photo-placeholder" id="modal_ph_銘板">
+            <span class="photo-placeholder-icon">🏷️</span>
+            <span class="photo-placeholder-label">銘板写真</span>
+            <span class="ocr-auto-tag">📖 OCR 自動読取</span>
+            <span class="photo-placeholder-sub">撮影で情報を自動入力</span>
+          </div>
+        </div>
+      </div>
+      <div class="ocr-progress" id="ocrProgress">
+        <div class="spinner"></div>
+        <div class="ocr-progress-text">銘板を解析中… メーカー・型式・製造番号を読み取っています</div>
+      </div>
+      <!-- 追加写真 -->
+      <div style="font-size:12px;font-weight:700;color:var(--gray-500);margin-bottom:6px">追加写真</div>
+      <div class="photo-extra-grid" id="modalExtraGrid">
+        <button class="btn-add-photo" onclick="triggerModalExtraPhoto()">
+          <span style="font-size:20px">＋</span><span>写真を追加</span>
+        </button>
+      </div>
+
+      <!-- ── 機器情報 ── -->
+      <div class="form-divider">機器情報</div>
+
+      <div class="form-group">
+        <label class="form-label">機器名称 <span class="required">*</span></label>
+        <select class="form-input" id="f_name">
+          <option value="">選択してください</option>
+          <optgroup label="リフト">
+            <option>パンタリフト</option><option>ドライブオンリフト</option>
+            <option>４柱リフト</option><option>門型リフト</option><option>２柱リフト</option>
+          </optgroup>
+          <optgroup label="車検機器">
+            <option>サイドスリップテスター</option><option>コンビテスター</option>
+            <option>ヘッドライトテスター</option><option>排気ガステスター</option>
+            <option>オパシメーター</option><option>音量計</option>
+          </optgroup>
+          <optgroup label="コンプレッサー">
+            <option>レシプロ式コンプレッサー</option><option>パッケージコンプレッサー</option>
+            <option>パッケージコンプレッサー（DR付）</option><option>ドライヤー</option><option>ドレントラップ</option>
+          </optgroup>
+          <optgroup label="洗車機器">
+            <option>スチーム洗車機</option><option>門型洗車機</option><option>下部洗浄機</option>
+          </optgroup>
+          <optgroup label="その他">
+            <option>油圧プレス</option><option>ATFチェンジャー</option><option>オイルドレン</option>
+            <option>真空ポンプ</option><option>充電器</option><option>その他機器</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">ステータス <span class="required">*</span></label>
+        <select class="form-input" id="f_status">
+          <option value="ok">問題なし</option>
+          <option value="caution">注意（代替検討）</option>
+          <option value="parts">部品供給終了（代替提案）</option>
+          <option value="danger">危険（要代替）</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">メーカー名 <span class="required">*</span><span class="ocr-tag">OCR</span></label>
+          <select class="form-input" id="f_maker">
+            <option>アルティア</option><option>イヤサカ</option><option>バンザイ</option>
+            <option>安全自動車</option><option>スギヤス</option>
+          </select>
+          <div class="error-msg" id="err_maker" style="display:none">⚠ 読み取り失敗 — 手動で選択</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">型式 <span class="required">*</span><span class="ocr-tag">OCR</span></label>
+          <input type="text" class="form-input" id="f_model" placeholder="例：HLC-3500A">
+          <div class="error-msg" id="err_model" style="display:none">⚠ 読み取り失敗 — 手動入力</div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">製造番号 <span class="required">*</span><span class="ocr-tag">OCR</span></label>
+        <input type="text" class="form-input" id="f_serial" placeholder="例：SN-2024-0831-001">
+        <div class="error-msg" id="err_serial" style="display:none">⚠ 読み取り失敗 — 手動入力</div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">導入年月</label>
+          <input type="month" class="form-input" id="f_date" onchange="updateElapsedPreview()">
+        </div>
+        <div class="form-group">
+          <label class="form-label">製造年月<span class="ocr-tag">OCR</span></label>
+          <input type="month" class="form-input" id="f_nextcheck">
+        </div>
+      </div>
+      <div id="elapsedPreview"></div>
+
+      <!-- ── 設置場所 ── -->
+      <div class="form-divider">設置場所</div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">販社 <span class="required">*</span></label>
+          <select class="form-input" id="f_company" onchange="onFormCompanyChange()">
+            <option value="">選択してください</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">店舗 <span class="required">*</span></label>
+          <select class="form-input" id="f_store">
+            <option value="">販社を先に選択</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- ベイ種別 + 番号 -->
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">ベイ種別 <span class="required">*</span></label>
+          <select class="form-input" id="f_bay_type" onchange="onBayTypeChange()">
+            <option value="">選択してください</option>
+            <option value="整備ベイ">整備ベイ</option>
+            <option value="車検ライン">車検ライン</option>
+            <option value="洗車ベイ">洗車ベイ</option>
+            <option value="板金ベイ">板金ベイ</option>
+          </select>
+        </div>
+        <div class="form-group" id="f_bay_num_group" style="display:none">
+          <label class="form-label">ベイ番号 <span class="required">*</span></label>
+          <div class="bay-num-wrap">
+            <input type="number" class="form-input" id="f_bay_num" min="1" max="99" placeholder="例：3">
+            <span class="bay-num-label">番</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">備考</label>
+        <input type="text" class="form-input" id="f_note" placeholder="任意メモ">
+      </div>
+
+      <!-- 廃棄セクション（編集時のみ） -->
+      <div id="retireSection" style="display:none">
+        <div class="form-divider">入替・廃棄</div>
+        <div style="background:var(--primary-light);border:1px solid var(--primary-border);border-radius:8px;padding:14px">
+          <div style="font-size:13px;color:var(--primary);font-weight:700;margin-bottom:6px">⚠ この機器を廃棄・入替する</div>
+          <div style="font-size:12px;color:var(--gray-600);margin-bottom:10px">現在の情報は保守履歴として保存されます。</div>
+          <button type="button" onclick="confirmRetire()" style="background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600">廃棄・入替として記録する</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal()">キャンセル</button>
+      <button class="btn-save" onclick="saveEquipment(event)">💾 保存する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ 保守履歴追加モーダル ════ -->
+<div class="modal-overlay" id="historyModalOverlay" onclick="handleHistoryOverlayClick(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">🔧 保守履歴を追加</div>
+      <button class="btn-close" onclick="closeHistoryModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">修理内容 <span class="required">*</span></label>
+        <textarea class="form-input" id="h_content" placeholder="実施した修理・メンテナンスの内容"></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">対応NSS <span class="required">*</span></label>
+          <input type="text" class="form-input" id="h_nss" placeholder="担当者名・会社名">
+        </div>
+        <div class="form-group">
+          <label class="form-label">修理年月日 <span class="required">*</span></label>
+          <input type="date" class="form-input" id="h_date">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">備考</label>
+        <textarea class="form-input" id="h_note" placeholder="部品番号・費用・特記事項など" style="min-height:56px"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeHistoryModal()">キャンセル</button>
+      <button class="btn-save" onclick="saveHistory()">💾 追加する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ 販社管理モーダル ════ -->
+<div class="modal-overlay" id="addCompanyOverlay" onclick="handleAddCompanyOverlayClick(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">🏢 販社を管理・追加</div>
+      <button class="btn-close" onclick="closeAddCompanyModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="manage-section">
+        <div class="manage-section-title">登録済み販社</div>
+        <div class="manage-list" id="companyManageList"></div>
+      </div>
+      <div class="form-divider">＋ 新規追加</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">地域 <span class="required">*</span></label>
+          <select class="form-input" id="ac_region">
+            <option value="">選択してください</option>
+            <optgroup label="東海4県">
+              <option value="愛知県">愛知県</option>
+              <option value="岐阜県">岐阜県</option>
+              <option value="三重県">三重県</option>
+              <option value="静岡県">静岡県</option>
+            </optgroup>
+            <optgroup label="北陸">
+              <option value="富山県">富山県</option>
+              <option value="石川県">石川県</option>
+              <option value="福井県">福井県</option>
+              <option value="新潟県">新潟県</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">類別 <span class="required">*</span></label>
+          <select class="form-input" id="ac_category">
+            <option value="">選択してください</option>
+            <option value="販設">販設</option>
+            <option value="再販">再販</option>
+            <option value="直販">直販</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">販社名 <span class="required">*</span></label>
+        <input type="text" class="form-input" id="ac_name" placeholder="例：岐阜日産">
+      </div>
+      <div class="form-group">
+        <label class="form-label">識別コード <span class="required">*</span></label>
+        <input type="text" class="form-input" id="ac_code" placeholder="例：3501A8">
+        <div style="font-size:11px;color:var(--gray-400);margin-top:4px">表示形式：販社名（識別コード）</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeAddCompanyModal()">キャンセル</button>
+      <button class="btn-save" onclick="saveCompany()">💾 追加する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ 店舗管理モーダル ════ -->
+<div class="modal-overlay" id="addStoreOverlay" onclick="handleAddStoreOverlayClick(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">🏬 店舗を管理・追加</div>
+      <button class="btn-close" onclick="closeAddStoreModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="manage-section">
+        <div class="manage-section-title">登録済み店舗</div>
+        <div class="manage-list" id="storeManageList"></div>
+      </div>
+      <div class="form-divider">＋ 新規追加</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">地域</label>
+          <select class="form-input" id="as_region" onchange="onAddStoreRegionChange()">
+            <option value="">全て</option>
+            <optgroup label="東海4県">
+              <option value="愛知県">愛知県</option>
+              <option value="岐阜県">岐阜県</option>
+              <option value="三重県">三重県</option>
+              <option value="静岡県">静岡県</option>
+            </optgroup>
+            <optgroup label="北陸">
+              <option value="富山県">富山県</option>
+              <option value="石川県">石川県</option>
+              <option value="福井県">福井県</option>
+              <option value="新潟県">新潟県</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">類別</label>
+          <select class="form-input" id="as_category" onchange="onAddStoreRegionChange()">
+            <option value="">全て</option>
+            <option value="販設">販設</option>
+            <option value="再販">再販</option>
+            <option value="直販">直販</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">対象販社 <span class="required">*</span></label>
+        <select class="form-input" id="as_company">
+          <option value="">選択してください</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">店舗名 <span class="required">*</span></label>
+        <input type="text" class="form-input" id="as_name" placeholder="例：岐阜店">
+      </div>
+      <div class="form-group">
+        <label class="form-label">識別コード <span class="required">*</span></label>
+        <input type="text" class="form-input" id="as_code" placeholder="例：GF01">
+        <div style="font-size:11px;color:var(--gray-400);margin-top:4px">表示形式：店舗名（識別コード）</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeAddStoreModal()">キャンセル</button>
+      <button class="btn-save" onclick="saveStore()">💾 追加する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ Excel出力モーダル ════ -->
+<div class="modal-overlay" id="exportOverlay" onclick="handleExportOverlayClick(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">📥 Excel出力</div>
+      <button class="btn-close" onclick="closeExportModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">出力単位</label>
+        <div class="scope-options">
+          <div class="scope-option">
+            <input type="radio" name="exportScope" id="sc_all" value="all" onchange="onExportScopeChange()" checked>
+            <label for="sc_all">🗂 全機器</label>
+          </div>
+          <div class="scope-option">
+            <input type="radio" name="exportScope" id="sc_company" value="company" onchange="onExportScopeChange()">
+            <label for="sc_company">🏢 販社別</label>
+          </div>
+          <div class="scope-option">
+            <input type="radio" name="exportScope" id="sc_store" value="store" onchange="onExportScopeChange()">
+            <label for="sc_store">🏬 店舗別</label>
+          </div>
+        </div>
+      </div>
+
+      <div id="ex_company_group" class="form-group" style="display:none">
+        <label class="form-label">販社</label>
+        <select class="form-input" id="ex_company" onchange="onExportCompanyChange()">
+          <option value="">選択してください</option>
+        </select>
+      </div>
+      <div id="ex_store_group" class="form-group" style="display:none">
+        <label class="form-label">店舗</label>
+        <select class="form-input" id="ex_store" onchange="updateExportPreview()">
+          <option value="">選択してください</option>
+        </select>
+      </div>
+
+      <div class="export-preview" id="exportPreview"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeExportModal()">キャンセル</button>
+      <button class="btn-save" onclick="runExport()">📥 Excelを出力する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ 廃棄確認 ════ -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-box">
+    <div class="confirm-title">⚠ 廃棄・入替を記録しますか？</div>
+    <div class="confirm-msg">この機器を「危険（要代替）」に変更します。<br>情報は<strong>保守履歴として保存</strong>されます。</div>
+    <div class="confirm-actions">
+      <button class="btn-cancel" onclick="closeConfirm()">キャンセル</button>
+      <button class="btn-danger" onclick="executeRetire()">廃棄・入替として記録</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ 汎用削除確認 ════ -->
+<div class="confirm-overlay" id="deleteConfirmOverlay">
+  <div class="confirm-box">
+    <div class="confirm-title" id="deleteConfirmTitle">⚠ 削除しますか？</div>
+    <div class="confirm-msg" id="deleteConfirmMsg"></div>
+    <div class="confirm-actions">
+      <button class="btn-cancel" onclick="closeDeleteConfirm()">キャンセル</button>
+      <button class="btn-danger" id="deleteConfirmBtn">削除する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ ライトボックス ════ -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <div style="display:flex;justify-content:flex-end;width:90vw">
+    <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+  </div>
+  <div class="lightbox-label" id="lightboxLabel"></div>
+  <img id="lightboxImg" src="" alt="拡大写真" onclick="event.stopPropagation()">
+</div>
+
+<!-- 非表示ファイル入力 (モーダル用) -->
+<input type="file" id="fi_modal_全体" accept="image/*" capture="environment" style="display:none" onchange="handleModalPhoto(event,'全体')">
+<input type="file" id="fi_modal_銘板" accept="image/*" capture="environment" style="display:none" onchange="handleModalPhoto(event,'銘板')">
+<input type="file" id="fi_modal_extra" accept="image/*" capture="environment" style="display:none" onchange="handleModalExtraPhoto(event)">
+<!-- 非表示ファイル入力 (詳細画面用) -->
+<input type="file" id="fi_detail_全体" accept="image/*" capture="environment" style="display:none" onchange="handleDetailPhoto(event,'全体')">
+<input type="file" id="fi_detail_銘板" accept="image/*" capture="environment" style="display:none" onchange="handleDetailPhoto(event,'銘板')">
+<input type="file" id="fi_detail_extra" accept="image/*" capture="environment" style="display:none" onchange="handleDetailExtraPhoto(event)">
+
+<div class="toast" id="toast"></div>
+
+<!-- ════ ログイン画面 ════ -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-box">
+    <div class="login-logo">
+      <span class="login-logo-icon">🔧</span>
+      <div class="login-logo-title">設備機器管理システム</div>
+      <div class="login-logo-sub">クラウド同期対応 — ログインしてください</div>
+    </div>
+    <div class="login-form-group">
+      <label class="login-label">メールアドレス</label>
+      <input type="email" class="login-input" id="login_email" placeholder="example@email.com" autocomplete="email">
+    </div>
+    <div class="login-form-group">
+      <label class="login-label">パスワード</label>
+      <input type="password" class="login-input" id="login_password" placeholder="パスワードを入力" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="btn-login" onclick="doLogin()">🔐 ログイン</button>
+    <div class="login-loading" id="loginLoading">⏳ 認証中...</div>
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://accounts.google.com/gsi/client" async></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+/* ════ CONSTANTS ════ */
+const STATUS_MAP={
+  ok:    {label:'問題なし',            cls:'badge-ok'},
+  caution:{label:'注意（代替検討）',    cls:'badge-caution'},
+  parts: {label:'部品供給終了（代替提案）',cls:'badge-parts'},
+  danger:{label:'危険（要代替）',       cls:'badge-danger'},
+};
+const MAKERS=['アルティア','イヤサカ','バンザイ','安全自動車','スギヤス'];
+
+/* ════ MASTER DATA ════ */
+let masterData = {
+  companies: [
+    { id:'c1', name:'東海オート販売', code:'TK0001', region:'愛知県', category:'販設',
+      stores:[{id:'s1',name:'名古屋本店',code:'NG01'},{id:'s2',name:'豊田店',code:'TY01'}] },
+    { id:'c2', name:'岐阜日産', code:'3501A8', region:'岐阜県', category:'販設',
+      stores:[{id:'s3',name:'岐阜店',code:'GF01'},{id:'s4',name:'大垣店',code:'OG01'}] },
+    { id:'c3', name:'三重モータース', code:'ME0001', region:'三重県', category:'再販',
+      stores:[{id:'s5',name:'津本店',code:'TS01'},{id:'s6',name:'四日市店',code:'YK01'}] },
+    { id:'c4', name:'静岡カーズ', code:'SZ0001', region:'静岡県', category:'直販',
+      stores:[{id:'s7',name:'静岡本店',code:'SZ01'},{id:'s8',name:'浜松店',code:'HM01'}] },
+    { id:'c5', name:'北陸オート', code:'HR0001', region:'富山県', category:'再販',
+      stores:[{id:'s9',name:'富山店',code:'TY01'},{id:'s10',name:'高岡店',code:'TK01'}] },
+  ],
+  _nextCompanyId: 6,
+  _nextStoreId: 11,
+};
+
+/* ════ MASTER DATA HELPERS ════ */
+function getCompany(id){ return masterData.companies.find(c=>c.id===id)||null; }
+function getStore(companyId, storeId){
+  const c=getCompany(companyId);
+  return c ? (c.stores.find(s=>s.id===storeId)||null) : null;
+}
+function companyLabel(c){ return c ? `${c.name}（${c.code}）` : '—'; }
+function storeLabel(s)  { return s ? `${s.name}（${s.code}）` : '—'; }
+
+/* ════ BAY HELPERS ════ */
+function parseBay(bay){
+  if(!bay)return{type:'',num:''};
+  const m=bay.match(/^整備ベイ\s+(\d+)番?$/);
+  if(m)return{type:'整備ベイ',num:m[1]};
+  return{type:bay,num:''};
+}
+function buildBay(){
+  const type=document.getElementById('f_bay_type').value;
+  if(!type)return'';
+  if(type==='整備ベイ'){
+    const n=document.getElementById('f_bay_num').value.trim();
+    return n?`整備ベイ ${n}番`:'';
+  }
+  return type;
+}
+function onBayTypeChange(){
+  const type=document.getElementById('f_bay_type').value;
+  const grp=document.getElementById('f_bay_num_group');
+  grp.style.display=type==='整備ベイ'?'block':'none';
+  if(type!=='整備ベイ')document.getElementById('f_bay_num').value='';
+}
+function setBayValue(bay){
+  const{type,num}=parseBay(bay);
+  document.getElementById('f_bay_type').value=type;
+  document.getElementById('f_bay_num_group').style.display=type==='整備ベイ'?'block':'none';
+  document.getElementById('f_bay_num').value=num;
+}
+
+/* ════ ELAPSED ════ */
+function calcElapsed(d){
+  if(!d)return null;
+  const[y,m]=d.split('-').map(Number);
+  const now=new Date();
+  const months=(now.getFullYear()-y)*12+(now.getMonth()+1-m);
+  if(months<0)return null;
+  const yr=Math.floor(months/12),mo=months%12;
+  if(yr===0)return mo+'ヶ月';
+  if(mo===0)return yr+'年';
+  return yr+'年 '+mo+'ヶ月';
+}
+function isOld(d){
+  if(!d)return false;
+  const[y,m]=d.split('-').map(Number);
+  const now=new Date();
+  return(now.getFullYear()-y)*12+(now.getMonth()+1-m)>=120;
+}
+
+/* ════ DATA ════ */
+let equipments=[
+  {id:1,name:'２柱リフト',maker:'アルティア',model:'HLC-3500A',serial:'SN-2021-0401-001',date:'2021-04',nextcheck:'2025-04',
+   companyId:'c1',storeId:'s1',bay:'整備ベイ 1番',status:'ok',note:'定期点検済み',
+   photos:{'全体':null,'銘板':null,extra:[]},
+   maintenance:[{content:'定期点検・オイル交換',nss:'アルティアサービス名古屋',date:'2023-04-15',note:'消耗品交換あり'}]},
+  {id:2,name:'コンビテスター',maker:'イヤサカ',model:'TW1001D',serial:'SN-2022-0615-003',date:'2022-06',nextcheck:'2024-06',
+   companyId:'c1',storeId:'s2',bay:'車検ライン',status:'caution',note:'点検期限超過注意',
+   photos:{'全体':null,'銘板':null,extra:[]},maintenance:[]},
+  {id:3,name:'排気ガステスター',maker:'安全自動車',model:'MEXA-584L',serial:'SN-2019-1201-002',date:'2019-12',nextcheck:'2023-12',
+   companyId:'c2',storeId:'s3',bay:'車検ライン',status:'parts',note:'後継機に入替済み',
+   photos:{'全体':null,'銘板':null,extra:[]},
+   maintenance:[
+     {content:'校正実施',nss:'安全自動車岐阜',date:'2021-12-10',note:''},
+     {content:'廃棄・後継機へ入替',nss:'安全自動車岐阜',date:'2023-11-01',note:'MEXA-584LX に交代'},
+   ]},
+  {id:4,name:'パンタリフト',maker:'バンザイ',model:'MODEL-2500',serial:'SN-2020-0301-004',date:'2020-03',nextcheck:'2025-03',
+   companyId:'c3',storeId:'s5',bay:'整備ベイ 2番',status:'ok',note:'',
+   photos:{'全体':null,'銘板':null,extra:[]},
+   maintenance:[
+     {content:'ワイヤー交換・定期点検',nss:'バンザイ三重',date:'2022-03-20',note:''},
+     {content:'定期点検',nss:'バンザイ三重',date:'2024-03-18',note:'異常なし'},
+   ]},
+  {id:5,name:'門型洗車機',maker:'スギヤス',model:'WM-500',serial:'SN-2023-0701-001',date:'2023-07',nextcheck:'2026-07',
+   companyId:'c4',storeId:'s7',bay:'洗車ベイ',status:'ok',note:'',
+   photos:{'全体':null,'銘板':null,extra:[]},maintenance:[]},
+  {id:6,name:'オイルドレン',maker:'アルティア',model:'OD-200',serial:'SN-2013-0501-001',date:'2013-05',nextcheck:'2025-05',
+   companyId:'c5',storeId:'s9',bay:'整備ベイ 3番',status:'danger',note:'10年以上経過・要交換',
+   photos:{'全体':null,'銘板':null,extra:[]},maintenance:[]},
+];
+let nextId=7;
+let currentEq=null;
+let isEditMode=false;
+let filters={region:'',category:'',companyId:'',storeId:''};
+let modalPhotos={'全体':null,'銘板':null,extra:[]};
+let pendingNewEqId=null; // 新規登録モーダルで確定させる仮ID（写真アップロード先と保存時で一致させる）
+function _genEquipmentId(){
+  // タイムスタンプ+ランダム値で端末間のID衝突を防止
+  return Date.now()*1000+Math.floor(Math.random()*1000);
+}
+
+/* ════ FILTER HELPERS ════ */
+function getFilteredCompanies(){
+  return masterData.companies.filter(c=>{
+    if(filters.region&&c.region!==filters.region)return false;
+    if(filters.category&&c.category!==filters.category)return false;
+    return true;
+  });
+}
+
+function rebuildCompanySelect(){
+  const sel=document.getElementById('filterCompany');
+  const prev=sel.value;
+  sel.innerHTML='<option value="">販社 (全て)</option>';
+  getFilteredCompanies().forEach(c=>{
+    const opt=document.createElement('option');
+    opt.value=c.id;opt.textContent=companyLabel(c);
+    sel.appendChild(opt);
+  });
+  // restore if still valid
+  if(prev&&getFilteredCompanies().find(c=>c.id===prev))sel.value=prev;
+  else{sel.value='';filters.companyId='';}
+}
+
+function rebuildStoreSelect(){
+  const sel=document.getElementById('filterStore');
+  sel.innerHTML='<option value="">店舗 (全て)</option>';
+  if(filters.companyId){
+    const c=getCompany(filters.companyId);
+    if(c)c.stores.forEach(s=>{
+      const opt=document.createElement('option');
+      opt.value=s.id;opt.textContent=storeLabel(s);
+      sel.appendChild(opt);
+    });
+  }
+  sel.value='';filters.storeId='';
+}
+
+/* ════ FILTER EVENTS ════ */
+function onFilterRegionChange(){
+  filters.region=document.getElementById('filterRegion').value;
+  filters.category=document.getElementById('filterCategory').value;
+  filters.companyId='';filters.storeId='';
+  rebuildCompanySelect();rebuildStoreSelect();
+  applyFilters();
+}
+function onFilterCategoryChange(){
+  filters.category=document.getElementById('filterCategory').value;
+  filters.region=document.getElementById('filterRegion').value;
+  filters.companyId='';filters.storeId='';
+  rebuildCompanySelect();rebuildStoreSelect();
+  applyFilters();
+}
+function onFilterCompanyChange(){
+  filters.companyId=document.getElementById('filterCompany').value;
+  rebuildStoreSelect();
+  applyFilters();
+}
+function onFilterStoreChange(){
+  filters.storeId=document.getElementById('filterStore').value;
+  applyFilters();
+}
+function applyFilters(){renderList();}
+
+function getFiltered(){
+  return equipments.filter(eq=>{
+    const c=getCompany(eq.companyId);
+    if(filters.region&&(!c||c.region!==filters.region))return false;
+    if(filters.category&&(!c||c.category!==filters.category))return false;
+    if(filters.companyId&&eq.companyId!==filters.companyId)return false;
+    if(filters.storeId&&eq.storeId!==filters.storeId)return false;
+    return true;
+  });
+}
+
+/* ════ RENDER LIST ════ */
+function renderList(){
+  const list=getFiltered();
+  document.getElementById('listCount').textContent=list.length+' 件';
+  const el=document.getElementById('equipmentList');
+  if(!list.length){
+    el.innerHTML='<div class="empty-state"><div class="empty-icon">🔍</div><div>該当する機器が見つかりません</div></div>';
+    return;
+  }
+  el.innerHTML=list.map(eq=>{
+    const s=STATUS_MAP[eq.status]||STATUS_MAP.ok;
+    const elapsed=calcElapsed(eq.date);
+    const old=isOld(eq.date);
+    const isAct=currentEq&&currentEq.id===eq.id;
+    const c=getCompany(eq.companyId);
+    const st=getStore(eq.companyId,eq.storeId);
+    return`<div class="equipment-card${isAct?' active':''}" onclick="showDetail(${eq.id})">
+      <div class="card-top"><div class="card-name">${eq.name}</div><span class="badge ${s.cls}">${s.label}</span></div>
+      <div class="card-meta"><span>🏭 ${eq.maker}</span><span>📋 ${eq.model}</span></div>
+      <div class="card-location">
+        ${c?`<span class="location-tag">🏢 ${companyLabel(c)}</span>`:''}
+        ${st?`<span class="location-tag">🏬 ${storeLabel(st)}</span>`:''}
+        ${eq.bay?`<span class="location-tag">🔧 ${eq.bay}</span>`:''}
+      </div>
+      ${elapsed?`<div class="card-elapsed">導入から <span class="${old?'elapsed-warn':''}">${elapsed}</span>${old?' ⚠':''}経過</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+/* ════ DETAIL ════ */
+function showDetail(id){
+  const eq=equipments.find(e=>e.id===id);
+  if(!eq)return;
+  currentEq=eq;
+  if(!eq.photos)eq.photos={'全体':null,'銘板':null,extra:[]};
+  if(!eq.maintenance)eq.maintenance=[];
+  document.getElementById('detailPanel').classList.add('visible');
+  document.getElementById('listPanel').classList.add('split');
+  document.getElementById('detailTitle').textContent=eq.name;
+  renderDetail();renderList();
+}
+function closeDetail(){
+  currentEq=null;
+  document.getElementById('detailPanel').classList.remove('visible');
+  document.getElementById('listPanel').classList.remove('split');
+  renderList();
+}
+
+function renderDetail(){
+  const eq=currentEq;if(!eq)return;
+  const s=STATUS_MAP[eq.status]||STATUS_MAP.ok;
+  const elapsed=calcElapsed(eq.date);
+  const old=isOld(eq.date);
+  const c=getCompany(eq.companyId);
+  const st=getStore(eq.companyId,eq.storeId);
+
+  function detailPhotoSlot(key,icon,ocr){
+    const hasP=!!eq.photos[key];
+    const id=`detail_slot_${key.replace(/\s/g,'_')}`;
+    return`<div class="photo-slot${hasP?' has-photo':''}" id="${id}" onclick="triggerDetailPhoto('${key}')">
+      ${hasP
+        ?`<img src="${eq.photos[key]}" alt="${key}" onclick="openLightbox('${key}',event)">
+          <div class="photo-overlay">
+            <button onclick="openLightbox('${key}',event)">🔍 拡大</button>
+            <button onclick="triggerDetailPhoto('${key}')">📷 変更</button>
+          </div>`
+        :`<div class="photo-placeholder">
+            <span class="photo-placeholder-icon">${icon}</span>
+            <span class="photo-placeholder-label">${key}写真</span>
+            ${ocr?'<span class="ocr-auto-tag">📖 OCR対応</span>':'<span class="optional-tag">任意</span>'}
+            <span class="photo-placeholder-sub">タップ/ドラッグで追加</span>
+          </div>`
+      }
+    </div>`;
+  }
+
+  const extraPhotos=(eq.photos.extra||[]).map((p,i)=>
+    `<div class="photo-extra-item" onclick="openLightboxExtra(${i})">
+      <img src="${p.data}" alt="${p.name}">
+      <button class="photo-extra-del" onclick="deleteExtraPhoto(${i},event)">✕</button>
+    </div>`).join('');
+
+  const maintenanceHTML=(eq.maintenance||[]).length===0
+    ?'<div class="history-empty">保守履歴はまだありません</div>'
+    :(eq.maintenance||[]).slice().reverse().map((h,ri)=>{
+        const i=(eq.maintenance.length-1-ri);
+        return`<div class="history-card">
+          <div class="history-card-top">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span class="history-date">📅 ${h.date}</span>
+              <span class="history-nss">👷 ${h.nss||'—'}</span>
+            </div>
+            <button class="btn-del-history" onclick="deleteHistory(${i})" title="削除">🗑</button>
+          </div>
+          <div class="history-content">${h.content}</div>
+          ${h.note?`<div class="history-note">📝 ${h.note}</div>`:''}
+        </div>`;}).join('');
+
+  document.getElementById('detailBody').innerHTML=`
+    <div class="section">
+      <div class="section-title"><span class="section-title-label">📊 ステータス</span></div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span class="badge ${s.cls}" style="font-size:13px;padding:4px 12px">${s.label}</span>
+        ${eq.note?`<span style="font-size:13px;color:var(--gray-500)">${eq.note}</span>`:''}
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><span class="section-title-label">🔩 機器情報</span></div>
+      <div class="info-grid">
+        <div class="info-item"><div class="info-item-label">メーカー名</div><div class="info-item-value">${eq.maker}</div></div>
+        <div class="info-item"><div class="info-item-label">型式</div><div class="info-item-value">${eq.model}</div></div>
+        <div class="info-item" style="grid-column:span 2">
+          <div class="info-item-label">製造番号</div>
+          <div class="info-item-value" style="font-family:monospace;letter-spacing:.05em">${eq.serial}</div>
+        </div>
+        <div class="info-item">
+          <div class="info-item-label">導入年月</div>
+          <div class="info-item-value">${eq.date||'—'}</div>
+          ${elapsed?`<div class="elapsed-badge ${old?'old':'normal'}">${elapsed}経過${old?' ⚠':''}</div>`:''}
+        </div>
+        <div class="info-item"><div class="info-item-label">製造年月</div><div class="info-item-value">${eq.nextcheck||'—'}</div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><span class="section-title-label">📍 設置場所</span></div>
+      <div class="info-grid">
+        <div class="info-item">
+          <div class="info-item-label">地域 / 類別</div>
+          <div class="info-item-value">${c?c.region+' / '+c.category:'—'}</div>
+        </div>
+        <div class="info-item">
+          <div class="info-item-label">販社</div>
+          <div class="info-item-value">${c?companyLabel(c):'—'}</div>
+        </div>
+        <div class="info-item">
+          <div class="info-item-label">店舗</div>
+          <div class="info-item-value">${st?storeLabel(st):'—'}</div>
+        </div>
+        <div class="info-item">
+          <div class="info-item-label">ベイ</div>
+          <div class="info-item-value">${eq.bay||'—'}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><span class="section-title-label">📷 写真</span></div>
+      <div class="photo-section-grid">
+        ${detailPhotoSlot('全体','📷',false)}
+        ${detailPhotoSlot('銘板','🏷️',true)}
+      </div>
+      <div style="margin-top:12px;font-size:12px;font-weight:700;color:var(--gray-500);margin-bottom:6px">追加写真</div>
+      <div class="photo-extra-grid" id="detailExtraGrid">
+        ${extraPhotos}
+        <button class="btn-add-photo" onclick="triggerDetailExtraPhoto()">
+          <span style="font-size:20px">＋</span><span>写真を追加</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">
+        <span class="section-title-label">🔧 保守履歴</span>
+        <button class="btn-add-history" onclick="openHistoryModal()">＋ 追加</button>
+      </div>
+      <div class="history-list">${maintenanceHTML}</div>
+    </div>
+  `;
+  bindDetailPhotoDrop();
+}
+
+/* ════ DETAIL PHOTOS ════ */
+function triggerDetailPhoto(key){document.getElementById(`fi_detail_${key}`).click();}
+async function handleDetailPhoto(e,key){
+  const file=e.target.files[0];if(!file)return;
+  e.target.value='';
+  showToast('📤 Google Driveにアップロード中...','info');
+  const url=await _uploadWithFallback(file,currentEq);
+  currentEq.photos[key]=url;
+  await _saveEq(currentEq);
+  renderDetail();showToast(`✅ ${key}写真を追加しました`,'success');
+}
+function triggerDetailExtraPhoto(){document.getElementById('fi_detail_extra').click();}
+async function handleDetailExtraPhoto(e){
+  const file=e.target.files[0];if(!file)return;
+  e.target.value='';
+  showToast('📤 Google Driveにアップロード中...','info');
+  const url=await _uploadWithFallback(file,currentEq);
+  currentEq.photos.extra.push({name:file.name,data:url});
+  await _saveEq(currentEq);
+  renderDetail();showToast('✅ 写真を追加しました','success');
+}
+function deleteExtraPhoto(i,e){
+  e.stopPropagation();currentEq.photos.extra.splice(i,1);
+  _saveEq(currentEq);
+  renderDetail();
+}
+
+/* ════ MODAL PHOTOS ════ */
+function triggerModalPhoto(key){document.getElementById(`fi_modal_${key}`).click();}
+function triggerModalExtraPhoto(){document.getElementById('fi_modal_extra').click();}
+async function handleModalExtraPhoto(e){
+  const file=e.target.files[0];if(!file)return;
+  e.target.value='';
+  showToast('📤 Google Driveにアップロード中...','info');
+  const refEq=currentEq||{id:pendingNewEqId||_genEquipmentId(),name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||''};
+  const url=await _uploadWithFallback(file,refEq);
+  modalPhotos.extra.push({name:file.name,data:url});
+  renderModalExtraGrid();
+  showToast('✅ 写真を追加しました','success');
+}
+function deleteModalExtraPhoto(i){
+  modalPhotos.extra.splice(i,1);renderModalExtraGrid();
+}
+function renderModalExtraGrid(){
+  const grid=document.getElementById('modalExtraGrid');
+  if(!grid)return;
+  const items=modalPhotos.extra.map((p,i)=>
+    `<div class="photo-extra-item" onclick="openModalExtraLightbox(${i})">
+      <img src="${p.data}" alt="${p.name}">
+      <button class="photo-extra-del" onclick="event.stopPropagation();deleteModalExtraPhoto(${i})">✕</button>
+    </div>`).join('');
+  grid.innerHTML=items+`<button class="btn-add-photo" onclick="triggerModalExtraPhoto()">
+    <span style="font-size:20px">＋</span><span>写真を追加</span>
+  </button>`;
+}
+function openModalExtraLightbox(i){
+  const p=modalPhotos.extra[i];if(!p)return;
+  document.getElementById('lightboxImg').src=p.data;
+  document.getElementById('lightboxLabel').textContent=p.name;
+  document.getElementById('lightbox').classList.add('show');
+}
+async function handleModalPhoto(e,key){
+  const file=e.target.files[0];if(!file)return;
+  e.target.value='';
+  // 銘板はOCR用にbase64必須、それ以外はDrive
+  if(key==='銘板'){
+    const reader=new FileReader();
+    reader.onload=(ev)=>{
+      modalPhotos[key]=ev.target.result;
+      updateModalPhotoSlot(key);
+      runOCR();
+    };
+    reader.readAsDataURL(file);
+  }else{
+    showToast('📤 Google Driveにアップロード中...','info');
+    const refEq=currentEq||{id:pendingNewEqId||_genEquipmentId(),name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||''};
+    const url=await _uploadWithFallback(file,refEq);
+    modalPhotos[key]=url;
+    updateModalPhotoSlot(key);
+    showToast('✅ 全体写真を追加しました','success');
+  }
+}
+function updateModalPhotoSlot(key){
+  const slot=document.getElementById(`modal_slot_${key}`);
+  if(!slot)return;
+  const data=modalPhotos[key];
+  if(data){
+    slot.classList.add('has-photo');
+    slot.innerHTML=`<img src="${data}" alt="${key}" onclick="openModalLightbox('${key}',event)">
+      <div class="photo-overlay">
+        <button onclick="openModalLightbox('${key}',event)">🔍 拡大</button>
+        <button onclick="triggerModalPhoto('${key}')">📷 変更</button>
+      </div>`;
+  } else {
+    slot.classList.remove('has-photo');
+    if(key==='銘板'){
+      slot.innerHTML=`<div class="photo-placeholder">
+        <span class="photo-placeholder-icon">🏷️</span>
+        <span class="photo-placeholder-label">銘板写真</span>
+        <span class="ocr-auto-tag">📖 OCR 自動読取</span>
+        <span class="photo-placeholder-sub">撮影で情報を自動入力</span>
+      </div>`;
+    } else {
+      slot.innerHTML=`<div class="photo-placeholder">
+        <span class="photo-placeholder-icon">📷</span>
+        <span class="photo-placeholder-label">全体写真</span>
+        <span class="optional-tag">任意</span>
+        <span class="photo-placeholder-sub">タップ/ドラッグで追加</span>
+      </div>`;
+    }
+    slot.onclick=()=>triggerModalPhoto(key);
+  }
+}
+function openModalLightbox(key,e){
+  e.stopPropagation();
+  if(!modalPhotos[key])return;
+  document.getElementById('lightboxImg').src=modalPhotos[key];
+  document.getElementById('lightboxLabel').textContent=key+'写真';
+  document.getElementById('lightbox').classList.add('show');
+}
+
+/* ════ DRAG & DROP 写真アップロード ════ */
+// 単一スロット（全体写真・銘板写真）用：ドロップされたファイルを既存のinput change処理に流し込む
+function enablePhotoDrop(el,onFile){
+  if(!el||el._dndBound)return; // 二重バインド防止（renderDetail等で再描画されるため）
+  el._dndBound=true;
+  el.addEventListener('dragover',ev=>{
+    ev.preventDefault();ev.stopPropagation();
+    el.classList.add('drag-over');
+  });
+  el.addEventListener('dragleave',ev=>{
+    ev.preventDefault();ev.stopPropagation();
+    el.classList.remove('drag-over');
+  });
+  el.addEventListener('drop',ev=>{
+    ev.preventDefault();ev.stopPropagation();
+    el.classList.remove('drag-over');
+    const file=ev.dataTransfer?.files?.[0];
+    if(!file)return;
+    if(!file.type.startsWith('image/')){
+      showToast('⚠ 画像ファイルをドロップしてください','error');return;
+    }
+    onFile(file);
+  });
+}
+function bindModalPhotoDrop(){
+  enablePhotoDrop(document.getElementById('modal_slot_全体'),file=>handleModalPhoto({target:{files:[file],value:''}},'全体'));
+  enablePhotoDrop(document.getElementById('modal_slot_銘板'),file=>handleModalPhoto({target:{files:[file],value:''}},'銘板'));
+  enablePhotoDrop(document.getElementById('modalExtraGrid'),file=>handleModalExtraPhoto({target:{files:[file],value:''}}));
+}
+function bindDetailPhotoDrop(){
+  enablePhotoDrop(document.getElementById('detail_slot_全体'),file=>handleDetailPhoto({target:{files:[file],value:''}},'全体'));
+  enablePhotoDrop(document.getElementById('detail_slot_銘板'),file=>handleDetailPhoto({target:{files:[file],value:''}},'銘板'));
+  enablePhotoDrop(document.getElementById('detailExtraGrid'),file=>handleDetailExtraPhoto({target:{files:[file],value:''}}));
+}
+
+/* ════ OCR ════ */
+const ocrData=[
+  {model:'CS6110-00ST', serial:'1329',  mfgdate:'2009-07', err:[]},
+  {model:'HLC-3500A',   serial:'2847',  mfgdate:'2015-03', err:[]},
+  {model:'TW1001D',     serial:'5631',  mfgdate:'2018-11', err:[]},
+  {model:'WM-500',      serial:'9072',  mfgdate:'2021-06', err:[]},
+  {model:'',            serial:'4418',  mfgdate:'2017-04', err:['model']},
+  {model:'OD-200',      serial:'',      mfgdate:'2013-09', err:['serial']},
+  {model:'',            serial:'',      mfgdate:'2020-02', err:['model','serial']},
+];
+function runOCR(){
+  const prog=document.getElementById('ocrProgress');
+  prog.classList.add('show');
+  const r=ocrData[Math.floor(Math.random()*ocrData.length)];
+  const randomMaker=MAKERS[Math.floor(Math.random()*MAKERS.length)];
+  setTimeout(()=>{
+    prog.classList.remove('show');
+    document.getElementById('f_maker').value=randomMaker;
+    document.getElementById('f_model').value=r.model;
+    document.getElementById('f_serial').value=r.serial;
+    if(r.mfgdate)document.getElementById('f_nextcheck').value=r.mfgdate;
+    ['model','serial'].forEach(f=>{
+      const inp=document.getElementById('f_'+f);
+      const err=document.getElementById('err_'+f);
+      if(r.err.includes(f)){inp.classList.add('error');err.style.display='flex';}
+      else{inp.classList.remove('error');err.style.display='none';}
+    });
+    if(r.err.length)showToast(`⚠ ${r.err.length}項目の読み取りに失敗。赤枠を手動入力してください`,'error');
+    else showToast('✅ 銘板OCR完了 — 機器情報を自動入力しました','success');
+  },2200);
+}
+
+/* ════ LIGHTBOX ════ */
+function openLightbox(key,e){
+  if(e)e.stopPropagation();
+  const eq=currentEq;if(!eq||!eq.photos[key])return;
+  document.getElementById('lightboxImg').src=eq.photos[key];
+  document.getElementById('lightboxLabel').textContent=key+'写真';
+  document.getElementById('lightbox').classList.add('show');
+}
+function openLightboxExtra(i){
+  const eq=currentEq;if(!eq||!eq.photos.extra[i])return;
+  document.getElementById('lightboxImg').src=eq.photos.extra[i].data;
+  document.getElementById('lightboxLabel').textContent=eq.photos.extra[i].name;
+  document.getElementById('lightbox').classList.add('show');
+}
+function closeLightbox(){document.getElementById('lightbox').classList.remove('show')}
+
+/* ════ MAINTENANCE HISTORY ════ */
+function openHistoryModal(){
+  document.getElementById('h_content').value='';
+  document.getElementById('h_nss').value='';
+  document.getElementById('h_date').value=new Date().toISOString().slice(0,10);
+  document.getElementById('h_note').value='';
+  document.getElementById('historyModalOverlay').classList.add('show');
+}
+function closeHistoryModal(){document.getElementById('historyModalOverlay').classList.remove('show')}
+function handleHistoryOverlayClick(e){if(e.target===document.getElementById('historyModalOverlay'))closeHistoryModal()}
+function saveHistory(){
+  const content=document.getElementById('h_content').value.trim();
+  const nss=document.getElementById('h_nss').value.trim();
+  const date=document.getElementById('h_date').value;
+  const note=document.getElementById('h_note').value.trim();
+  if(!content||!nss||!date){showToast('⚠ 修理内容・対応NSS・修理年月日は必須です','error');return;}
+  if(!currentEq.maintenance)currentEq.maintenance=[];
+  currentEq.maintenance.push({content,nss,date,note});
+  _saveEq(currentEq);
+  closeHistoryModal();renderDetail();simulateCloudSync();
+  showToast('✅ 保守履歴を追加しました','success');
+}
+function deleteHistory(i){
+  if(!confirm('この保守記録を削除しますか？'))return;
+  currentEq.maintenance.splice(i,1);
+  _saveEq(currentEq);
+  renderDetail();
+}
+
+/* ════ FORM HELPERS ════ */
+function rebuildFormCompanySelect(){
+  const sel=document.getElementById('f_company');
+  const prev=sel.value;
+  sel.innerHTML='<option value="">選択してください</option>';
+  masterData.companies.forEach(c=>{
+    const opt=document.createElement('option');
+    opt.value=c.id;opt.textContent=companyLabel(c);
+    sel.appendChild(opt);
+  });
+  if(prev)sel.value=prev;
+}
+function onFormCompanyChange(){
+  const companyId=document.getElementById('f_company').value;
+  const sel=document.getElementById('f_store');
+  sel.innerHTML='<option value="">選択してください</option>';
+  if(companyId){
+    const c=getCompany(companyId);
+    if(c)c.stores.forEach(s=>{
+      const opt=document.createElement('option');
+      opt.value=s.id;opt.textContent=storeLabel(s);
+      sel.appendChild(opt);
+    });
+  }
+}
+
+/* ════ EQUIPMENT MODAL ════ */
+function openAddModal(){
+  isEditMode=false;
+  pendingNewEqId=_genEquipmentId(); // 写真アップロード先フォルダと保存時のIDを一致させるため先に確定
+  modalPhotos={'全体':null,'銘板':null,extra:[]};
+  document.getElementById('modalTitle').textContent='🔧 機器を追加';
+  clearForm();
+  rebuildFormCompanySelect();
+
+  // 絞り込み状態から自動入力
+  if(filters.companyId){
+    document.getElementById('f_company').value=filters.companyId;
+    onFormCompanyChange();
+    if(filters.storeId){
+      document.getElementById('f_store').value=filters.storeId;
+    }
+  }
+
+  document.getElementById('retireSection').style.display='none';
+  document.getElementById('ocrProgress').classList.remove('show');
+  document.getElementById('modalOverlay').classList.add('show');
+  updateModalPhotoSlot('全体');updateModalPhotoSlot('銘板');
+  renderModalExtraGrid();
+  bindModalPhotoDrop();
+}
+function openEditModal(){
+  if(!currentEq)return;
+  isEditMode=true;
+  modalPhotos={
+    '全体':currentEq.photos?.['全体']||null,
+    '銘板':currentEq.photos?.['銘板']||null,
+    extra:(currentEq.photos?.extra||[]).map(p=>({...p}))
+  };
+  document.getElementById('modalTitle').textContent='✏️ 機器を編集';
+  rebuildFormCompanySelect();
+  fillForm(currentEq);
+  document.getElementById('retireSection').style.display='block';
+  document.getElementById('ocrProgress').classList.remove('show');
+  document.getElementById('modalOverlay').classList.add('show');
+  updateModalPhotoSlot('全体');updateModalPhotoSlot('銘板');
+  renderModalExtraGrid();
+  bindModalPhotoDrop();
+}
+function closeModal(){document.getElementById('modalOverlay').classList.remove('show')}
+function handleOverlayClick(e){if(e.target===document.getElementById('modalOverlay'))closeModal()}
+
+function clearForm(){
+  document.getElementById('f_name').value='';
+  document.getElementById('f_status').value='ok';
+  document.getElementById('f_maker').value='アルティア';
+  document.getElementById('f_model').value='';
+  document.getElementById('f_serial').value='';
+  document.getElementById('f_date').value='';
+  document.getElementById('f_nextcheck').value='';
+  document.getElementById('f_note').value='';
+  document.getElementById('f_company').value='';
+  document.getElementById('f_store').innerHTML='<option value="">販社を先に選択</option>';
+  document.getElementById('f_bay_type').value='';
+  document.getElementById('f_bay_num').value='';
+  document.getElementById('f_bay_num_group').style.display='none';
+  ['err_model','err_serial'].forEach(id=>document.getElementById(id).style.display='none');
+  ['f_model','f_serial'].forEach(id=>document.getElementById(id).classList.remove('error'));
+  document.getElementById('elapsedPreview').style.display='none';
+}
+function fillForm(eq){
+  document.getElementById('f_name').value=eq.name;
+  document.getElementById('f_status').value=eq.status||'ok';
+  document.getElementById('f_maker').value=eq.maker;
+  document.getElementById('f_model').value=eq.model;
+  document.getElementById('f_serial').value=eq.serial;
+  document.getElementById('f_date').value=eq.date||'';
+  document.getElementById('f_nextcheck').value=eq.nextcheck||'';
+  document.getElementById('f_note').value=eq.note||'';
+  document.getElementById('f_company').value=eq.companyId||'';
+  onFormCompanyChange();
+  document.getElementById('f_store').value=eq.storeId||'';
+  setBayValue(eq.bay);
+  ['err_model','err_serial'].forEach(id=>document.getElementById(id).style.display='none');
+  ['f_model','f_serial'].forEach(id=>document.getElementById(id).classList.remove('error'));
+  updateElapsedPreview();
+}
+function updateElapsedPreview(){
+  const d=document.getElementById('f_date').value;
+  const el=document.getElementById('elapsedPreview');
+  const elapsed=calcElapsed(d);
+  if(elapsed){
+    const old=isOld(d);
+    el.style.display='block';
+    el.innerHTML=`<span style="color:var(--gray-600)">導入からの経過：</span>
+      <span style="font-weight:700;color:${old?'var(--caution)':'var(--primary)'}">${elapsed}経過${old?' ⚠ 10年超':''}</span>`;
+  }else{el.style.display='none';}
+}
+
+/* ════ SAVE EQUIPMENT ════ */
+async function saveEquipment(ev){
+  const btn=(ev&&ev.target)?ev.target.closest('button'):document.querySelector('.btn-save');
+  const name=document.getElementById('f_name').value;
+  const status=document.getElementById('f_status').value;
+  const maker=document.getElementById('f_maker').value;
+  const model=document.getElementById('f_model').value.trim();
+  const serial=document.getElementById('f_serial').value.trim();
+  const companyId=document.getElementById('f_company').value;
+  const storeId=document.getElementById('f_store').value;
+  const bay=buildBay();
+  if(!name||!maker||!model||!serial||!companyId||!storeId||!bay){
+    showToast('⚠ 必須項目を全て入力・選択してください','error');return;
+  }
+  if(!navigator.onLine){
+    showToast('⚠ 通信がオフラインです。電波の良い場所で再度お試しください','error');
+    return;
+  }
+  // 二重送信防止（通信が遅い環境で連打されると重複登録・競合の原因になる）
+  if(btn){
+    if(btn.disabled)return;
+    btn.disabled=true;
+    var _origLabel=btn.innerHTML;
+    btn.innerHTML='⏳ 保存中…';
+  }
+  try{
+    if(isEditMode&&currentEq){
+      const backup=JSON.parse(JSON.stringify(currentEq));
+      Object.assign(currentEq,{name,status,maker,model,serial,
+        date:document.getElementById('f_date').value,
+        nextcheck:document.getElementById('f_nextcheck').value,
+        companyId,storeId,bay,note:document.getElementById('f_note').value
+      });
+      if(modalPhotos['全体'])currentEq.photos['全体']=modalPhotos['全体'];
+      if(modalPhotos['銘板'])currentEq.photos['銘板']=modalPhotos['銘板'];
+      currentEq.photos.extra=modalPhotos.extra;
+      const ok=await _saveEq(currentEq);
+      if(!ok){
+        // クラウド保存に失敗した場合はローカルの変更を巻き戻し、モーダルは開いたままにする
+        Object.assign(currentEq,backup);
+        return;
+      }
+      showToast('✅ 機器情報を更新しました','success');
+      renderDetail();renderList();
+    }else{
+      const eq={id:pendingNewEqId||_genEquipmentId(),name,status,maker,model,serial,
+        date:document.getElementById('f_date').value,
+        nextcheck:document.getElementById('f_nextcheck').value,
+        companyId,storeId,bay,note:document.getElementById('f_note').value,
+        photos:{'全体':modalPhotos['全体']||null,'銘板':modalPhotos['銘板']||null,extra:modalPhotos.extra},
+        maintenance:[]
+      };
+      const ok=await _saveEq(eq);
+      if(!ok){
+        // クラウドへの保存が確認できるまではローカル一覧にも追加しない
+        // （追加してしまうと、次のonSnapshotでサーバー側の古いデータに
+        //  上書きされ「登録したのに消えた」ように見える不具合の原因になるため）
+        return;
+      }
+      equipments.push(eq);
+      pendingNewEqId=null;
+      showToast('✅ 機器を登録しました','success');renderList();
+    }
+    simulateCloudSync();closeModal();
+  }finally{
+    if(btn){btn.disabled=false;btn.innerHTML=_origLabel;}
+  }
+}
+
+/* ════ ADD COMPANY MODAL ════ */
+function openAddCompanyModal(){
+  document.getElementById('ac_region').value='';
+  document.getElementById('ac_category').value='';
+  document.getElementById('ac_name').value='';
+  document.getElementById('ac_code').value='';
+  renderCompanyManageList();
+  document.getElementById('addCompanyOverlay').classList.add('show');
+}
+function closeAddCompanyModal(){document.getElementById('addCompanyOverlay').classList.remove('show')}
+function handleAddCompanyOverlayClick(e){if(e.target===document.getElementById('addCompanyOverlay'))closeAddCompanyModal()}
+function saveCompany(){
+  const region=document.getElementById('ac_region').value;
+  const category=document.getElementById('ac_category').value;
+  const name=document.getElementById('ac_name').value.trim();
+  const code=document.getElementById('ac_code').value.trim();
+  if(!region||!category||!name||!code){showToast('⚠ 全項目を入力してください','error');return;}
+  const id='c'+masterData._nextCompanyId++;
+  masterData.companies.push({id,name,code,region,category,stores:[]});
+  _saveMd();
+  rebuildCompanySelect();
+  closeAddCompanyModal();
+  showToast(`✅ 販社「${name}（${code}）」を追加しました`,'success');
+}
+
+/* ════ ADD STORE MODAL ════ */
+function openAddStoreModal(){
+  // フィルタ状態から地域・類別を自動設定
+  document.getElementById('as_region').value=filters.region||'';
+  document.getElementById('as_category').value=filters.category||'';
+  rebuildAddStoreCompanySelect();
+  // 現在のフィルタ販社があれば自動選択
+  if(filters.companyId)document.getElementById('as_company').value=filters.companyId;
+  document.getElementById('as_name').value='';
+  document.getElementById('as_code').value='';
+  renderStoreManageList();
+  document.getElementById('addStoreOverlay').classList.add('show');
+}
+function onAddStoreRegionChange(){
+  rebuildAddStoreCompanySelect();
+  renderStoreManageList();
+}
+function rebuildAddStoreCompanySelect(){
+  const region=document.getElementById('as_region').value;
+  const category=document.getElementById('as_category').value;
+  const sel=document.getElementById('as_company');
+  const prev=sel.value;
+  sel.innerHTML='<option value="">選択してください</option>';
+  masterData.companies
+    .filter(c=>{
+      if(region&&c.region!==region)return false;
+      if(category&&c.category!==category)return false;
+      return true;
+    })
+    .forEach(c=>{
+      const opt=document.createElement('option');
+      opt.value=c.id;opt.textContent=companyLabel(c);
+      sel.appendChild(opt);
+    });
+  if(prev)sel.value=prev;
+}
+function closeAddStoreModal(){document.getElementById('addStoreOverlay').classList.remove('show')}
+function handleAddStoreOverlayClick(e){if(e.target===document.getElementById('addStoreOverlay'))closeAddStoreModal()}
+function saveStore(){
+  const companyId=document.getElementById('as_company').value;
+  const name=document.getElementById('as_name').value.trim();
+  const code=document.getElementById('as_code').value.trim();
+  if(!companyId||!name||!code){showToast('⚠ 全項目を入力してください','error');return;}
+  const c=getCompany(companyId);
+  if(!c){showToast('⚠ 販社が見つかりません','error');return;}
+  const id='s'+masterData._nextStoreId++;
+  c.stores.push({id,name,code});
+  _saveMd();
+  // フィルタ販社が一致する場合は店舗セレクトを再構築
+  if(filters.companyId===companyId)rebuildStoreSelect();
+  closeAddStoreModal();
+  showToast(`✅ 店舗「${name}（${code}）」を追加しました`,'success');
+}
+
+/* ════ DELETE CONFIRM (汎用) ════ */
+function showDeleteConfirm(title,msg,onOk){
+  document.getElementById('deleteConfirmTitle').textContent=title;
+  document.getElementById('deleteConfirmMsg').innerHTML=msg;
+  const btn=document.getElementById('deleteConfirmBtn');
+  btn.onclick=()=>{closeDeleteConfirm();onOk();};
+  document.getElementById('deleteConfirmOverlay').classList.add('show');
+}
+function closeDeleteConfirm(){document.getElementById('deleteConfirmOverlay').classList.remove('show')}
+
+/* ════ DELETE EQUIPMENT ════ */
+function confirmDeleteEquipment(){
+  if(!currentEq)return;
+  showDeleteConfirm(
+    '🗑 機器を削除しますか？',
+    `<strong>${currentEq.name}</strong>（${currentEq.model}）を完全に削除します。<br>この操作は元に戻せません。`,
+    executeDeleteEquipment
+  );
+}
+function executeDeleteEquipment(){
+  if(!currentEq)return;
+  const delId=currentEq.id;
+  const idx=equipments.findIndex(e=>e.id===delId);
+  if(idx!==-1)equipments.splice(idx,1);
+  _delEq(delId);
+  closeDetail();
+  showToast('🗑 機器を削除しました','');
+}
+
+/* ════ DELETE COMPANY ════ */
+function confirmDeleteCompany(id){
+  const c=getCompany(id);if(!c)return;
+  const eqCount=equipments.filter(e=>e.companyId===id).length;
+  const warn=eqCount>0?`<br><span style="color:var(--primary);font-weight:700">⚠ この販社に紐づく機器が ${eqCount} 件あります。機器の販社情報が失われます。</span>`:'';
+  showDeleteConfirm(
+    '🗑 販社を削除しますか？',
+    `<strong>${companyLabel(c)}</strong> を削除します。${warn}<br>この操作は元に戻せません。`,
+    ()=>executeDeleteCompany(id)
+  );
+}
+function executeDeleteCompany(id){
+  const idx=masterData.companies.findIndex(c=>c.id===id);
+  if(idx!==-1)masterData.companies.splice(idx,1);
+  // 紐づく機器のcompanyId/storeIdをクリア
+  equipments.forEach(e=>{
+    if(e.companyId===id){e.companyId='';e.storeId='';_saveEq(e);}
+  });
+  _saveMd();
+  rebuildCompanySelect();
+  if(filters.companyId===id){filters.companyId='';filters.storeId='';rebuildStoreSelect();}
+  renderCompanyManageList();
+  renderList();
+  showToast('🗑 販社を削除しました','');
+}
+
+/* ════ DELETE STORE ════ */
+function confirmDeleteStore(companyId,storeId){
+  const c=getCompany(companyId);
+  const st=getStore(companyId,storeId);
+  if(!c||!st)return;
+  const eqCount=equipments.filter(e=>e.companyId===companyId&&e.storeId===storeId).length;
+  const warn=eqCount>0?`<br><span style="color:var(--primary);font-weight:700">⚠ この店舗に紐づく機器が ${eqCount} 件あります。機器の店舗情報が失われます。</span>`:'';
+  showDeleteConfirm(
+    '🗑 店舗を削除しますか？',
+    `<strong>${storeLabel(st)}</strong>（${companyLabel(c)}）を削除します。${warn}<br>この操作は元に戻せません。`,
+    ()=>executeDeleteStore(companyId,storeId)
+  );
+}
+function executeDeleteStore(companyId,storeId){
+  const c=getCompany(companyId);if(!c)return;
+  c.stores=c.stores.filter(s=>s.id!==storeId);
+  equipments.forEach(e=>{
+    if(e.companyId===companyId&&e.storeId===storeId){e.storeId='';_saveEq(e);}
+  });
+  _saveMd();
+  if(filters.companyId===companyId)rebuildStoreSelect();
+  renderStoreManageList();
+  renderList();
+  showToast('🗑 店舗を削除しました','');
+}
+
+/* ════ MANAGE LISTS ════ */
+function renderCompanyManageList(){
+  const el=document.getElementById('companyManageList');if(!el)return;
+  if(!masterData.companies.length){
+    el.innerHTML='<div class="manage-empty">販社が登録されていません</div>';return;
+  }
+  el.innerHTML=masterData.companies.map(c=>
+    `<div class="manage-item">
+      <div class="manage-item-name">${companyLabel(c)}</div>
+      <div class="manage-item-meta">${c.region} / ${c.category}</div>
+      <button class="btn-del-item" onclick="confirmDeleteCompany('${c.id}')" title="削除">🗑</button>
+    </div>`
+  ).join('');
+}
+function renderStoreManageList(){
+  const el=document.getElementById('storeManageList');if(!el)return;
+  const region=document.getElementById('as_region')?.value||'';
+  const category=document.getElementById('as_category')?.value||'';
+  const rows=[];
+  masterData.companies
+    .filter(c=>(!region||c.region===region)&&(!category||c.category===category))
+    .forEach(c=>c.stores.forEach(s=>rows.push({c,s})));
+  if(!rows.length){
+    el.innerHTML='<div class="manage-empty">店舗が登録されていません</div>';return;
+  }
+  el.innerHTML=rows.map(({c,s})=>
+    `<div class="manage-item">
+      <div class="manage-item-name">${storeLabel(s)}</div>
+      <div class="manage-item-meta">${companyLabel(c)}</div>
+      <button class="btn-del-item" onclick="confirmDeleteStore('${c.id}','${s.id}')" title="削除">🗑</button>
+    </div>`
+  ).join('');
+}
+
+/* ════ RETIRE ════ */
+function confirmRetire(){document.getElementById('confirmOverlay').classList.add('show')}
+function closeConfirm(){document.getElementById('confirmOverlay').classList.remove('show')}
+function executeRetire(){
+  if(!currentEq)return;
+  currentEq.status='danger';currentEq.note='廃棄・入替済み';
+  if(!currentEq.maintenance)currentEq.maintenance=[];
+  currentEq.maintenance.push({
+    content:'廃棄・入替として記録',nss:'システム',
+    date:new Date().toISOString().slice(0,10),note:'廃棄・入替として記録されました。'
+  });
+  _saveEq(currentEq);
+  closeConfirm();closeModal();simulateCloudSync();renderDetail();renderList();
+  showToast('🔴 廃棄・入替として記録しました','');
+}
+
+/* ════ SYNC ════ */
+function simulateCloudSync(){
+  const b=document.getElementById('syncBanner');
+  b.classList.add('show');b.innerHTML='☁️ Firestore に保存中...';
+  setTimeout(()=>{b.innerHTML='✅ クラウドへの保存が完了しました';setTimeout(()=>b.classList.remove('show'),2000);},800);
+}
+
+/* ════ TOAST ════ */
+function showToast(msg,type=''){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.className='toast'+(type?' toast-'+type:'')+' show';
+  setTimeout(()=>t.classList.remove('show'),3500);
+}
+
+/* ════ EXCEL EXPORT ════ */
+function openExportModal(){
+  // 販社セレクト構築
+  const cSel=document.getElementById('ex_company');
+  cSel.innerHTML='<option value="">選択してください</option>';
+  masterData.companies.forEach(c=>{
+    const o=document.createElement('option');o.value=c.id;o.textContent=companyLabel(c);cSel.appendChild(o);
+  });
+  // フィルタ状態から自動選択
+  if(filters.companyId){
+    document.getElementById('sc_company').checked=true;
+    cSel.value=filters.companyId;
+    onExportScopeChange();
+    if(filters.storeId){
+      document.getElementById('sc_store').checked=true;
+      document.getElementById('ex_store').value=filters.storeId;
+      onExportScopeChange();
+    }
+  } else {
+    document.getElementById('sc_all').checked=true;
+    onExportScopeChange();
+  }
+  document.getElementById('exportOverlay').classList.add('show');
+}
+function closeExportModal(){document.getElementById('exportOverlay').classList.remove('show')}
+function handleExportOverlayClick(e){if(e.target===document.getElementById('exportOverlay'))closeExportModal()}
+
+function onExportScopeChange(){
+  const scope=document.querySelector('input[name="exportScope"]:checked').value;
+  document.getElementById('ex_company_group').style.display=(scope==='company'||scope==='store')?'block':'none';
+  document.getElementById('ex_store_group').style.display=scope==='store'?'block':'none';
+  updateExportPreview();
+}
+function onExportCompanyChange(){
+  const companyId=document.getElementById('ex_company').value;
+  const sSel=document.getElementById('ex_store');
+  sSel.innerHTML='<option value="">選択してください</option>';
+  if(companyId){
+    const c=getCompany(companyId);
+    if(c)c.stores.forEach(s=>{const o=document.createElement('option');o.value=s.id;o.textContent=storeLabel(s);sSel.appendChild(o);});
+  }
+  updateExportPreview();
+}
+
+function updateExportPreview(){
+  const scope=document.querySelector('input[name="exportScope"]:checked').value;
+  const el=document.getElementById('exportPreview');
+  const today=new Date().toLocaleDateString('ja-JP');
+  if(scope==='all'){
+    const total=equipments.length;
+    const sheets=masterData.companies.filter(c=>equipments.some(e=>e.companyId===c.id));
+    el.innerHTML=`<strong>📄 出力内容：</strong>サマリーシート ＋ 販社別シート（${sheets.length}社）<br>
+      <strong>📊 総機器数：</strong>${total} 件<br>
+      <strong>📅 出力日：</strong>${today}<br>
+      <strong>📁 ファイル名：</strong>設備機器一覧_全社_${today.replace(/\//g,'')}.xlsx`;
+  } else if(scope==='company'){
+    const cId=document.getElementById('ex_company').value;
+    const c=getCompany(cId);
+    if(!c){el.innerHTML='販社を選択してください';return;}
+    const cnt=equipments.filter(e=>e.companyId===cId).length;
+    el.innerHTML=`<strong>📄 出力内容：</strong>サマリーシート ＋ 店舗別シート（${c.stores.length}店舗）<br>
+      <strong>📊 機器数：</strong>${cnt} 件<br>
+      <strong>📅 出力日：</strong>${today}<br>
+      <strong>📁 ファイル名：</strong>${c.name}_設備機器一覧_${today.replace(/\//g,'')}.xlsx`;
+  } else {
+    const cId=document.getElementById('ex_company').value;
+    const sId=document.getElementById('ex_store').value;
+    const c=getCompany(cId);const st=getStore(cId,sId);
+    if(!c||!st){el.innerHTML='販社・店舗を選択してください';return;}
+    const cnt=equipments.filter(e=>e.companyId===cId&&e.storeId===sId).length;
+    el.innerHTML=`<strong>📄 出力内容：</strong>店舗詳細シート（1枚）<br>
+      <strong>📊 機器数：</strong>${cnt} 件<br>
+      <strong>📅 出力日：</strong>${today}<br>
+      <strong>📁 ファイル名：</strong>${c.name}_${st.name}_設備機器一覧_${today.replace(/\//g,'')}.xlsx`;
+  }
+}
+
+/* ─ シート構築ヘルパー ─ */
+function todayStr(){return new Date().toLocaleDateString('ja-JP');}
+
+function buildEquipmentSheet(eqList, titleLabel){
+  const HDR=['No.','機器名称','メーカー','型式','製造番号','製造年月','導入年月','経過年数','ステータス','ベイ','備考'];
+  const aoa=[
+    [titleLabel],
+    [`出力日：${todayStr()}`],
+    [],
+    HDR
+  ];
+  eqList.forEach((eq,i)=>{
+    aoa.push([
+      i+1,
+      eq.name,
+      eq.maker,
+      eq.model,
+      eq.serial,
+      eq.nextcheck||'—',
+      eq.date||'—',
+      calcElapsed(eq.date)||'—',
+      STATUS_MAP[eq.status]?.label||'—',
+      eq.bay||'—',
+      eq.note||''
+    ]);
+  });
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:5},{wch:22},{wch:14},{wch:16},{wch:16},{wch:10},{wch:10},{wch:12},{wch:24},{wch:14},{wch:28}];
+  return ws;
+}
+
+function buildSummarySheet(companies, titleLabel){
+  const aoa=[
+    [titleLabel],
+    [`出力日：${todayStr()}`],
+    [],
+    ['店舗','販社','合計','問題なし','注意（代替検討）','部品供給終了','危険（要代替）']
+  ];
+  let tot=0,tok=0,tca=0,tpa=0,tda=0;
+  companies.forEach(c=>{
+    c.stores.forEach(st=>{
+      const data=equipments.filter(e=>e.companyId===c.id&&e.storeId===st.id);
+      const ok=data.filter(e=>e.status==='ok').length;
+      const ca=data.filter(e=>e.status==='caution').length;
+      const pa=data.filter(e=>e.status==='parts').length;
+      const da=data.filter(e=>e.status==='danger').length;
+      aoa.push([storeLabel(st),companyLabel(c),data.length,ok,ca,pa,da]);
+      tot+=data.length;tok+=ok;tca+=ca;tpa+=pa;tda+=da;
+    });
+    // 店舗未設定の機器
+    const orphan=equipments.filter(e=>e.companyId===c.id&&!c.stores.find(s=>s.id===e.storeId));
+    if(orphan.length){
+      const ok=orphan.filter(e=>e.status==='ok').length;
+      const ca=orphan.filter(e=>e.status==='caution').length;
+      const pa=orphan.filter(e=>e.status==='parts').length;
+      const da=orphan.filter(e=>e.status==='danger').length;
+      aoa.push(['（店舗未設定）',companyLabel(c),orphan.length,ok,ca,pa,da]);
+      tot+=orphan.length;tok+=ok;tca+=ca;tpa+=pa;tda+=da;
+    }
+  });
+  aoa.push(['合計','',tot,tok,tca,tpa,tda]);
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:28},{wch:26},{wch:8},{wch:12},{wch:18},{wch:16},{wch:14}];
+  return ws;
+}
+
+function safeSheetName(name){
+  // Excelシート名は31文字以内、特殊文字不可
+  return name.replace(/[:\\/?*[\]]/g,'_').slice(0,31);
+}
+
+function runExport(){
+  const scope=document.querySelector('input[name="exportScope"]:checked').value;
+  const wb=XLSX.utils.book_new();
+  const today=todayStr().replace(/\//g,'');
+
+  if(scope==='all'){
+    const activeCos=masterData.companies.filter(c=>equipments.some(e=>e.companyId===c.id));
+    if(!activeCos.length){showToast('⚠ 出力対象の機器がありません','error');return;}
+    const sumWs=buildSummarySheet(activeCos,'設備機器サマリー　全社');
+    XLSX.utils.book_append_sheet(wb,sumWs,'サマリー');
+    activeCos.forEach(c=>{
+      const data=equipments.filter(e=>e.companyId===c.id);
+      const ws=buildEquipmentSheet(data,`設備機器一覧　${companyLabel(c)}`);
+      XLSX.utils.book_append_sheet(wb,ws,safeSheetName(c.name));
+    });
+    XLSX.writeFile(wb,`設備機器一覧_全社_${today}.xlsx`);
+    showToast('✅ Excel出力が完了しました','success');
+
+  } else if(scope==='company'){
+    const cId=document.getElementById('ex_company').value;
+    const c=getCompany(cId);
+    if(!c){showToast('⚠ 販社を選択してください','error');return;}
+    const sumWs=buildSummarySheet([c],`設備機器サマリー　${companyLabel(c)}`);
+    XLSX.utils.book_append_sheet(wb,sumWs,'サマリー');
+    c.stores.forEach(st=>{
+      const data=equipments.filter(e=>e.companyId===cId&&e.storeId===st.id);
+      const ws=buildEquipmentSheet(data,`設備機器一覧　${companyLabel(c)}　${storeLabel(st)}`);
+      XLSX.utils.book_append_sheet(wb,ws,safeSheetName(st.name));
+    });
+    XLSX.writeFile(wb,`${c.name}_設備機器一覧_${today}.xlsx`);
+    showToast('✅ Excel出力が完了しました','success');
+
+  } else {
+    const cId=document.getElementById('ex_company').value;
+    const sId=document.getElementById('ex_store').value;
+    const c=getCompany(cId);const st=getStore(cId,sId);
+    if(!c||!st){showToast('⚠ 販社・店舗を選択してください','error');return;}
+    const data=equipments.filter(e=>e.companyId===cId&&e.storeId===sId);
+    const ws=buildEquipmentSheet(data,`設備機器一覧　${companyLabel(c)}　${storeLabel(st)}`);
+    XLSX.utils.book_append_sheet(wb,ws,safeSheetName(st.name));
+    XLSX.writeFile(wb,`${c.name}_${st.name}_設備機器一覧_${today}.xlsx`);
+    showToast('✅ Excel出力が完了しました','success');
+  }
+  closeExportModal();
+}
+
+/* ════ FIREBASE ════ */
+const firebaseConfig={
+  apiKey:"AIzaSyB63rhngyO8-EQqYUSJyMiTmMdhBpcL3j8",
+  authDomain:"kikikannriapp.firebaseapp.com",
+  projectId:"kikikannriapp",
+  storageBucket:"kikikannriapp.firebasestorage.app",
+  messagingSenderId:"22968334682",
+  appId:"1:22968334682:web:cfa66288474ccee32b5b63"
+};
+firebase.initializeApp(firebaseConfig);
+const auth=firebase.auth();
+const db=firebase.firestore();
+// オフライン永続化：電波が不安定な環境（iPhoneのモバイル回線など）でも
+// 書き込みをローカルにキューイングし、通信復帰時に自動で再送する
+db.enablePersistence({synchronizeTabs:true}).catch(err=>{
+  console.warn('Firestore persistence not enabled:',err.code);
+});
+let _unsubEq=null,_unsubMd=null;
+
+/* ── 認証状態管理 ── */
+auth.onAuthStateChanged(user=>{
+  if(user){
+    document.getElementById('loginOverlay').classList.add('hide');
+    document.getElementById('loginUserEmail').textContent=user.email;
+    document.getElementById('cloudStatus').style.display='flex';
+    _initFirestore();
+  }else{
+    document.getElementById('loginOverlay').classList.remove('hide');
+    document.getElementById('cloudStatus').style.display='none';
+    if(_unsubEq){_unsubEq();_unsubEq=null;}
+    if(_unsubMd){_unsubMd();_unsubMd=null;}
+  }
+});
+
+function doLogin(){
+  const email=document.getElementById('login_email').value.trim();
+  const pw=document.getElementById('login_password').value;
+  if(!email||!pw)return;
+  const loadEl=document.getElementById('loginLoading');
+  const errEl=document.getElementById('loginError');
+  loadEl.classList.add('show');errEl.classList.remove('show');
+  auth.signInWithEmailAndPassword(email,pw).catch(err=>{
+    loadEl.classList.remove('show');
+    const badCodes=['auth/invalid-credential','auth/wrong-password','auth/user-not-found','auth/invalid-email'];
+    errEl.textContent=badCodes.includes(err.code)
+      ?'⚠ メールアドレスまたはパスワードが正しくありません'
+      :'ログイン失敗: '+err.message;
+    errEl.classList.add('show');
+  });
+}
+
+function doLogout(){
+  if(confirm('ログアウトしますか？'))auth.signOut();
+}
+
+/* ── Firestore リスナー初期化 ── */
+function _initFirestore(){
+  // masterData をリアルタイム同期
+  _unsubMd=db.doc('masterData/config').onSnapshot(snap=>{
+    if(snap.exists){
+      const d=snap.data();
+      masterData.companies=d.companies||[];
+      masterData._nextCompanyId=d._nextCompanyId||6;
+      masterData._nextStoreId=d._nextStoreId||11;
+    }else{
+      // 初回起動時 — 既定マスターデータをFirestoreに書き込む
+      db.doc('masterData/config').set({
+        companies:masterData.companies,
+        _nextCompanyId:masterData._nextCompanyId,
+        _nextStoreId:masterData._nextStoreId
+      });
+    }
+    rebuildCompanySelect();renderList();
+    if(currentEq)renderDetail();
+  },err=>console.error('masterData snapshot error:',err));
+
+  // 機器データをリアルタイム同期
+  _unsubEq=db.collection('equipments').onSnapshot(snap=>{
+    equipments=snap.docs.map(d=>d.data());
+    if(equipments.length>0)nextId=Math.max(...equipments.map(e=>e.id||0))+1;
+    renderList();
+    if(currentEq){
+      const up=equipments.find(e=>e.id===currentEq.id);
+      if(up){currentEq=up;renderDetail();}
+      else closeDetail();
+    }
+  },err=>console.error('equipments snapshot error:',err));
+}
+
+/* ════ GOOGLE DRIVE ════ */
+const GDRIVE_CLIENT_ID='22968334682-471ud2u2kdkkap917m24hd8jga0vcmoh.apps.googleusercontent.com';
+const GDRIVE_SCOPE='https://www.googleapis.com/auth/drive.file';
+let _driveToken=null,_driveTokenExpiry=0,_driveTokenClient=null;
+const _folderCache={};
+
+function _initDriveClient(){
+  if(typeof google==='undefined'||!google.accounts)return;
+  if(_driveTokenClient)return; // 既に初期化済み
+  _driveTokenClient=google.accounts.oauth2.initTokenClient({
+    client_id:GDRIVE_CLIENT_ID,
+    scope:GDRIVE_SCOPE,
+    callback:resp=>{
+      if(resp.error){console.error('Drive auth error:',resp.error);return;}
+      _driveToken=resp.access_token;
+      _driveTokenExpiry=Date.now()+(resp.expires_in*1000);
+      const btn=document.getElementById('btnDrive');
+      if(btn){btn.textContent='📁 Drive接続済';btn.classList.add('connected');}
+      showToast('✅ Google Driveに接続しました','success');
+    },
+    error_callback:err=>{
+      console.error('Drive error_callback:',err);
+      showToast('⚠ Drive接続エラー: '+JSON.stringify(err),'error');
+    }
+  });
+}
+// GISライブラリ読み込み後に初期化
+(function waitGIS(){
+  if(typeof google!=='undefined'&&google.accounts){_initDriveClient();}
+  else{setTimeout(waitGIS,500);}
+})();
+
+// ヘッダーボタンから明示的に接続
+function connectDrive(){
+  if(_driveToken&&Date.now()<_driveTokenExpiry-60000){
+    showToast('✅ すでにDriveに接続済みです','success');return;
+  }
+  if(!_driveTokenClient){
+    if(typeof google!=='undefined'&&google.accounts){_initDriveClient();}
+    else{showToast('⚠ Google認証ライブラリが読み込まれていません。ページを再読み込みしてください','error');return;}
+  }
+  _driveTokenClient.requestAccessToken({prompt:'consent'});
+}
+
+async function _getDriveToken(){
+  if(_driveToken&&Date.now()<_driveTokenExpiry-60000)return _driveToken;
+  if(!_driveTokenClient){
+    if(typeof google!=='undefined'&&google.accounts)_initDriveClient();
+    else throw new Error('Google認証ライブラリ未読み込み');
+  }
+  return new Promise((resolve,reject)=>{
+    const origCb=_driveTokenClient.callback;
+    _driveTokenClient.callback=resp=>{
+      origCb&&origCb(resp);
+      if(resp.error){reject(new Error(resp.error));return;}
+      resolve(resp.access_token);
+    };
+    _driveTokenClient.requestAccessToken({prompt:''});
+  });
+}
+
+async function _driveGet(path,params={}){
+  const token=await _getDriveToken();
+  const qs=new URLSearchParams(params).toString();
+  const r=await fetch(`https://www.googleapis.com/drive/v3${path}${qs?'?'+qs:''}`,{
+    headers:{'Authorization':`Bearer ${token}`}
+  });
+  return r.json();
+}
+
+async function _findOrCreateFolder(name,parentId){
+  const key=`${parentId}::${name}`;
+  if(_folderCache[key])return _folderCache[key];
+  const safeName=name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const q=`name='${safeName}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`;
+  const resp=await _driveGet('/files',{q,fields:'files(id)',pageSize:1});
+  if(resp.files&&resp.files.length>0){
+    _folderCache[key]=resp.files[0].id;return resp.files[0].id;
+  }
+  const token=await _getDriveToken();
+  const r=await fetch('https://www.googleapis.com/drive/v3/files',{
+    method:'POST',
+    headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
+    body:JSON.stringify({name,mimeType:'application/vnd.google-apps.folder',parents:[parentId]})
+  });
+  const created=await r.json();
+  _folderCache[key]=created.id;return created.id;
+}
+
+async function _uploadToDrive(file,eq){
+  const token=await _getDriveToken();
+  const company=getCompany(eq.companyId);
+  const store=getStore(eq.companyId,eq.storeId);
+  const companyName=company?company.name:'未分類';
+  const storeName=store?store.name:'未分類';
+  const eqFolderName=`${String(eq.id).padStart(4,'0')}_${eq.name}`;
+  // フォルダ構造を作成
+  const rootId=await _findOrCreateFolder('設備機器管理','root');
+  const companyFId=await _findOrCreateFolder(companyName,rootId);
+  const storeFId=await _findOrCreateFolder(storeName,companyFId);
+  const eqFId=await _findOrCreateFolder(eqFolderName,storeFId);
+  // ファイルをアップロード
+  const metadata=JSON.stringify({name:file.name,parents:[eqFId]});
+  const form=new FormData();
+  form.append('metadata',new Blob([metadata],{type:'application/json'}));
+  form.append('file',file);
+  const uploadResp=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',{
+    method:'POST',headers:{'Authorization':`Bearer ${token}`},body:form
+  });
+  const uploaded=await uploadResp.json();
+  if(!uploaded.id)throw new Error('Upload failed:'+JSON.stringify(uploaded));
+  // 公開設定（URLで閲覧可能）
+  await fetch(`https://www.googleapis.com/drive/v3/files/${uploaded.id}/permissions`,{
+    method:'POST',
+    headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
+    body:JSON.stringify({role:'reader',type:'anyone'})
+  });
+  return `https://drive.google.com/thumbnail?id=${uploaded.id}&sz=w800`;
+}
+
+async function _uploadWithFallback(file,eq){
+  try{
+    return await _uploadToDrive(file,eq);
+  }catch(err){
+    console.warn('Drive upload failed, using base64:',err);
+    return new Promise(resolve=>{
+      const reader=new FileReader();
+      reader.onload=ev=>resolve(ev.target.result);
+      reader.readAsDataURL(file);
+    });
+  }
+}
+
+/* ── Firestore 書き込みヘルパー ── */
+async function _saveEq(eq){
+  try{
+    await db.collection('equipments').doc(String(eq.id)).set(eq);
+    return true;
+  }catch(e){
+    console.error(e);
+    showToast('⚠ クラウド保存に失敗しました。通信状況を確認してもう一度お試しください','error');
+    return false;
+  }
+}
+async function _delEq(id){
+  try{await db.collection('equipments').doc(String(id)).delete();}
+  catch(e){console.error(e);showToast('⚠ 削除に失敗しました','error');}
+}
+async function _saveMd(){
+  try{await db.doc('masterData/config').set({
+    companies:masterData.companies,
+    _nextCompanyId:masterData._nextCompanyId,
+    _nextStoreId:masterData._nextStoreId
+  });}
+  catch(e){console.error(e);}
+}
+
+/* ════ ONLINE / OFFLINE 検知 ════ */
+window.addEventListener('offline',()=>{
+  showToast('📴 通信が切断されました。データ保存はできません','error');
+});
+window.addEventListener('online',()=>{
+  showToast('📶 通信が復帰しました','success');
+});
+
+// 写真スロット以外の場所に画像をドロップした際、ブラウザが別タブで
+// 画像を開いてしまう誤操作を防止（写真スロット自体は個別にdrop処理済み）
+window.addEventListener('dragover',ev=>ev.preventDefault());
+window.addEventListener('drop',ev=>{
+  if(!ev.target.closest('.photo-slot,.photo-extra-grid'))ev.preventDefault();
+});
+
+/* ════ INIT ════ */
+rebuildCompanySelect();
+renderList();
+</script>
+</body>
+</html>
