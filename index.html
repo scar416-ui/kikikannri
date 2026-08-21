@@ -970,6 +970,18 @@ function onFilterStoreChange(){
 }
 function applyFilters(){renderList();}
 
+// ベイの種類ごとの表示順：車検ライン → 整備ベイ（番号順）→ 洗車ベイ → 板金ベイ → その他/未設定
+function bayCategorySortKey(bay){
+  if(!bay)return[4,0];
+  if(bay==='車検ライン')return[0,0];
+  if(bay.startsWith('整備ベイ')){
+    const m=bay.match(/(\d+)/);
+    return[1,m?Number(m[1]):0];
+  }
+  if(bay==='洗車ベイ')return[2,0];
+  if(bay==='板金ベイ')return[3,0];
+  return[4,0];
+}
 function getFiltered(){
   return equipments.filter(eq=>{
     const c=getCompany(eq.companyId);
@@ -978,6 +990,9 @@ function getFiltered(){
     if(filters.companyId&&eq.companyId!==filters.companyId)return false;
     if(filters.storeId&&eq.storeId!==filters.storeId)return false;
     return true;
+  }).sort((a,b)=>{
+    const ka=bayCategorySortKey(a.bay),kb=bayCategorySortKey(b.bay);
+    return ka[0]!==kb[0]?ka[0]-kb[0]:ka[1]-kb[1];
   });
 }
 
