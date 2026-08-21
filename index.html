@@ -112,7 +112,6 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .photo-placeholder-icon{font-size:26px;display:block;margin-bottom:4px}
 .photo-placeholder-label{font-size:12px;font-weight:700;color:var(--gray-700);display:block}
 .photo-placeholder-sub{font-size:11px;color:var(--gray-400);display:block;margin-top:2px}
-.ocr-auto-tag{display:inline-block;background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;border:1px solid #bfdbfe;margin-top:4px}
 .optional-tag{display:inline-block;background:var(--gray-100);color:var(--gray-500);font-size:10px;font-weight:600;padding:2px 6px;border-radius:10px;margin-top:3px}
 
 /* Extra photos */
@@ -155,7 +154,6 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .form-group{margin-bottom:14px}
 .form-label{display:block;font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:5px}
 .form-label .required{color:var(--primary);margin-left:2px}
-.form-label .ocr-tag{background:#e0f2fe;color:#0369a1;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:6px;font-weight:600}
 .form-input{width:100%;border:1px solid var(--gray-300);border-radius:6px;padding:9px 12px;font-size:14px;color:var(--gray-800);transition:border-color .15s;background:#fff;font-family:inherit}
 .form-input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(192,40,42,.12)}
 .form-input.error{border-color:var(--primary);background:var(--primary-light)}
@@ -169,13 +167,6 @@ textarea.form-input{resize:vertical;min-height:72px}
 .btn-cancel:hover{background:var(--gray-50)}
 .btn-save{background:var(--primary);color:#fff;border:none;padding:9px 24px;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:8px;box-shadow:0 2px 4px rgba(192,40,42,.3)}
 .btn-save:hover{background:var(--primary-dark)}
-
-/* OCR progress (in modal) */
-.ocr-progress{display:none;align-items:center;gap:12px;padding:12px 14px;background:var(--primary-light);border-radius:var(--radius);margin-bottom:14px;border:1px solid var(--primary-border)}
-.ocr-progress.show{display:flex}
-.spinner{width:18px;height:18px;border:2px solid var(--primary-border);border-top-color:var(--primary);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
-@keyframes spin{to{transform:rotate(360deg)}}
-.ocr-progress-text{font-size:13px;color:var(--primary);font-weight:600}
 
 /* Bay number input */
 .bay-num-wrap{display:flex;gap:8px;align-items:center}
@@ -360,14 +351,10 @@ optgroup{font-weight:700}
           <div class="photo-placeholder" id="modal_ph_銘板">
             <span class="photo-placeholder-icon">🏷️</span>
             <span class="photo-placeholder-label">銘板写真</span>
-            <span class="ocr-auto-tag">📖 OCR 自動読取</span>
-            <span class="photo-placeholder-sub">撮影で情報を自動入力</span>
+            <span class="optional-tag">任意</span>
+            <span class="photo-placeholder-sub">タップまたはドラッグで追加</span>
           </div>
         </div>
-      </div>
-      <div class="ocr-progress" id="ocrProgress">
-        <div class="spinner"></div>
-        <div class="ocr-progress-text">銘板を解析中… メーカー・型式・製造番号を読み取っています</div>
       </div>
       <!-- 追加写真 -->
       <div style="font-size:12px;font-weight:700;color:var(--gray-500);margin-bottom:6px">追加写真</div>
@@ -419,7 +406,7 @@ optgroup{font-weight:700}
 
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">メーカー名 <span class="required">*</span><span class="ocr-tag">OCR</span></label>
+          <label class="form-label">メーカー名 <span class="required">*</span></label>
           <select class="form-input" id="f_maker">
             <option>アルティア</option><option>イヤサカ</option><option>バンザイ</option>
             <option>安全自動車</option><option>スギヤス</option>
@@ -427,14 +414,14 @@ optgroup{font-weight:700}
           <div class="error-msg" id="err_maker" style="display:none">⚠ 読み取り失敗 — 手動で選択</div>
         </div>
         <div class="form-group">
-          <label class="form-label">型式 <span class="required">*</span><span class="ocr-tag">OCR</span></label>
+          <label class="form-label">型式 <span class="required">*</span></label>
           <input type="text" class="form-input" id="f_model" placeholder="例：HLC-3500A">
           <div class="error-msg" id="err_model" style="display:none">⚠ 読み取り失敗 — 手動入力</div>
         </div>
       </div>
 
       <div class="form-group">
-        <label class="form-label">製造番号 <span class="required">*</span><span class="ocr-tag">OCR</span></label>
+        <label class="form-label">製造番号 <span class="required">*</span></label>
         <input type="text" class="form-input" id="f_serial" placeholder="例：SN-2024-0831-001">
         <div class="error-msg" id="err_serial" style="display:none">⚠ 読み取り失敗 — 手動入力</div>
       </div>
@@ -445,7 +432,7 @@ optgroup{font-weight:700}
           <input type="month" class="form-input" id="f_date" onchange="updateElapsedPreview()">
         </div>
         <div class="form-group">
-          <label class="form-label">製造年月<span class="ocr-tag">OCR</span></label>
+          <label class="form-label">製造年月</label>
           <input type="month" class="form-input" id="f_nextcheck">
         </div>
       </div>
@@ -1058,7 +1045,7 @@ function renderDetail(){
         :`<div class="photo-placeholder">
             <span class="photo-placeholder-icon">${icon}</span>
             <span class="photo-placeholder-label">${key}写真</span>
-            ${ocr?'<span class="ocr-auto-tag">📖 OCR対応</span>':'<span class="optional-tag">任意</span>'}
+            <span class="optional-tag">任意</span>
             <span class="photo-placeholder-sub">タップまたはドラッグで追加</span>
           </div>`
       }
@@ -1261,16 +1248,45 @@ function openModalExtraLightbox(i){
   document.getElementById('lightboxLabel').textContent=p.name;
   document.getElementById('lightbox').classList.add('show');
 }
-async function processModalPhoto(file,key){
-  // 銘板はOCR用にbase64必須、それ以外はDrive
-  if(key==='銘板'){
+// 銘板写真は元のまま保存するとスマホ写真で数MB〜数十MBになり、
+// Firestoreの1ドキュメントあたりのフィールドサイズ上限（約1MB）を超えて
+// 「クラウド保存に失敗しました」エラーになるため、base64化する前に
+// 縮小・圧縮してサイズを抑える。
+function _compressImageToDataURL(file,maxDim,quality){
+  return new Promise((resolve,reject)=>{
     const reader=new FileReader();
     reader.onload=(ev)=>{
-      modalPhotos[key]=ev.target.result;
-      updateModalPhotoSlot(key);
-      runOCR();
+      const img=new Image();
+      img.onload=()=>{
+        let w=img.width,h=img.height;
+        if(w>maxDim||h>maxDim){
+          if(w>=h){h=Math.round(h*maxDim/w);w=maxDim;}
+          else{w=Math.round(w*maxDim/h);h=maxDim;}
+        }
+        const canvas=document.createElement('canvas');
+        canvas.width=w;canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        resolve(canvas.toDataURL('image/jpeg',quality));
+      };
+      img.onerror=()=>reject(new Error('画像の読み込みに失敗しました'));
+      img.src=ev.target.result;
     };
+    reader.onerror=()=>reject(new Error('ファイルの読み込みに失敗しました'));
     reader.readAsDataURL(file);
+  });
+}
+async function processModalPhoto(file,key){
+  // 銘板は端末内で圧縮してbase64保存、それ以外はDrive
+  if(key==='銘板'){
+    try{
+      modalPhotos[key]=await _compressImageToDataURL(file,1000,0.7);
+    }catch(e){
+      console.error(e);
+      showToast('⚠ 画像の処理に失敗しました','error');
+      return;
+    }
+    updateModalPhotoSlot(key);
+    showToast('✅ 銘板写真を追加しました','success');
   }else{
     showToast('📤 Google Driveにアップロード中...','info');
     const refEq=currentEq||{id:pendingNewEqId||_genEquipmentId(),name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||''};
@@ -1302,8 +1318,8 @@ function updateModalPhotoSlot(key){
       slot.innerHTML=`<div class="photo-placeholder">
         <span class="photo-placeholder-icon">🏷️</span>
         <span class="photo-placeholder-label">銘板写真</span>
-        <span class="ocr-auto-tag">📖 OCR 自動読取</span>
-        <span class="photo-placeholder-sub">撮影で情報を自動入力</span>
+        <span class="optional-tag">任意</span>
+        <span class="photo-placeholder-sub">タップまたはドラッグで追加</span>
       </div>`;
     } else {
       slot.innerHTML=`<div class="photo-placeholder">
@@ -1322,38 +1338,6 @@ function openModalLightbox(key,e){
   document.getElementById('lightboxImg').src=modalPhotos[key];
   document.getElementById('lightboxLabel').textContent=key+'写真';
   document.getElementById('lightbox').classList.add('show');
-}
-
-/* ════ OCR ════ */
-const ocrData=[
-  {model:'CS6110-00ST', serial:'1329',  mfgdate:'2009-07', err:[]},
-  {model:'HLC-3500A',   serial:'2847',  mfgdate:'2015-03', err:[]},
-  {model:'TW1001D',     serial:'5631',  mfgdate:'2018-11', err:[]},
-  {model:'WM-500',      serial:'9072',  mfgdate:'2021-06', err:[]},
-  {model:'',            serial:'4418',  mfgdate:'2017-04', err:['model']},
-  {model:'OD-200',      serial:'',      mfgdate:'2013-09', err:['serial']},
-  {model:'',            serial:'',      mfgdate:'2020-02', err:['model','serial']},
-];
-function runOCR(){
-  const prog=document.getElementById('ocrProgress');
-  prog.classList.add('show');
-  const r=ocrData[Math.floor(Math.random()*ocrData.length)];
-  const randomMaker=MAKERS[Math.floor(Math.random()*MAKERS.length)];
-  setTimeout(()=>{
-    prog.classList.remove('show');
-    document.getElementById('f_maker').value=randomMaker;
-    document.getElementById('f_model').value=r.model;
-    document.getElementById('f_serial').value=r.serial;
-    if(r.mfgdate)document.getElementById('f_nextcheck').value=r.mfgdate;
-    ['model','serial'].forEach(f=>{
-      const inp=document.getElementById('f_'+f);
-      const err=document.getElementById('err_'+f);
-      if(r.err.includes(f)){inp.classList.add('error');err.style.display='flex';}
-      else{inp.classList.remove('error');err.style.display='none';}
-    });
-    if(r.err.length)showToast(`⚠ ${r.err.length}項目の読み取りに失敗。赤枠を手動入力してください`,'error');
-    else showToast('✅ 銘板OCR完了 — 機器情報を自動入力しました','success');
-  },2200);
 }
 
 /* ════ LIGHTBOX ════ */
@@ -1446,7 +1430,6 @@ function openAddModal(){
   }
 
   document.getElementById('retireSection').style.display='none';
-  document.getElementById('ocrProgress').classList.remove('show');
   document.getElementById('modalOverlay').classList.add('show');
   updateModalPhotoSlot('全体');updateModalPhotoSlot('銘板');
   renderModalExtraGrid();
@@ -1463,7 +1446,6 @@ function openEditModal(){
   rebuildFormCompanySelect();
   fillForm(currentEq);
   document.getElementById('retireSection').style.display='block';
-  document.getElementById('ocrProgress').classList.remove('show');
   document.getElementById('modalOverlay').classList.add('show');
   updateModalPhotoSlot('全体');updateModalPhotoSlot('銘板');
   renderModalExtraGrid();
