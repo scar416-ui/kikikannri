@@ -480,6 +480,9 @@ optgroup{font-weight:700}
             <option value="車検ライン">車検ライン</option>
             <option value="洗車ベイ">洗車ベイ</option>
             <option value="板金ベイ">板金ベイ</option>
+            <option value="コンプレッサー室">コンプレッサー室</option>
+            <option value="中二階">中二階</option>
+            <option value="その他">その他</option>
           </select>
         </div>
         <div class="form-group" id="f_bay_num_group" style="display:none">
@@ -991,7 +994,7 @@ function bayCategorySortKey(bay){
   if(bay==='板金ベイ')return[3,0];
   return[4,0];
 }
-const BAY_GROUP_LABELS=['車検ライン','整備ベイ','洗車ベイ','板金ベイ','未設定'];
+const BAY_GROUP_LABELS=['車検ライン','整備ベイ','洗車ベイ','板金ベイ','その他'];
 function getFiltered(){
   return equipments.filter(eq=>{
     const c=getCompany(eq.companyId);
