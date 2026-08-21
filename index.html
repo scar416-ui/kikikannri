@@ -1529,9 +1529,6 @@ async function saveEquipment(ev){
   const companyId=document.getElementById('f_company').value;
   const storeId=document.getElementById('f_store').value;
   const bay=buildBay();
-  if(!name||!maker||!model||!serial||!companyId||!storeId||!bay){
-    showToast('⚠ 必須項目を全て入力・選択してください','error');return;
-  }
   if(document.getElementById('f_bay_type').value==='整備ベイ'){
     const bayNum=Number(document.getElementById('f_bay_num').value);
     if(!Number.isInteger(bayNum)||bayNum<1||bayNum>99){
@@ -1583,7 +1580,10 @@ async function saveEquipment(ev){
         //  上書きされ「登録したのに消えた」ように見える不具合の原因になるため）
         return;
       }
-      equipments.push(eq);
+      // ※ equipments配列への追加はここでは行わない。
+      // db.collection('equipments').onSnapshot（enablePersistenceによりローカル書き込み直後に発火）が
+      // 自動的にequipmentsを最新状態に置き換えるため、ここでもpushすると
+      // 同じ機器が2件表示される重複バグの原因になっていた。
       pendingNewEqId=null;
       showToast('✅ 機器を登録しました','success');renderList();
     }
