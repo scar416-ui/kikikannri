@@ -103,6 +103,7 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .photo-slot{border-radius:var(--radius);overflow:hidden;position:relative;aspect-ratio:4/3;background:var(--gray-100);border:2px dashed var(--gray-300);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:0;transition:border-color .2s,background .2s}
 .photo-slot:hover{border-color:var(--primary);background:var(--primary-light)}
 .photo-slot.has-photo{border:2px solid var(--gray-200);background:transparent}
+.photo-slot.drag-over{border-color:var(--primary);background:var(--primary-light)}
 .photo-slot img{width:100%;height:100%;object-fit:cover;display:block}
 .photo-overlay{position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;gap:8px;opacity:0;transition:opacity .2s}
 .photo-slot.has-photo:hover .photo-overlay{opacity:1}
@@ -122,6 +123,7 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .photo-extra-item:hover .photo-extra-del{opacity:1}
 .btn-add-photo{background:var(--gray-50);border:2px dashed var(--gray-300);border-radius:6px;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;cursor:pointer;font-size:12px;color:var(--gray-500);font-weight:600;width:100%;transition:border-color .2s,color .2s;font-family:inherit}
 .btn-add-photo:hover{border-color:var(--primary);color:var(--primary)}
+.photo-extra-grid.drag-over .btn-add-photo{border-color:var(--primary);color:var(--primary);background:var(--primary-light)}
 
 /* ── MAINTENANCE HISTORY ── */
 .history-list{display:flex;flex-direction:column;gap:10px}
@@ -346,15 +348,15 @@ optgroup{font-weight:700}
       <!-- ── 写真セクション（モーダル内） ── -->
       <div class="form-divider">📷 写真</div>
       <div class="photo-section-grid" style="margin-bottom:10px">
-        <div class="photo-slot" id="modal_slot_全体" onclick="triggerModalPhoto('全体')">
+        <div class="photo-slot" id="modal_slot_全体" onclick="triggerModalPhoto('全体')" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onModalPhotoDrop(event,'全体')">
           <div class="photo-placeholder" id="modal_ph_全体">
             <span class="photo-placeholder-icon">📷</span>
             <span class="photo-placeholder-label">全体写真</span>
             <span class="optional-tag">任意</span>
-            <span class="photo-placeholder-sub">タップして追加</span>
+            <span class="photo-placeholder-sub">タップまたはドラッグで追加</span>
           </div>
         </div>
-        <div class="photo-slot" id="modal_slot_銘板" onclick="triggerModalPhoto('銘板')">
+        <div class="photo-slot" id="modal_slot_銘板" onclick="triggerModalPhoto('銘板')" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onModalPhotoDrop(event,'銘板')">
           <div class="photo-placeholder" id="modal_ph_銘板">
             <span class="photo-placeholder-icon">🏷️</span>
             <span class="photo-placeholder-label">銘板写真</span>
@@ -369,7 +371,7 @@ optgroup{font-weight:700}
       </div>
       <!-- 追加写真 -->
       <div style="font-size:12px;font-weight:700;color:var(--gray-500);margin-bottom:6px">追加写真</div>
-      <div class="photo-extra-grid" id="modalExtraGrid">
+      <div class="photo-extra-grid" id="modalExtraGrid" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onModalExtraDrop(event)">
         <button class="btn-add-photo" onclick="triggerModalExtraPhoto()">
           <span style="font-size:20px">＋</span><span>写真を追加</span>
         </button>
@@ -1046,7 +1048,7 @@ function renderDetail(){
   function detailPhotoSlot(key,icon,ocr){
     const hasP=!!eq.photos[key];
     const id=`detail_slot_${key.replace(/\s/g,'_')}`;
-    return`<div class="photo-slot${hasP?' has-photo':''}" id="${id}" onclick="triggerDetailPhoto('${key}')">
+    return`<div class="photo-slot${hasP?' has-photo':''}" id="${id}" onclick="triggerDetailPhoto('${key}')" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onDetailPhotoDrop(event,'${key}')">
       ${hasP
         ?`<img src="${eq.photos[key]}" alt="${key}" onclick="openLightbox('${key}',event)">
           <div class="photo-overlay">
@@ -1057,7 +1059,7 @@ function renderDetail(){
             <span class="photo-placeholder-icon">${icon}</span>
             <span class="photo-placeholder-label">${key}写真</span>
             ${ocr?'<span class="ocr-auto-tag">📖 OCR対応</span>':'<span class="optional-tag">任意</span>'}
-            <span class="photo-placeholder-sub">タップして追加</span>
+            <span class="photo-placeholder-sub">タップまたはドラッグで追加</span>
           </div>`
       }
     </div>`;
@@ -1141,7 +1143,7 @@ function renderDetail(){
         ${detailPhotoSlot('銘板','🏷️',true)}
       </div>
       <div style="margin-top:12px;font-size:12px;font-weight:700;color:var(--gray-500);margin-bottom:6px">追加写真</div>
-      <div class="photo-extra-grid">
+      <div class="photo-extra-grid" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onDetailExtraDrop(event)">
         ${extraPhotos}
         <button class="btn-add-photo" onclick="triggerDetailExtraPhoto()">
           <span style="font-size:20px">＋</span><span>写真を追加</span>
@@ -1160,25 +1162,61 @@ function renderDetail(){
 }
 
 /* ════ DETAIL PHOTOS ════ */
+/* ════ DRAG & DROP (共通) ════ */
+function onPhotoDragOver(e){e.preventDefault();e.currentTarget.classList.add('drag-over');}
+function onPhotoDragLeave(e){e.currentTarget.classList.remove('drag-over');}
+function _firstImageFile(dataTransfer){
+  const file=dataTransfer&&dataTransfer.files&&dataTransfer.files[0];
+  if(!file)return null;
+  if(!file.type.startsWith('image/')){showToast('⚠ 画像ファイルのみ追加できます','error');return null;}
+  return file;
+}
+function onDetailPhotoDrop(e,key){
+  e.preventDefault();e.currentTarget.classList.remove('drag-over');
+  const file=_firstImageFile(e.dataTransfer);if(!file)return;
+  processDetailPhoto(file,key);
+}
+function onDetailExtraDrop(e){
+  e.preventDefault();e.currentTarget.classList.remove('drag-over');
+  const file=_firstImageFile(e.dataTransfer);if(!file)return;
+  processDetailExtraPhoto(file);
+}
+function onModalPhotoDrop(e,key){
+  e.preventDefault();e.currentTarget.classList.remove('drag-over');
+  const file=_firstImageFile(e.dataTransfer);if(!file)return;
+  processModalPhoto(file,key);
+}
+function onModalExtraDrop(e){
+  e.preventDefault();e.currentTarget.classList.remove('drag-over');
+  const file=_firstImageFile(e.dataTransfer);if(!file)return;
+  processModalExtraPhoto(file);
+}
+
 function triggerDetailPhoto(key){document.getElementById(`fi_detail_${key}`).click();}
-async function handleDetailPhoto(e,key){
-  const file=e.target.files[0];if(!file)return;
-  e.target.value='';
+async function processDetailPhoto(file,key){
   showToast('📤 Google Driveにアップロード中...','info');
   const url=await _uploadWithFallback(file,currentEq);
   currentEq.photos[key]=url;
   await _saveEq(currentEq);
   renderDetail();showToast(`✅ ${key}写真を追加しました`,'success');
 }
-function triggerDetailExtraPhoto(){document.getElementById('fi_detail_extra').click();}
-async function handleDetailExtraPhoto(e){
+async function handleDetailPhoto(e,key){
   const file=e.target.files[0];if(!file)return;
   e.target.value='';
+  await processDetailPhoto(file,key);
+}
+function triggerDetailExtraPhoto(){document.getElementById('fi_detail_extra').click();}
+async function processDetailExtraPhoto(file){
   showToast('📤 Google Driveにアップロード中...','info');
   const url=await _uploadWithFallback(file,currentEq);
   currentEq.photos.extra.push({name:file.name,data:url});
   await _saveEq(currentEq);
   renderDetail();showToast('✅ 写真を追加しました','success');
+}
+async function handleDetailExtraPhoto(e){
+  const file=e.target.files[0];if(!file)return;
+  e.target.value='';
+  await processDetailExtraPhoto(file);
 }
 function deleteExtraPhoto(i,e){
   e.stopPropagation();currentEq.photos.extra.splice(i,1);
@@ -1189,15 +1227,18 @@ function deleteExtraPhoto(i,e){
 /* ════ MODAL PHOTOS ════ */
 function triggerModalPhoto(key){document.getElementById(`fi_modal_${key}`).click();}
 function triggerModalExtraPhoto(){document.getElementById('fi_modal_extra').click();}
-async function handleModalExtraPhoto(e){
-  const file=e.target.files[0];if(!file)return;
-  e.target.value='';
+async function processModalExtraPhoto(file){
   showToast('📤 Google Driveにアップロード中...','info');
   const refEq=currentEq||{id:pendingNewEqId||_genEquipmentId(),name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||''};
   const url=await _uploadWithFallback(file,refEq);
   modalPhotos.extra.push({name:file.name,data:url});
   renderModalExtraGrid();
   showToast('✅ 写真を追加しました','success');
+}
+async function handleModalExtraPhoto(e){
+  const file=e.target.files[0];if(!file)return;
+  e.target.value='';
+  await processModalExtraPhoto(file);
 }
 function deleteModalExtraPhoto(i){
   modalPhotos.extra.splice(i,1);renderModalExtraGrid();
@@ -1220,9 +1261,7 @@ function openModalExtraLightbox(i){
   document.getElementById('lightboxLabel').textContent=p.name;
   document.getElementById('lightbox').classList.add('show');
 }
-async function handleModalPhoto(e,key){
-  const file=e.target.files[0];if(!file)return;
-  e.target.value='';
+async function processModalPhoto(file,key){
   // 銘板はOCR用にbase64必須、それ以外はDrive
   if(key==='銘板'){
     const reader=new FileReader();
@@ -1240,6 +1279,11 @@ async function handleModalPhoto(e,key){
     updateModalPhotoSlot(key);
     showToast('✅ 全体写真を追加しました','success');
   }
+}
+async function handleModalPhoto(e,key){
+  const file=e.target.files[0];if(!file)return;
+  e.target.value='';
+  await processModalPhoto(file,key);
 }
 function updateModalPhotoSlot(key){
   const slot=document.getElementById(`modal_slot_${key}`);
@@ -1266,7 +1310,7 @@ function updateModalPhotoSlot(key){
         <span class="photo-placeholder-icon">📷</span>
         <span class="photo-placeholder-label">全体写真</span>
         <span class="optional-tag">任意</span>
-        <span class="photo-placeholder-sub">タップして追加</span>
+        <span class="photo-placeholder-sub">タップまたはドラッグで追加</span>
       </div>`;
     }
     slot.onclick=()=>triggerModalPhoto(key);
