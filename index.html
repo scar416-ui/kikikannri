@@ -54,6 +54,9 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 .card-name{font-weight:600;font-size:14px;flex:1}
 .card-bay-inline{font-weight:500;font-size:12px;color:var(--gray-500);margin-left:6px}
+.list-group-header{display:flex;align-items:center;gap:8px;margin:14px 0 6px;font-size:12px;font-weight:700;color:var(--primary);letter-spacing:.02em}
+.list-group-header:first-child{margin-top:0}
+.list-group-header::after{content:'';flex:1;height:1px;background:var(--primary-border)}
 .card-meta{margin-top:6px;font-size:12px;color:var(--gray-500);display:flex;gap:12px;flex-wrap:wrap}
 .card-location{margin-top:8px;display:flex;flex-wrap:wrap;gap:4px}
 .location-tag{display:inline-flex;align-items:center;gap:3px;background:var(--primary-light);color:var(--primary);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;border:1px solid var(--primary-border)}
@@ -982,6 +985,7 @@ function bayCategorySortKey(bay){
   if(bay==='板金ベイ')return[3,0];
   return[4,0];
 }
+const BAY_GROUP_LABELS=['車検ライン','整備ベイ','洗車ベイ','板金ベイ','未設定'];
 function getFiltered(){
   return equipments.filter(eq=>{
     const c=getCompany(eq.companyId);
@@ -1005,6 +1009,7 @@ function renderList(){
     el.innerHTML='<div class="empty-state"><div class="empty-icon">🔍</div><div>該当する機器が見つかりません</div></div>';
     return;
   }
+  let lastGroup=null;
   el.innerHTML=list.map(eq=>{
     const s=STATUS_MAP[eq.status]||STATUS_MAP.ok;
     const elapsed=calcElapsed(eq.date);
@@ -1014,7 +1019,13 @@ function renderList(){
     const isAct=currentEq&&currentEq.id===eq.id;
     const c=getCompany(eq.companyId);
     const st=getStore(eq.companyId,eq.storeId);
-    return`<div class="equipment-card${isAct?' active':''}" onclick="showDetail(${eq.id})">
+    const group=bayCategorySortKey(eq.bay)[0];
+    let header='';
+    if(group!==lastGroup){
+      header=`<div class="list-group-header">🔧 ${BAY_GROUP_LABELS[group]}</div>`;
+      lastGroup=group;
+    }
+    return header+`<div class="equipment-card${isAct?' active':''}" onclick="showDetail(${eq.id})">
       <div class="card-top"><div class="card-name">${eq.name}${eq.bay?`<span class="card-bay-inline">🔧 ${eq.bay}</span>`:''}</div><span class="badge ${s.cls}">${s.label}</span></div>
       <div class="card-meta"><span>🏭 ${eq.maker}</span><span>📋 ${eq.model}</span></div>
       <div class="card-location">
