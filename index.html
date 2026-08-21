@@ -53,6 +53,7 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .equipment-card.active{border-color:var(--primary);box-shadow:0 0 0 3px rgba(192,40,42,.1)}
 .card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 .card-name{font-weight:600;font-size:14px;flex:1}
+.card-bay-inline{font-weight:500;font-size:12px;color:var(--gray-500);margin-left:6px}
 .card-meta{margin-top:6px;font-size:12px;color:var(--gray-500);display:flex;gap:12px;flex-wrap:wrap}
 .card-location{margin-top:8px;display:flex;flex-wrap:wrap;gap:4px}
 .location-tag{display:inline-flex;align-items:center;gap:3px;background:var(--primary-light);color:var(--primary);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;border:1px solid var(--primary-border)}
@@ -435,6 +436,10 @@ optgroup{font-weight:700}
           <label class="form-label">製造年月</label>
           <input type="month" class="form-input" id="f_nextcheck">
         </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">設置日</label>
+        <input type="date" class="form-input" id="f_installdate">
       </div>
       <div id="elapsedPreview"></div>
 
@@ -989,18 +994,20 @@ function renderList(){
     const s=STATUS_MAP[eq.status]||STATUS_MAP.ok;
     const elapsed=calcElapsed(eq.date);
     const old=isOld(eq.date);
+    const mfgElapsed=calcElapsed(eq.nextcheck);
+    const mfgOld=isOld(eq.nextcheck);
     const isAct=currentEq&&currentEq.id===eq.id;
     const c=getCompany(eq.companyId);
     const st=getStore(eq.companyId,eq.storeId);
     return`<div class="equipment-card${isAct?' active':''}" onclick="showDetail(${eq.id})">
-      <div class="card-top"><div class="card-name">${eq.name}</div><span class="badge ${s.cls}">${s.label}</span></div>
+      <div class="card-top"><div class="card-name">${eq.name}${eq.bay?`<span class="card-bay-inline">🔧 ${eq.bay}</span>`:''}</div><span class="badge ${s.cls}">${s.label}</span></div>
       <div class="card-meta"><span>🏭 ${eq.maker}</span><span>📋 ${eq.model}</span></div>
       <div class="card-location">
         ${c?`<span class="location-tag">🏢 ${companyLabel(c)}</span>`:''}
         ${st?`<span class="location-tag">🏬 ${storeLabel(st)}</span>`:''}
-        ${eq.bay?`<span class="location-tag">🔧 ${eq.bay}</span>`:''}
       </div>
       ${elapsed?`<div class="card-elapsed">導入から <span class="${old?'elapsed-warn':''}">${elapsed}</span>${old?' ⚠':''}経過</div>`:''}
+      ${mfgElapsed?`<div class="card-elapsed">製造から <span class="${mfgOld?'elapsed-warn':''}">${mfgElapsed}</span>${mfgOld?' ⚠':''}経過</div>`:''}
     </div>`;
   }).join('');
 }
@@ -1029,6 +1036,8 @@ function renderDetail(){
   const s=STATUS_MAP[eq.status]||STATUS_MAP.ok;
   const elapsed=calcElapsed(eq.date);
   const old=isOld(eq.date);
+  const mfgElapsed=calcElapsed(eq.nextcheck);
+  const mfgOld=isOld(eq.nextcheck);
   const c=getCompany(eq.companyId);
   const st=getStore(eq.companyId,eq.storeId);
 
@@ -1097,7 +1106,12 @@ function renderDetail(){
           <div class="info-item-value">${eq.date||'—'}</div>
           ${elapsed?`<div class="elapsed-badge ${old?'old':'normal'}">${elapsed}経過${old?' ⚠':''}</div>`:''}
         </div>
-        <div class="info-item"><div class="info-item-label">製造年月</div><div class="info-item-value">${eq.nextcheck||'—'}</div></div>
+        <div class="info-item">
+          <div class="info-item-label">製造年月</div>
+          <div class="info-item-value">${eq.nextcheck||'—'}</div>
+          ${mfgElapsed?`<div class="elapsed-badge ${mfgOld?'old':'normal'}">${mfgElapsed}経過${mfgOld?' ⚠':''}</div>`:''}
+        </div>
+        <div class="info-item"><div class="info-item-label">設置日</div><div class="info-item-value">${eq.installDate||'—'}</div></div>
       </div>
     </div>
 
@@ -1461,6 +1475,7 @@ function clearForm(){
   document.getElementById('f_serial').value='';
   document.getElementById('f_date').value='';
   document.getElementById('f_nextcheck').value='';
+  document.getElementById('f_installdate').value='';
   document.getElementById('f_note').value='';
   document.getElementById('f_company').value='';
   document.getElementById('f_store').innerHTML='<option value="">販社を先に選択</option>';
@@ -1479,6 +1494,7 @@ function fillForm(eq){
   document.getElementById('f_serial').value=eq.serial;
   document.getElementById('f_date').value=eq.date||'';
   document.getElementById('f_nextcheck').value=eq.nextcheck||'';
+  document.getElementById('f_installdate').value=eq.installDate||'';
   document.getElementById('f_note').value=eq.note||'';
   document.getElementById('f_company').value=eq.companyId||'';
   onFormCompanyChange();
@@ -1534,6 +1550,7 @@ async function saveEquipment(ev){
       Object.assign(currentEq,{name,status,maker,model,serial,
         date:document.getElementById('f_date').value,
         nextcheck:document.getElementById('f_nextcheck').value,
+        installDate:document.getElementById('f_installdate').value,
         companyId,storeId,bay,note:document.getElementById('f_note').value
       });
       if(modalPhotos['全体'])currentEq.photos['全体']=modalPhotos['全体'];
@@ -1551,6 +1568,7 @@ async function saveEquipment(ev){
       const eq={id:pendingNewEqId||_genEquipmentId(),name,status,maker,model,serial,
         date:document.getElementById('f_date').value,
         nextcheck:document.getElementById('f_nextcheck').value,
+        installDate:document.getElementById('f_installdate').value,
         companyId,storeId,bay,note:document.getElementById('f_note').value,
         photos:{'全体':modalPhotos['全体']||null,'銘板':modalPhotos['銘板']||null,extra:modalPhotos.extra},
         maintenance:[]
@@ -1882,7 +1900,7 @@ function updateExportPreview(){
 function todayStr(){return new Date().toLocaleDateString('ja-JP');}
 
 function buildEquipmentSheet(eqList, titleLabel){
-  const HDR=['No.','機器名称','メーカー','型式','製造番号','製造年月','導入年月','経過年数','ステータス','ベイ','備考'];
+  const HDR=['No.','機器名称','メーカー','型式','製造番号','製造年月','導入年月','設置日','経過年数','ステータス','ベイ','備考'];
   const aoa=[
     [titleLabel],
     [`出力日：${todayStr()}`],
@@ -1898,6 +1916,7 @@ function buildEquipmentSheet(eqList, titleLabel){
       eq.serial,
       eq.nextcheck||'—',
       eq.date||'—',
+      eq.installDate||'—',
       calcElapsed(eq.date)||'—',
       STATUS_MAP[eq.status]?.label||'—',
       eq.bay||'—',
@@ -1905,7 +1924,7 @@ function buildEquipmentSheet(eqList, titleLabel){
     ]);
   });
   const ws=XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols']=[{wch:5},{wch:22},{wch:14},{wch:16},{wch:16},{wch:10},{wch:10},{wch:12},{wch:24},{wch:14},{wch:28}];
+  ws['!cols']=[{wch:5},{wch:22},{wch:14},{wch:16},{wch:16},{wch:10},{wch:10},{wch:12},{wch:12},{wch:24},{wch:14},{wch:28}];
   return ws;
 }
 
