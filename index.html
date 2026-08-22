@@ -12,6 +12,8 @@
   --caution:#d97706;--caution-bg:#fef3c7;--caution-border:#fde68a;
   --parts:#7c3aed;--parts-bg:#ede9fe;--parts-border:#ddd6fe;
   --danger:#c0282a;--danger-bg:#fee2e2;--danger-border:#fecaca;
+  --info:#2563eb;--info-bg:#dbeafe;--info-border:#bfdbfe;
+  --neutral:#64748b;--neutral-bg:#f1f5f9;--neutral-border:#e2e8f0;
   --gray-50:#f9fafb;--gray-100:#f3f4f6;--gray-200:#e5e7eb;--gray-300:#d1d5db;
   --gray-400:#9ca3af;--gray-500:#6b7280;--gray-600:#4b5563;
   --gray-700:#374151;--gray-800:#1f2937;--gray-900:#111827;
@@ -68,6 +70,8 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .badge-caution{background:var(--caution-bg);color:var(--caution);border-color:var(--caution-border)}
 .badge-parts{background:var(--parts-bg);color:var(--parts);border-color:var(--parts-border)}
 .badge-danger{background:var(--danger-bg);color:var(--danger);border-color:var(--danger-border)}
+.badge-info{background:var(--info-bg);color:var(--info);border-color:var(--info-border)}
+.badge-gray{background:var(--neutral-bg);color:var(--neutral);border-color:var(--neutral-border)}
 
 /* ── DETAIL ── */
 .detail-panel{display:none;flex:1;overflow-y:auto;background:#fff}
@@ -88,6 +92,9 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .manage-item-meta{font-size:11px;color:var(--gray-400);white-space:nowrap}
 .btn-del-item{background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:15px;padding:2px 5px;border-radius:4px;flex-shrink:0;line-height:1}
 .btn-del-item:hover{color:var(--primary);background:var(--primary-light)}
+.btn-edit-item{background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:14px;padding:2px 5px;border-radius:4px;flex-shrink:0;line-height:1}
+.btn-edit-item:hover{color:var(--primary);background:var(--primary-light)}
+.status-swatch{width:10px;height:10px;border-radius:50%;flex-shrink:0}
 .manage-empty{font-size:13px;color:var(--gray-400);text-align:center;padding:12px;background:var(--gray-50);border-radius:6px}
 .btn-edit:hover{background:var(--primary-dark)}
 .detail-body{padding:20px}
@@ -247,6 +254,7 @@ optgroup{font-weight:700}
     <div class="cloud-dot"></div>
     <span class="header-user" id="loginUserEmail"></span>
     <button class="btn-drive" id="btnDrive" onclick="connectDrive()" title="Google Driveに接続">📁 Drive未接続</button>
+    <button class="btn-drive" onclick="openItemManageModal()" title="機器名称・ステータス・ベイ種別を管理">⚙ 項目管理</button>
     <button class="btn-logout" onclick="doLogout()">ログアウト</button>
   </div>
 </div>
@@ -375,43 +383,12 @@ optgroup{font-weight:700}
         <label class="form-label">機器名称 <span class="required">*</span></label>
         <select class="form-input" id="f_name">
           <option value="">選択してください</option>
-          <optgroup label="リフト">
-            <option>パンタリフト</option><option>ドライブオンリフト</option>
-            <option>４柱リフト</option><option>門型リフト</option><option>２柱リフト</option>
-            <option>ツインリフト</option><option>多柱リフト</option><option>フロアリフト</option>
-            <option>ピットリフト</option><option>フロントリフト</option><option>テストリフト</option>
-            <option>その他（リフト）</option>
-          </optgroup>
-          <optgroup label="車検機器">
-            <option>サイドスリップテスター</option><option>コンビテスター</option>
-            <option>ヘッドライトテスター</option><option>排気ガステスター</option>
-            <option>オパシメーター</option><option>音量計</option>
-            <option>その他（車検機器）</option>
-          </optgroup>
-          <optgroup label="コンプレッサー">
-            <option>レシプロ式コンプレッサー</option><option>パッケージコンプレッサー</option>
-            <option>パッケージコンプレッサー（DR付）</option><option>ドライヤー</option><option>ドレントラップ</option>
-            <option>その他（コンプレッサー）</option>
-          </optgroup>
-          <optgroup label="洗車機器">
-            <option>スチーム洗車機</option><option>門型洗車機</option><option>下部洗浄機</option>
-            <option>その他（洗車機器）</option>
-          </optgroup>
-          <optgroup label="その他">
-            <option>油圧プレス</option><option>ATFチェンジャー</option><option>オイルドレン</option>
-            <option>真空ポンプ</option><option>充電器</option><option>その他機器</option>
-          </optgroup>
         </select>
       </div>
 
       <div class="form-group">
         <label class="form-label">ステータス <span class="required">*</span></label>
-        <select class="form-input" id="f_status">
-          <option value="ok">問題なし</option>
-          <option value="caution">注意（代替検討）</option>
-          <option value="parts">部品供給終了（代替提案）</option>
-          <option value="danger">危険（要代替）</option>
-        </select>
+        <select class="form-input" id="f_status"></select>
       </div>
 
       <div class="form-row">
@@ -476,13 +453,6 @@ optgroup{font-weight:700}
           <label class="form-label">ベイ種別 <span class="required">*</span></label>
           <select class="form-input" id="f_bay_type" onchange="onBayTypeChange()">
             <option value="">選択してください</option>
-            <option value="整備ベイ">整備ベイ</option>
-            <option value="車検ライン">車検ライン</option>
-            <option value="洗車ベイ">洗車ベイ</option>
-            <option value="板金ベイ">板金ベイ</option>
-            <option value="コンプレッサー室">コンプレッサー室</option>
-            <option value="中二階">中二階</option>
-            <option value="その他">その他</option>
           </select>
         </div>
         <div class="form-group" id="f_bay_num_group" style="display:none">
@@ -674,6 +644,91 @@ optgroup{font-weight:700}
   </div>
 </div>
 
+<!-- ════ 項目管理モーダル（機器名称・ステータス・ベイ種別） ════ -->
+<div class="modal-overlay" id="itemManageOverlay" onclick="handleItemManageOverlayClick(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">⚙ 項目管理</div>
+      <button class="btn-close" onclick="closeItemManageModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="manage-section">
+        <div class="manage-section-title">機器名称</div>
+        <div class="manage-list" id="eqNameManageList"></div>
+      </div>
+      <div class="form-divider">＋ 機器名称を追加・編集</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">カテゴリ <span class="required">*</span></label>
+          <select class="form-input" id="en_category">
+            <option value="リフト">リフト</option>
+            <option value="車検機器">車検機器</option>
+            <option value="コンプレッサー">コンプレッサー</option>
+            <option value="洗車機器">洗車機器</option>
+            <option value="その他">その他</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">名称 <span class="required">*</span></label>
+          <input type="text" class="form-input" id="en_name" placeholder="例：パンタリフト">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:22px">
+        <button class="btn-save" style="flex:1;justify-content:center" id="en_saveBtn" onclick="saveEquipmentName()">💾 追加する</button>
+        <button class="btn-cancel" id="en_cancelBtn" style="display:none" onclick="cancelEditEquipmentName()">キャンセル</button>
+      </div>
+
+      <div class="manage-section">
+        <div class="manage-section-title">ステータス</div>
+        <div class="manage-list" id="statusManageList"></div>
+      </div>
+      <div class="form-divider">＋ ステータスを追加・編集</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">ラベル <span class="required">*</span></label>
+          <input type="text" class="form-input" id="st_label" placeholder="例：修理中">
+        </div>
+        <div class="form-group">
+          <label class="form-label">色</label>
+          <select class="form-input" id="st_color">
+            <option value="badge-ok">緑</option>
+            <option value="badge-caution">黄</option>
+            <option value="badge-parts">紫</option>
+            <option value="badge-danger">赤</option>
+            <option value="badge-info">青</option>
+            <option value="badge-gray">グレー</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:22px">
+        <button class="btn-save" style="flex:1;justify-content:center" id="st_saveBtn" onclick="saveStatusItem()">💾 追加する</button>
+        <button class="btn-cancel" id="st_cancelBtn" style="display:none" onclick="cancelEditStatus()">キャンセル</button>
+      </div>
+
+      <div class="manage-section">
+        <div class="manage-section-title">ベイ種別</div>
+        <div class="manage-list" id="bayTypeManageList"></div>
+      </div>
+      <div class="form-divider">＋ ベイ種別を追加・編集</div>
+      <div class="form-group">
+        <label class="form-label">種別名 <span class="required">*</span></label>
+        <input type="text" class="form-input" id="bt_name" placeholder="例：整備ベイ">
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="bt_hasNumber" style="width:auto">
+        <label class="form-label" style="margin:0" for="bt_hasNumber">番号を入力させる（例：「整備ベイ 3番」）</label>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-save" style="flex:1;justify-content:center" id="bt_saveBtn" onclick="saveBayTypeItem()">💾 追加する</button>
+        <button class="btn-cancel" id="bt_cancelBtn" style="display:none" onclick="cancelEditBayType()">キャンセル</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeItemManageModal()">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <!-- ════ Excel出力モーダル ════ -->
 <div class="modal-overlay" id="exportOverlay" onclick="handleExportOverlayClick(event)">
   <div class="modal">
@@ -795,13 +850,45 @@ optgroup{font-weight:700}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 /* ════ CONSTANTS ════ */
-const STATUS_MAP={
-  ok:    {label:'問題なし',            cls:'badge-ok'},
-  caution:{label:'注意（代替検討）',    cls:'badge-caution'},
-  parts: {label:'部品供給終了（代替提案）',cls:'badge-parts'},
-  danger:{label:'危険（要代替）',       cls:'badge-danger'},
-};
 const MAKERS=['アルティア','イヤサカ','バンザイ','安全自動車','スギヤス'];
+const COLOR_VAR_MAP={'badge-ok':'--ok','badge-caution':'--caution','badge-parts':'--parts','badge-danger':'--danger','badge-info':'--info','badge-gray':'--neutral'};
+
+/* 機器名称・ステータス・ベイ種別の既定値（Firestoreに未保存の場合のフォールバック） */
+const DEFAULT_EQUIPMENT_NAMES=[
+  {id:'en1',category:'リフト',name:'パンタリフト'},{id:'en2',category:'リフト',name:'ドライブオンリフト'},
+  {id:'en3',category:'リフト',name:'４柱リフト'},{id:'en4',category:'リフト',name:'門型リフト'},
+  {id:'en5',category:'リフト',name:'２柱リフト'},{id:'en6',category:'リフト',name:'ツインリフト'},
+  {id:'en7',category:'リフト',name:'多柱リフト'},{id:'en8',category:'リフト',name:'フロアリフト'},
+  {id:'en9',category:'リフト',name:'ピットリフト'},{id:'en10',category:'リフト',name:'フロントリフト'},
+  {id:'en11',category:'リフト',name:'テストリフト'},{id:'en12',category:'リフト',name:'その他（リフト）'},
+  {id:'en13',category:'車検機器',name:'サイドスリップテスター'},{id:'en14',category:'車検機器',name:'コンビテスター'},
+  {id:'en15',category:'車検機器',name:'ヘッドライトテスター'},{id:'en16',category:'車検機器',name:'排気ガステスター'},
+  {id:'en17',category:'車検機器',name:'オパシメーター'},{id:'en18',category:'車検機器',name:'音量計'},
+  {id:'en19',category:'車検機器',name:'その他（車検機器）'},
+  {id:'en20',category:'コンプレッサー',name:'レシプロ式コンプレッサー'},{id:'en21',category:'コンプレッサー',name:'パッケージコンプレッサー'},
+  {id:'en22',category:'コンプレッサー',name:'パッケージコンプレッサー（DR付）'},{id:'en23',category:'コンプレッサー',name:'ドライヤー'},
+  {id:'en24',category:'コンプレッサー',name:'ドレントラップ'},{id:'en25',category:'コンプレッサー',name:'その他（コンプレッサー）'},
+  {id:'en26',category:'洗車機器',name:'スチーム洗車機'},{id:'en27',category:'洗車機器',name:'門型洗車機'},
+  {id:'en28',category:'洗車機器',name:'下部洗浄機'},{id:'en29',category:'洗車機器',name:'その他（洗車機器）'},
+  {id:'en30',category:'その他',name:'油圧プレス'},{id:'en31',category:'その他',name:'ATFチェンジャー'},
+  {id:'en32',category:'その他',name:'オイルドレン'},{id:'en33',category:'その他',name:'真空ポンプ'},
+  {id:'en34',category:'その他',name:'充電器'},{id:'en35',category:'その他',name:'その他機器'},
+];
+const DEFAULT_STATUSES=[
+  {id:'ok',label:'問題なし',cls:'badge-ok'},
+  {id:'caution',label:'注意（代替検討）',cls:'badge-caution'},
+  {id:'parts',label:'部品供給終了（代替提案）',cls:'badge-parts'},
+  {id:'danger',label:'危険（要代替）',cls:'badge-danger'},
+];
+const DEFAULT_BAY_TYPES=[
+  {id:'bt1',name:'車検ライン',hasNumber:false},
+  {id:'bt2',name:'整備ベイ',hasNumber:true},
+  {id:'bt3',name:'洗車ベイ',hasNumber:false},
+  {id:'bt4',name:'板金ベイ',hasNumber:false},
+  {id:'bt5',name:'コンプレッサー室',hasNumber:false},
+  {id:'bt6',name:'中二階',hasNumber:false},
+  {id:'bt7',name:'その他',hasNumber:false},
+];
 
 /* ════ MASTER DATA ════ */
 let masterData = {
@@ -819,6 +906,12 @@ let masterData = {
   ],
   _nextCompanyId: 6,
   _nextStoreId: 11,
+  equipmentNames: DEFAULT_EQUIPMENT_NAMES.map(x=>({...x})),
+  _nextEqNameId: 36,
+  statuses: DEFAULT_STATUSES.map(x=>({...x})),
+  _nextStatusId: 1,
+  bayTypes: DEFAULT_BAY_TYPES.map(x=>({...x})),
+  _nextBayTypeId: 8,
 };
 
 /* ════ MASTER DATA HELPERS ════ */
@@ -830,33 +923,79 @@ function getStore(companyId, storeId){
 function companyLabel(c){ return c ? `${c.name}（${c.code}）` : '—'; }
 function storeLabel(s)  { return s ? `${s.name}（${s.code}）` : '—'; }
 
+/* ════ ステータス HELPERS ════ */
+function statusInfo(value){
+  return masterData.statuses.find(s=>s.id===value) || {label:value||'—',cls:'badge-gray'};
+}
+
 /* ════ BAY HELPERS ════ */
+function _escRe(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+function getBayTypeByName(name){ return masterData.bayTypes.find(b=>b.name===name)||null; }
 function parseBay(bay){
   if(!bay)return{type:'',num:''};
-  const m=bay.match(/^整備ベイ\s+(\d+)番?$/);
-  if(m)return{type:'整備ベイ',num:m[1]};
+  for(const bt of masterData.bayTypes){
+    if(bt.hasNumber){
+      const m=bay.match(new RegExp('^'+_escRe(bt.name)+'\\s+(\\d+)番?$'));
+      if(m)return{type:bt.name,num:m[1]};
+    }
+  }
   return{type:bay,num:''};
 }
 function buildBay(){
   const type=document.getElementById('f_bay_type').value;
   if(!type)return'';
-  if(type==='整備ベイ'){
+  const bt=getBayTypeByName(type);
+  if(bt&&bt.hasNumber){
     const n=document.getElementById('f_bay_num').value.trim();
-    return n?`整備ベイ ${n}番`:'';
+    return n?`${type} ${n}番`:'';
   }
   return type;
 }
 function onBayTypeChange(){
   const type=document.getElementById('f_bay_type').value;
+  const bt=getBayTypeByName(type);
   const grp=document.getElementById('f_bay_num_group');
-  grp.style.display=type==='整備ベイ'?'block':'none';
-  if(type!=='整備ベイ')document.getElementById('f_bay_num').value='';
+  const show=!!(bt&&bt.hasNumber);
+  grp.style.display=show?'block':'none';
+  if(!show)document.getElementById('f_bay_num').value='';
 }
 function setBayValue(bay){
   const{type,num}=parseBay(bay);
   document.getElementById('f_bay_type').value=type;
-  document.getElementById('f_bay_num_group').style.display=type==='整備ベイ'?'block':'none';
+  const bt=getBayTypeByName(type);
+  document.getElementById('f_bay_num_group').style.display=(bt&&bt.hasNumber)?'block':'none';
   document.getElementById('f_bay_num').value=num;
+}
+
+/* ════ 動的セレクト構築 ════ */
+function rebuildEquipmentNameSelect(){
+  const sel=document.getElementById('f_name');if(!sel)return;
+  const prev=sel.value;
+  const categories=[...new Set(masterData.equipmentNames.map(e=>e.category))];
+  let html='<option value="">選択してください</option>';
+  categories.forEach(cat=>{
+    html+=`<optgroup label="${cat}">`;
+    masterData.equipmentNames.filter(e=>e.category===cat).forEach(e=>{
+      html+=`<option>${e.name}</option>`;
+    });
+    html+='</optgroup>';
+  });
+  sel.innerHTML=html;
+  if(prev&&masterData.equipmentNames.some(e=>e.name===prev))sel.value=prev;
+}
+function rebuildStatusSelect(){
+  const sel=document.getElementById('f_status');if(!sel)return;
+  const prev=sel.value;
+  sel.innerHTML=masterData.statuses.map(s=>`<option value="${s.id}">${s.label}</option>`).join('');
+  if(prev&&masterData.statuses.some(s=>s.id===prev))sel.value=prev;
+  else if(masterData.statuses.length)sel.value=masterData.statuses[0].id;
+}
+function rebuildBayTypeSelect(){
+  const sel=document.getElementById('f_bay_type');if(!sel)return;
+  const prev=sel.value;
+  sel.innerHTML='<option value="">選択してください</option>'+
+    masterData.bayTypes.map(b=>`<option value="${b.name}">${b.name}</option>`).join('');
+  if(prev&&masterData.bayTypes.some(b=>b.name===prev))sel.value=prev;
 }
 
 /* ════ ELAPSED ════ */
@@ -982,19 +1121,26 @@ function onFilterStoreChange(){
 }
 function applyFilters(){renderList();}
 
-// ベイの種類ごとの表示順：車検ライン → 整備ベイ（番号順）→ 洗車ベイ → 板金ベイ → その他/未設定
+// ベイの種類ごとの表示順：masterData.bayTypes の並び順に従う（番号ありの種別は番号順）。未設定・未登録の種別は最後にまとめる。
 function bayCategorySortKey(bay){
-  if(!bay)return[4,0];
-  if(bay==='車検ライン')return[0,0];
-  if(bay.startsWith('整備ベイ')){
-    const m=bay.match(/(\d+)/);
-    return[1,m?Number(m[1]):0];
+  const types=masterData.bayTypes||[];
+  if(!bay)return[types.length,0];
+  for(let i=0;i<types.length;i++){
+    const bt=types[i];
+    if(bt.hasNumber){
+      const m=bay.match(new RegExp('^'+_escRe(bt.name)+'\\s+(\\d+)番?$'));
+      if(m)return[i,Number(m[1])];
+      if(bay===bt.name)return[i,0];
+    }else{
+      if(bay===bt.name)return[i,0];
+    }
   }
-  if(bay==='洗車ベイ')return[2,0];
-  if(bay==='板金ベイ')return[3,0];
-  return[4,0];
+  return[types.length,0];
 }
-const BAY_GROUP_LABELS=['車検ライン','整備ベイ','洗車ベイ','板金ベイ','その他'];
+function bayGroupLabel(idx){
+  const types=masterData.bayTypes||[];
+  return idx<types.length?types[idx].name:'その他';
+}
 function getFiltered(){
   return equipments.filter(eq=>{
     const c=getCompany(eq.companyId);
@@ -1020,7 +1166,7 @@ function renderList(){
   }
   let lastGroup=null;
   el.innerHTML=list.map(eq=>{
-    const s=STATUS_MAP[eq.status]||STATUS_MAP.ok;
+    const s=statusInfo(eq.status);
     const elapsed=calcElapsed(eq.date);
     const old=isOld(eq.date);
     const mfgElapsed=calcElapsed(eq.nextcheck);
@@ -1031,7 +1177,7 @@ function renderList(){
     const group=bayCategorySortKey(eq.bay)[0];
     let header='';
     if(group!==lastGroup){
-      header=`<div class="list-group-header">🔧 ${BAY_GROUP_LABELS[group]}</div>`;
+      header=`<div class="list-group-header">🔧 ${bayGroupLabel(group)}</div>`;
       lastGroup=group;
     }
     return header+`<div class="equipment-card${isAct?' active':''}" onclick="showDetail(${eq.id})">
@@ -1068,7 +1214,7 @@ function closeDetail(){
 
 function renderDetail(){
   const eq=currentEq;if(!eq)return;
-  const s=STATUS_MAP[eq.status]||STATUS_MAP.ok;
+  const s=statusInfo(eq.status);
   const elapsed=calcElapsed(eq.date);
   const old=isOld(eq.date);
   const mfgElapsed=calcElapsed(eq.nextcheck);
@@ -1824,6 +1970,248 @@ function renderStoreManageList(){
   ).join('');
 }
 
+/* ════ 項目管理（機器名称・ステータス・ベイ種別） ════ */
+let _editingEqNameId=null,_editingStatusId=null,_editingBayTypeId=null;
+
+function openItemManageModal(){
+  cancelEditEquipmentName();
+  cancelEditStatus();
+  cancelEditBayType();
+  renderItemManageLists();
+  document.getElementById('itemManageOverlay').classList.add('show');
+}
+function closeItemManageModal(){document.getElementById('itemManageOverlay').classList.remove('show')}
+function handleItemManageOverlayClick(e){if(e.target===document.getElementById('itemManageOverlay'))closeItemManageModal()}
+function renderItemManageLists(){
+  renderEqNameManageList();
+  renderStatusManageList();
+  renderBayTypeManageList();
+}
+
+/* --- 機器名称 --- */
+function renderEqNameManageList(){
+  const el=document.getElementById('eqNameManageList');if(!el)return;
+  if(!masterData.equipmentNames.length){
+    el.innerHTML='<div class="manage-empty">機器名称が登録されていません</div>';return;
+  }
+  el.innerHTML=masterData.equipmentNames.map(e=>
+    `<div class="manage-item">
+      <div class="manage-item-name">${e.name}</div>
+      <div class="manage-item-meta">${e.category}</div>
+      <button class="btn-edit-item" onclick="editEquipmentName('${e.id}')" title="編集">✏️</button>
+      <button class="btn-del-item" onclick="confirmDeleteEquipmentName('${e.id}')" title="削除">🗑</button>
+    </div>`
+  ).join('');
+}
+function editEquipmentName(id){
+  const e=masterData.equipmentNames.find(x=>x.id===id);if(!e)return;
+  _editingEqNameId=id;
+  document.getElementById('en_category').value=e.category;
+  document.getElementById('en_name').value=e.name;
+  document.getElementById('en_saveBtn').textContent='💾 更新する';
+  document.getElementById('en_cancelBtn').style.display='';
+}
+function cancelEditEquipmentName(){
+  _editingEqNameId=null;
+  document.getElementById('en_category').value='リフト';
+  document.getElementById('en_name').value='';
+  document.getElementById('en_saveBtn').textContent='💾 追加する';
+  document.getElementById('en_cancelBtn').style.display='none';
+}
+function saveEquipmentName(){
+  const category=document.getElementById('en_category').value;
+  const name=document.getElementById('en_name').value.trim();
+  if(!category||!name){showToast('⚠ カテゴリと名称を入力してください','error');return;}
+  if(_editingEqNameId){
+    const e=masterData.equipmentNames.find(x=>x.id===_editingEqNameId);
+    if(e){e.category=category;e.name=name;}
+  }else{
+    if(masterData.equipmentNames.some(x=>x.category===category&&x.name===name)){
+      showToast('⚠ 同じカテゴリ内に同名の項目が既にあります','error');return;
+    }
+    masterData.equipmentNames.push({id:'en'+masterData._nextEqNameId++,category,name});
+  }
+  _saveMd();
+  rebuildEquipmentNameSelect();
+  renderEqNameManageList();
+  showToast(`✅ 機器名称「${name}」を保存しました`,'success');
+  cancelEditEquipmentName();
+}
+function confirmDeleteEquipmentName(id){
+  const e=masterData.equipmentNames.find(x=>x.id===id);if(!e)return;
+  const eqCount=equipments.filter(eq=>eq.name===e.name).length;
+  const warn=eqCount>0?`<br><span style="color:var(--primary);font-weight:700">⚠ この名称を使用している機器が ${eqCount} 件あります。</span>`:'';
+  showDeleteConfirm(
+    '🗑 機器名称を削除しますか？',
+    `<strong>${e.name}</strong>（${e.category}）を削除します。${warn}<br>この操作は元に戻せません。`,
+    ()=>executeDeleteEquipmentName(id)
+  );
+}
+function executeDeleteEquipmentName(id){
+  const idx=masterData.equipmentNames.findIndex(x=>x.id===id);
+  if(idx!==-1)masterData.equipmentNames.splice(idx,1);
+  _saveMd();
+  rebuildEquipmentNameSelect();
+  if(_editingEqNameId===id)cancelEditEquipmentName();
+  renderEqNameManageList();
+  showToast('🗑 機器名称を削除しました','');
+}
+
+/* --- ステータス --- */
+function renderStatusManageList(){
+  const el=document.getElementById('statusManageList');if(!el)return;
+  if(!masterData.statuses.length){
+    el.innerHTML='<div class="manage-empty">ステータスが登録されていません</div>';return;
+  }
+  el.innerHTML=masterData.statuses.map(s=>
+    `<div class="manage-item">
+      <span class="status-swatch" style="background:var(${COLOR_VAR_MAP[s.cls]||'--neutral'})"></span>
+      <div class="manage-item-name">${s.label}</div>
+      <button class="btn-edit-item" onclick="editStatusItem('${s.id}')" title="編集">✏️</button>
+      <button class="btn-del-item" onclick="confirmDeleteStatus('${s.id}')" title="削除">🗑</button>
+    </div>`
+  ).join('');
+}
+function editStatusItem(id){
+  const s=masterData.statuses.find(x=>x.id===id);if(!s)return;
+  _editingStatusId=id;
+  document.getElementById('st_label').value=s.label;
+  document.getElementById('st_color').value=s.cls;
+  document.getElementById('st_saveBtn').textContent='💾 更新する';
+  document.getElementById('st_cancelBtn').style.display='';
+}
+function cancelEditStatus(){
+  _editingStatusId=null;
+  document.getElementById('st_label').value='';
+  document.getElementById('st_color').value='badge-ok';
+  document.getElementById('st_saveBtn').textContent='💾 追加する';
+  document.getElementById('st_cancelBtn').style.display='none';
+}
+function saveStatusItem(){
+  const label=document.getElementById('st_label').value.trim();
+  const cls=document.getElementById('st_color').value;
+  if(!label){showToast('⚠ ラベルを入力してください','error');return;}
+  if(_editingStatusId){
+    const s=masterData.statuses.find(x=>x.id===_editingStatusId);
+    if(s){s.label=label;s.cls=cls;}
+  }else{
+    if(masterData.statuses.some(x=>x.label===label)){
+      showToast('⚠ 同名のステータスが既にあります','error');return;
+    }
+    masterData.statuses.push({id:'st'+masterData._nextStatusId++,label,cls});
+  }
+  _saveMd();
+  rebuildStatusSelect();
+  renderStatusManageList();
+  renderList();
+  showToast(`✅ ステータス「${label}」を保存しました`,'success');
+  cancelEditStatus();
+}
+function confirmDeleteStatus(id){
+  const s=masterData.statuses.find(x=>x.id===id);if(!s)return;
+  const eqCount=equipments.filter(eq=>eq.status===id).length;
+  const warn=eqCount>0?`<br><span style="color:var(--primary);font-weight:700">⚠ このステータスを使用している機器が ${eqCount} 件あります。</span>`:'';
+  showDeleteConfirm(
+    '🗑 ステータスを削除しますか？',
+    `<strong>${s.label}</strong> を削除します。${warn}<br>この操作は元に戻せません。`,
+    ()=>executeDeleteStatus(id)
+  );
+}
+function executeDeleteStatus(id){
+  const idx=masterData.statuses.findIndex(x=>x.id===id);
+  if(idx!==-1)masterData.statuses.splice(idx,1);
+  _saveMd();
+  rebuildStatusSelect();
+  if(_editingStatusId===id)cancelEditStatus();
+  renderStatusManageList();
+  renderList();
+  showToast('🗑 ステータスを削除しました','');
+}
+
+/* --- ベイ種別 --- */
+function renderBayTypeManageList(){
+  const el=document.getElementById('bayTypeManageList');if(!el)return;
+  if(!masterData.bayTypes.length){
+    el.innerHTML='<div class="manage-empty">ベイ種別が登録されていません</div>';return;
+  }
+  el.innerHTML=masterData.bayTypes.map(b=>
+    `<div class="manage-item">
+      <div class="manage-item-name">${b.name}</div>
+      <div class="manage-item-meta">${b.hasNumber?'番号あり':'番号なし'}</div>
+      <button class="btn-edit-item" onclick="editBayTypeItem('${b.id}')" title="編集">✏️</button>
+      <button class="btn-del-item" onclick="confirmDeleteBayType('${b.id}')" title="削除">🗑</button>
+    </div>`
+  ).join('');
+}
+function editBayTypeItem(id){
+  const b=masterData.bayTypes.find(x=>x.id===id);if(!b)return;
+  _editingBayTypeId=id;
+  document.getElementById('bt_name').value=b.name;
+  document.getElementById('bt_hasNumber').checked=!!b.hasNumber;
+  document.getElementById('bt_saveBtn').textContent='💾 更新する';
+  document.getElementById('bt_cancelBtn').style.display='';
+}
+function cancelEditBayType(){
+  _editingBayTypeId=null;
+  document.getElementById('bt_name').value='';
+  document.getElementById('bt_hasNumber').checked=false;
+  document.getElementById('bt_saveBtn').textContent='💾 追加する';
+  document.getElementById('bt_cancelBtn').style.display='none';
+}
+function saveBayTypeItem(){
+  const name=document.getElementById('bt_name').value.trim();
+  const hasNumber=document.getElementById('bt_hasNumber').checked;
+  if(!name){showToast('⚠ 種別名を入力してください','error');return;}
+  if(_editingBayTypeId){
+    const b=masterData.bayTypes.find(x=>x.id===_editingBayTypeId);
+    if(b){
+      // 名称変更時は既存機器のベイ表記も追従させる
+      if(b.name!==name){
+        const oldName=b.name;
+        equipments.forEach(eq=>{
+          if(eq.bay===oldName){eq.bay=name;_saveEq(eq);}
+          else if(b.hasNumber){
+            const m=eq.bay&&eq.bay.match(new RegExp('^'+_escRe(oldName)+'\\s+(\\d+)番?$'));
+            if(m){eq.bay=`${name} ${m[1]}番`;_saveEq(eq);}
+          }
+        });
+      }
+      b.name=name;b.hasNumber=hasNumber;
+    }
+  }else{
+    if(masterData.bayTypes.some(x=>x.name===name)){
+      showToast('⚠ 同名のベイ種別が既にあります','error');return;
+    }
+    masterData.bayTypes.push({id:'bt'+masterData._nextBayTypeId++,name,hasNumber});
+  }
+  _saveMd();
+  rebuildBayTypeSelect();
+  renderBayTypeManageList();
+  renderList();
+  showToast(`✅ ベイ種別「${name}」を保存しました`,'success');
+  cancelEditBayType();
+}
+function confirmDeleteBayType(id){
+  const b=masterData.bayTypes.find(x=>x.id===id);if(!b)return;
+  const eqCount=equipments.filter(eq=>bayCategorySortKey(eq.bay)[0]===masterData.bayTypes.indexOf(b)).length;
+  const warn=eqCount>0?`<br><span style="color:var(--primary);font-weight:700">⚠ このベイ種別を使用している機器が ${eqCount} 件あります。「その他」扱いになります。</span>`:'';
+  showDeleteConfirm(
+    '🗑 ベイ種別を削除しますか？',
+    `<strong>${b.name}</strong> を削除します。${warn}<br>この操作は元に戻せません。`,
+    ()=>executeDeleteBayType(id)
+  );
+}
+function executeDeleteBayType(id){
+  const idx=masterData.bayTypes.findIndex(x=>x.id===id);
+  if(idx!==-1)masterData.bayTypes.splice(idx,1);
+  _saveMd();
+  rebuildBayTypeSelect();
+  if(_editingBayTypeId===id)cancelEditBayType();
+  renderBayTypeManageList();
+  renderList();
+  showToast('🗑 ベイ種別を削除しました','');
+}
+
 /* ════ RETIRE ════ */
 function confirmRetire(){document.getElementById('confirmOverlay').classList.add('show')}
 function closeConfirm(){document.getElementById('confirmOverlay').classList.remove('show')}
@@ -1953,7 +2341,7 @@ function buildEquipmentSheet(eqList, titleLabel){
       eq.date||'—',
       eq.installDate||'—',
       calcElapsed(eq.date)||'—',
-      STATUS_MAP[eq.status]?.label||'—',
+      statusInfo(eq.status).label||'—',
       eq.bay||'—',
       eq.note||''
     ]);
@@ -1964,37 +2352,33 @@ function buildEquipmentSheet(eqList, titleLabel){
 }
 
 function buildSummarySheet(companies, titleLabel){
+  const statuses=masterData.statuses;
   const aoa=[
     [titleLabel],
     [`出力日：${todayStr()}`],
     [],
-    ['店舗','販社','合計','問題なし','注意（代替検討）','部品供給終了','危険（要代替）']
+    ['店舗','販社','合計',...statuses.map(s=>s.label)]
   ];
-  let tot=0,tok=0,tca=0,tpa=0,tda=0;
+  const countByStatus=(data)=>statuses.map(s=>data.filter(e=>e.status===s.id).length);
+  let tot=0;const tcounts=statuses.map(()=>0);
   companies.forEach(c=>{
     c.stores.forEach(st=>{
       const data=equipments.filter(e=>e.companyId===c.id&&e.storeId===st.id);
-      const ok=data.filter(e=>e.status==='ok').length;
-      const ca=data.filter(e=>e.status==='caution').length;
-      const pa=data.filter(e=>e.status==='parts').length;
-      const da=data.filter(e=>e.status==='danger').length;
-      aoa.push([storeLabel(st),companyLabel(c),data.length,ok,ca,pa,da]);
-      tot+=data.length;tok+=ok;tca+=ca;tpa+=pa;tda+=da;
+      const counts=countByStatus(data);
+      aoa.push([storeLabel(st),companyLabel(c),data.length,...counts]);
+      tot+=data.length;counts.forEach((n,i)=>tcounts[i]+=n);
     });
     // 店舗未設定の機器
     const orphan=equipments.filter(e=>e.companyId===c.id&&!c.stores.find(s=>s.id===e.storeId));
     if(orphan.length){
-      const ok=orphan.filter(e=>e.status==='ok').length;
-      const ca=orphan.filter(e=>e.status==='caution').length;
-      const pa=orphan.filter(e=>e.status==='parts').length;
-      const da=orphan.filter(e=>e.status==='danger').length;
-      aoa.push(['（店舗未設定）',companyLabel(c),orphan.length,ok,ca,pa,da]);
-      tot+=orphan.length;tok+=ok;tca+=ca;tpa+=pa;tda+=da;
+      const counts=countByStatus(orphan);
+      aoa.push(['（店舗未設定）',companyLabel(c),orphan.length,...counts]);
+      tot+=orphan.length;counts.forEach((n,i)=>tcounts[i]+=n);
     }
   });
-  aoa.push(['合計','',tot,tok,tca,tpa,tda]);
+  aoa.push(['合計','',tot,...tcounts]);
   const ws=XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols']=[{wch:28},{wch:26},{wch:8},{wch:12},{wch:18},{wch:16},{wch:14}];
+  ws['!cols']=[{wch:28},{wch:26},{wch:8},...statuses.map(()=>({wch:16}))];
   return ws;
 }
 
@@ -2075,6 +2459,7 @@ auth.onAuthStateChanged(user=>{
     document.getElementById('loginUserEmail').textContent=user.email;
     document.getElementById('cloudStatus').style.display='flex';
     _initFirestore();
+    _autoConnectDrive();
   }else{
     document.getElementById('loginOverlay').classList.remove('hide');
     document.getElementById('cloudStatus').style.display='none';
@@ -2113,15 +2498,28 @@ function _initFirestore(){
       masterData.companies=d.companies||[];
       masterData._nextCompanyId=d._nextCompanyId||6;
       masterData._nextStoreId=d._nextStoreId||11;
+      masterData.equipmentNames=d.equipmentNames||DEFAULT_EQUIPMENT_NAMES.map(x=>({...x}));
+      masterData._nextEqNameId=d._nextEqNameId||36;
+      masterData.statuses=d.statuses||DEFAULT_STATUSES.map(x=>({...x}));
+      masterData._nextStatusId=d._nextStatusId||1;
+      masterData.bayTypes=d.bayTypes||DEFAULT_BAY_TYPES.map(x=>({...x}));
+      masterData._nextBayTypeId=d._nextBayTypeId||8;
     }else{
       // 初回起動時 — 既定マスターデータをFirestoreに書き込む
       db.doc('masterData/config').set({
         companies:masterData.companies,
         _nextCompanyId:masterData._nextCompanyId,
-        _nextStoreId:masterData._nextStoreId
+        _nextStoreId:masterData._nextStoreId,
+        equipmentNames:masterData.equipmentNames,
+        _nextEqNameId:masterData._nextEqNameId,
+        statuses:masterData.statuses,
+        _nextStatusId:masterData._nextStatusId,
+        bayTypes:masterData.bayTypes,
+        _nextBayTypeId:masterData._nextBayTypeId
       });
     }
-    rebuildCompanySelect();renderList();
+    rebuildCompanySelect();rebuildEquipmentNameSelect();rebuildStatusSelect();rebuildBayTypeSelect();
+    renderItemManageLists();renderList();
     if(currentEq)renderDetail();
   },err=>console.error('masterData snapshot error:',err));
 
@@ -2141,62 +2539,100 @@ function _initFirestore(){
 /* ════ GOOGLE DRIVE ════ */
 const GDRIVE_CLIENT_ID='22968334682-471ud2u2kdkkap917m24hd8jga0vcmoh.apps.googleusercontent.com';
 const GDRIVE_SCOPE='https://www.googleapis.com/auth/drive.file';
-let _driveToken=null,_driveTokenExpiry=0,_driveTokenClient=null;
+const DRIVE_API_BASE='https://drive-token-service.vercel.app';
+let _driveToken=null,_driveTokenExpiry=0,_driveCodeClient=null,_driveAutoTried=false;
 const _folderCache={};
 
-function _initDriveClient(){
+function _setDriveBtn(state){
+  const btn=document.getElementById('btnDrive');
+  if(!btn)return;
+  if(state==='connected'){btn.textContent='📁 Drive接続済';btn.classList.add('connected');}
+  else if(state==='connecting'){btn.textContent='📁 接続中…';btn.classList.remove('connected');}
+  else{btn.textContent='🔑 初回のみ許可';btn.classList.remove('connected');}
+}
+
+function _initDriveCodeClient(){
   if(typeof google==='undefined'||!google.accounts)return;
-  if(_driveTokenClient)return; // 既に初期化済み
-  _driveTokenClient=google.accounts.oauth2.initTokenClient({
+  if(_driveCodeClient)return; // 既に初期化済み
+  _driveCodeClient=google.accounts.oauth2.initCodeClient({
     client_id:GDRIVE_CLIENT_ID,
     scope:GDRIVE_SCOPE,
-    callback:resp=>{
-      if(resp.error){console.error('Drive auth error:',resp.error);return;}
-      _driveToken=resp.access_token;
-      _driveTokenExpiry=Date.now()+(resp.expires_in*1000);
-      const btn=document.getElementById('btnDrive');
-      if(btn){btn.textContent='📁 Drive接続済';btn.classList.add('connected');}
-      showToast('✅ Google Driveに接続しました','success');
+    ux_mode:'popup',
+    access_type:'offline',
+    prompt:'consent',
+    callback:async resp=>{
+      if(resp.error){
+        console.error('Drive auth error:',resp.error);
+        showToast('⚠ Drive接続エラー: '+resp.error,'error');
+        _setDriveBtn('disconnected');
+        return;
+      }
+      try{
+        const idToken=await auth.currentUser.getIdToken();
+        const r=await fetch(`${DRIVE_API_BASE}/api/drive-auth`,{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({code:resp.code,idToken})
+        });
+        const data=await r.json();
+        if(!r.ok||!data.ok)throw new Error(data.detail||data.error||'不明なエラー');
+        showToast('✅ Google Driveへの自動接続を設定しました','success');
+        await _autoConnectDrive(true);
+      }catch(e){
+        console.error('drive-auth exchange failed:',e);
+        showToast('⚠ Drive接続の保存に失敗しました: '+e.message,'error');
+        _setDriveBtn('disconnected');
+      }
     },
-    error_callback:err=>{
-      console.error('Drive error_callback:',err);
-      showToast('⚠ Drive接続エラー: '+JSON.stringify(err),'error');
-    }
   });
 }
-// GISライブラリ読み込み後に初期化
+// GISライブラリ読み込み後に初期化し、保存済みなら自動接続を試みる
 (function waitGIS(){
-  if(typeof google!=='undefined'&&google.accounts){_initDriveClient();}
+  if(typeof google!=='undefined'&&google.accounts){_initDriveCodeClient();_autoConnectDrive();}
   else{setTimeout(waitGIS,500);}
 })();
 
-// ヘッダーボタンから明示的に接続
+// 保存済みのリフレッシュトークンでの自動接続（ポップアップ不要）
+async function _autoConnectDrive(silent){
+  if(_driveAutoTried&&!silent)return;
+  _driveAutoTried=true;
+  if(!(typeof auth!=='undefined'&&auth.currentUser))return; // ログイン前は何もしない
+  _setDriveBtn('connecting');
+  try{
+    const idToken=await auth.currentUser.getIdToken();
+    const r=await fetch(`${DRIVE_API_BASE}/api/drive-token`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({idToken})
+    });
+    if(r.status===404){_setDriveBtn('disconnected');return;} // まだ一度も許可していない
+    const data=await r.json();
+    if(!r.ok||!data.access_token)throw new Error(data.detail||data.error||'不明なエラー');
+    _driveToken=data.access_token;
+    _driveTokenExpiry=Date.now()+(data.expires_in*1000);
+    _setDriveBtn('connected');
+  }catch(e){
+    console.warn('Drive自動接続に失敗（手動接続にフォールバック）:',e);
+    _setDriveBtn('disconnected');
+  }
+}
+
+// ヘッダーボタン：未接続時のみ「初回の許可」ポップアップを表示
 function connectDrive(){
   if(_driveToken&&Date.now()<_driveTokenExpiry-60000){
     showToast('✅ すでにDriveに接続済みです','success');return;
   }
-  if(!_driveTokenClient){
-    if(typeof google!=='undefined'&&google.accounts){_initDriveClient();}
+  if(!_driveCodeClient){
+    if(typeof google!=='undefined'&&google.accounts){_initDriveCodeClient();}
     else{showToast('⚠ Google認証ライブラリが読み込まれていません。ページを再読み込みしてください','error');return;}
   }
-  _driveTokenClient.requestAccessToken({prompt:'consent'});
+  _driveCodeClient.requestCode();
 }
 
 async function _getDriveToken(){
   if(_driveToken&&Date.now()<_driveTokenExpiry-60000)return _driveToken;
-  if(!_driveTokenClient){
-    if(typeof google!=='undefined'&&google.accounts)_initDriveClient();
-    else throw new Error('Google認証ライブラリ未読み込み');
-  }
-  return new Promise((resolve,reject)=>{
-    const origCb=_driveTokenClient.callback;
-    _driveTokenClient.callback=resp=>{
-      origCb&&origCb(resp);
-      if(resp.error){reject(new Error(resp.error));return;}
-      resolve(resp.access_token);
-    };
-    _driveTokenClient.requestAccessToken({prompt:''});
-  });
+  // 自動接続（サーバー保存済みのリフレッシュトークン）を試す
+  await _autoConnectDrive(true);
+  if(_driveToken&&Date.now()<_driveTokenExpiry-60000)return _driveToken;
+  throw new Error('Google Driveに接続されていません。ヘッダーの「🔑 初回のみ許可」から接続してください');
 }
 
 async function _driveGet(path,params={}){
@@ -2290,7 +2726,13 @@ async function _saveMd(){
   try{await db.doc('masterData/config').set({
     companies:masterData.companies,
     _nextCompanyId:masterData._nextCompanyId,
-    _nextStoreId:masterData._nextStoreId
+    _nextStoreId:masterData._nextStoreId,
+    equipmentNames:masterData.equipmentNames,
+    _nextEqNameId:masterData._nextEqNameId,
+    statuses:masterData.statuses,
+    _nextStatusId:masterData._nextStatusId,
+    bayTypes:masterData.bayTypes,
+    _nextBayTypeId:masterData._nextBayTypeId
   });}
   catch(e){console.error(e);}
 }
@@ -2305,6 +2747,9 @@ window.addEventListener('online',()=>{
 
 /* ════ INIT ════ */
 rebuildCompanySelect();
+rebuildEquipmentNameSelect();
+rebuildStatusSelect();
+rebuildBayTypeSelect();
 renderList();
 </script>
 </body>
