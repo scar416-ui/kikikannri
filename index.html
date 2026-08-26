@@ -224,6 +224,54 @@ optgroup{font-weight:700}
 .export-preview strong{color:var(--gray-800)}
 @media(min-width:768px){.modal{border-radius:12px;max-height:88vh;margin:auto}.modal-overlay{align-items:center}}
 
+/* ── MOBILE (iPhone等スマホ幅) ── */
+@media(max-width:640px){
+  .header{padding:0 10px;gap:6px;overflow-x:auto}
+  .header-title{font-size:14px;letter-spacing:0;flex-shrink:0}
+  .cloud-status{gap:5px;padding:3px 6px 3px 8px;flex-shrink:0}
+  .header-user{max-width:70px;font-size:10px}
+  .btn-drive,.btn-logout{padding:7px 9px;font-size:11px;min-height:30px;flex-shrink:0}
+
+  .filter-bar{flex-direction:column;align-items:stretch;gap:8px;padding:10px 12px}
+  .filter-label{margin-bottom:0}
+  .filter-arrow{display:none}
+  .filter-group{width:100%}
+  .filter-group select{flex:1;min-width:0}
+  select{padding:11px 30px 11px 12px;font-size:15px;width:100%}
+  .btn-filter-add{width:40px;height:40px;font-size:18px}
+
+  /* 一覧・詳細は同時に横並び表示せず、常にどちらか片方を全画面表示 */
+  .list-panel.split{display:none}
+  .detail-panel{width:100%}
+  .list-panel{padding:10px}
+  .list-header{flex-wrap:wrap;gap:8px}
+  .list-header>div{width:100%;display:flex;gap:8px}
+  .btn-export,.btn-add{flex:1;justify-content:center;padding:11px 10px;font-size:13px;min-height:42px}
+
+  .equipment-card{padding:12px}
+  .card-thumb,.card-thumb-placeholder{width:52px;height:52px}
+  .card-name{font-size:13px}
+
+  .detail-header{padding:10px 12px;gap:8px}
+  .detail-title{font-size:14px}
+  .btn-back,.btn-edit,.btn-delete-eq{padding:9px 10px;font-size:13px;min-height:38px}
+  .detail-body{padding:14px}
+  .info-grid{grid-template-columns:1fr}
+  .form-row{grid-template-columns:1fr}
+  .photo-extra-grid{grid-template-columns:repeat(2,1fr)}
+
+  .modal-body{padding:14px}
+  .form-input{font-size:16px;padding:11px 12px}
+  .btn-cancel,.btn-save{flex:1;justify-content:center;padding:12px;min-height:44px}
+  .modal-footer{gap:8px}
+}
+@media(max-width:400px){
+  .header-user{display:none}
+}
+@media(max-width:420px){
+  .login-box{padding:28px 20px}
+}
+
 /* ── LOGIN SCREEN ── */
 .login-overlay{position:fixed;inset:0;background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 60%,#e55557 100%);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px}
 .login-overlay.hide{display:none}
@@ -1387,7 +1435,8 @@ function onModalExtraDrop(e){
 function triggerDetailPhoto(key){document.getElementById(`fi_detail_${key}`).click();}
 async function processDetailPhoto(file,key){
   showToast('📤 Google Driveにアップロード中...','info');
-  const url=await _uploadWithFallback(file,currentEq);
+  const upFile=await _prepareForDriveUpload(file);
+  const url=await _uploadWithFallback(upFile,currentEq);
   currentEq.photos[key]=url;
   await _saveEq(currentEq);
   renderDetail();showToast(`✅ ${key}写真を追加しました`,'success');
@@ -1400,7 +1449,8 @@ async function handleDetailPhoto(e,key){
 function triggerDetailExtraPhoto(){document.getElementById('fi_detail_extra').click();}
 async function processDetailExtraPhoto(file){
   showToast('📤 Google Driveにアップロード中...','info');
-  const url=await _uploadWithFallback(file,currentEq);
+  const upFile=await _prepareForDriveUpload(file);
+  const url=await _uploadWithFallback(upFile,currentEq);
   currentEq.photos.extra.push({name:file.name,data:url});
   await _saveEq(currentEq);
   renderDetail();showToast('✅ 写真を追加しました','success');
@@ -1422,7 +1472,8 @@ function triggerModalExtraPhoto(){document.getElementById('fi_modal_extra').clic
 async function processModalExtraPhoto(file){
   showToast('📤 Google Driveにアップロード中...','info');
   const refEq=currentEq||{id:pendingNewEqId||_genEquipmentId(),name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||''};
-  const url=await _uploadWithFallback(file,refEq);
+  const upFile=await _prepareForDriveUpload(file);
+  const url=await _uploadWithFallback(upFile,refEq);
   modalPhotos.extra.push({name:file.name,data:url});
   renderModalExtraGrid();
   showToast('✅ 写真を追加しました','success');
@@ -1480,6 +1531,45 @@ function _compressImageToDataURL(file,maxDim,quality){
     reader.readAsDataURL(file);
   });
 }
+// iPhoneのカメラで撮影した写真は初期設定でHEIC/HEIF形式になっており、そのままGoogle Driveに
+// アップロードすると、Driveのサムネイル生成がHEICを処理できず一覧やプレビューが❓（読み込み失敗）
+//表示になることがある。端末内（Safari/iOSは<img>でHEICをデコードできる）でJPEGに変換・圧縮してから
+// アップロードすることで、どの端末・ブラウザでも確実にサムネイル表示されるようにする。
+function _compressImageToBlob(file,maxDim,quality){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=(ev)=>{
+      const img=new Image();
+      img.onload=()=>{
+        let w=img.width,h=img.height;
+        if(w>maxDim||h>maxDim){
+          if(w>=h){h=Math.round(h*maxDim/w);w=maxDim;}
+          else{w=Math.round(w*maxDim/h);h=maxDim;}
+        }
+        const canvas=document.createElement('canvas');
+        canvas.width=w;canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        canvas.toBlob(blob=>{
+          if(!blob){reject(new Error('画像の変換に失敗しました'));return;}
+          const base=(file.name||'photo').replace(/\.[^.]+$/,'');
+          resolve(new File([blob],`${base}.jpg`,{type:'image/jpeg'}));
+        },'image/jpeg',quality);
+      };
+      img.onerror=()=>reject(new Error('画像の読み込みに失敗しました'));
+      img.src=ev.target.result;
+    };
+    reader.onerror=()=>reject(new Error('ファイルの読み込みに失敗しました'));
+    reader.readAsDataURL(file);
+  });
+}
+async function _prepareForDriveUpload(file){
+  try{
+    return await _compressImageToBlob(file,1600,0.85);
+  }catch(e){
+    console.warn('画像の変換に失敗したため、元ファイルのままアップロードします:',e);
+    return file;
+  }
+}
 async function processModalPhoto(file,key){
   // 銘板は端末内で圧縮してbase64保存、それ以外はDrive
   if(key==='銘板'){
@@ -1495,7 +1585,8 @@ async function processModalPhoto(file,key){
   }else{
     showToast('📤 Google Driveにアップロード中...','info');
     const refEq=currentEq||{id:pendingNewEqId||_genEquipmentId(),name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||''};
-    const url=await _uploadWithFallback(file,refEq);
+    const upFile=await _prepareForDriveUpload(file);
+    const url=await _uploadWithFallback(upFile,refEq);
     modalPhotos[key]=url;
     updateModalPhotoSlot(key);
     showToast('✅ 全体写真を追加しました','success');
