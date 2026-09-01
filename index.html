@@ -403,7 +403,7 @@ optgroup{font-weight:700}
       <!-- ── 写真セクション（モーダル内） ── -->
       <div class="form-divider">📷 写真</div>
       <div class="photo-section-grid" style="margin-bottom:10px">
-        <div class="photo-slot" id="modal_slot_全体" onclick="triggerModalPhoto('全体')" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onModalPhotoDrop(event,'全体')">
+        <div class="photo-slot" id="modal_slot_全体" onclick="triggerModalPhoto('全体')" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onModalPhotoDrop(event,'全体')" onmouseenter="_setHoverSlot('modal','全体')" onmouseleave="_clearHoverSlot('modal','全体')">
           <div class="photo-placeholder" id="modal_ph_全体">
             <span class="photo-placeholder-icon">📷</span>
             <span class="photo-placeholder-label">全体写真</span>
@@ -411,7 +411,7 @@ optgroup{font-weight:700}
             <span class="photo-placeholder-sub">タップまたはドラッグで追加</span>
           </div>
         </div>
-        <div class="photo-slot" id="modal_slot_銘板" onclick="triggerModalPhoto('銘板')" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onModalPhotoDrop(event,'銘板')">
+        <div class="photo-slot" id="modal_slot_銘板" onclick="triggerModalPhoto('銘板')" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onModalPhotoDrop(event,'銘板')" onmouseenter="_setHoverSlot('modal','銘板')" onmouseleave="_clearHoverSlot('modal','銘板')">
           <div class="photo-placeholder" id="modal_ph_銘板">
             <span class="photo-placeholder-icon">🏷️</span>
             <span class="photo-placeholder-label">銘板写真</span>
@@ -422,7 +422,7 @@ optgroup{font-weight:700}
       </div>
       <!-- 追加写真 -->
       <div style="font-size:12px;font-weight:700;color:var(--gray-500);margin-bottom:6px">追加写真</div>
-      <div class="photo-extra-grid" id="modalExtraGrid" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onModalExtraDrop(event)">
+      <div class="photo-extra-grid" id="modalExtraGrid" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onModalExtraDrop(event)" onmouseenter="_setHoverSlot('modalExtra')" onmouseleave="_clearHoverSlot('modalExtra')">
         <button class="btn-add-photo" onclick="triggerModalExtraPhoto()">
           <span style="font-size:20px">＋</span><span>写真を追加</span>
         </button>
@@ -1279,7 +1279,7 @@ function renderDetail(){
   function detailPhotoSlot(key,icon,ocr){
     const hasP=!!eq.photos[key];
     const id=`detail_slot_${key.replace(/\s/g,'_')}`;
-    return`<div class="photo-slot${hasP?' has-photo':''}" id="${id}" onclick="triggerDetailPhoto('${key}')" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onDetailPhotoDrop(event,'${key}')">
+    return`<div class="photo-slot${hasP?' has-photo':''}" id="${id}" onclick="triggerDetailPhoto('${key}')" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onDetailPhotoDrop(event,'${key}')" onmouseenter="_setHoverSlot('detail','${key}')" onmouseleave="_clearHoverSlot('detail','${key}')">
       ${hasP
         ?`<img src="${eq.photos[key]}" alt="${key}" onclick="openLightbox('${key}',event)">
           <div class="photo-overlay">
@@ -1378,7 +1378,7 @@ function renderDetail(){
         ${detailPhotoSlot('銘板','🏷️',true)}
       </div>
       <div style="margin-top:12px;font-size:12px;font-weight:700;color:var(--gray-500);margin-bottom:6px">追加写真</div>
-      <div class="photo-extra-grid" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onDetailExtraDrop(event)">
+      <div class="photo-extra-grid" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onDetailExtraDrop(event)" onmouseenter="_setHoverSlot('detailExtra')" onmouseleave="_clearHoverSlot('detailExtra')">
         ${extraPhotos}
         <button class="btn-add-photo" onclick="triggerDetailExtraPhoto()">
           <span style="font-size:20px">＋</span><span>写真を追加</span>
@@ -1426,6 +1426,38 @@ function onModalExtraDrop(e){
   const file=_firstImageFile(e.dataTransfer);if(!file)return;
   processModalExtraPhoto(file);
 }
+
+/* ════ CLIPBOARD PASTE（Ctrl+V / Cmd+Vで写真スロットに画像を貼り付け） ════ */
+// スクリーンショットや他アプリからコピーした画像を、マウスカーソルが乗っている
+// 写真スロットへそのまま貼り付けられるようにする。ドラッグ&ドロップと同様、
+// 「今カーソルが乗っている場所」を貼り付け先として扱う（クリック等でのフォーカス操作は不要）。
+let _hoverSlot=null;
+function _setHoverSlot(scope,key){_hoverSlot=key?`${scope}:${key}`:scope;}
+function _clearHoverSlot(scope,key){
+  const id=key?`${scope}:${key}`:scope;
+  if(_hoverSlot===id)_hoverSlot=null;
+}
+function _firstImageFileFromClipboard(clipboardData){
+  const items=clipboardData&&clipboardData.items;
+  if(!items)return null;
+  for(const item of items){
+    if(item.kind==='file'&&item.type&&item.type.startsWith('image/')){
+      return item.getAsFile();
+    }
+  }
+  return null;
+}
+document.addEventListener('paste',(e)=>{
+  if(!_hoverSlot)return; // 写真スロット上にカーソルがない場合は何もしない（他の入力欄への通常ペーストを妨げない）
+  const file=_firstImageFileFromClipboard(e.clipboardData);
+  if(!file)return;
+  e.preventDefault();
+  const [scope,key]=_hoverSlot.split(':');
+  if(scope==='modal')processModalPhoto(file,key);
+  else if(scope==='modalExtra')processModalExtraPhoto(file);
+  else if(scope==='detail')processDetailPhoto(file,key);
+  else if(scope==='detailExtra')processDetailExtraPhoto(file);
+});
 
 function triggerDetailPhoto(key){document.getElementById(`fi_detail_${key}`).click();}
 async function processDetailPhoto(file,key){
