@@ -467,17 +467,13 @@ optgroup{font-weight:700}
 
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">導入年月</label>
+          <label class="form-label">設置日</label>
           <input type="month" class="form-input" id="f_date" onchange="updateElapsedPreview()">
         </div>
         <div class="form-group">
           <label class="form-label">製造年月</label>
           <input type="month" class="form-input" id="f_nextcheck">
         </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">設置日</label>
-        <input type="date" class="form-input" id="f_installdate">
       </div>
       <div id="elapsedPreview"></div>
 
@@ -1243,7 +1239,7 @@ function renderList(){
             ${c?`<span class="location-tag">🏢 ${companyLabel(c)}</span>`:''}
             ${st?`<span class="location-tag">🏬 ${storeLabel(st)}</span>`:''}
           </div>
-          ${elapsed?`<div class="card-elapsed">導入から <span class="${old?'elapsed-warn':''}">${elapsed}</span>${old?' ⚠':''}経過</div>`:''}
+          ${elapsed?`<div class="card-elapsed">設置から <span class="${old?'elapsed-warn':''}">${elapsed}</span>${old?' ⚠':''}経過</div>`:''}
           ${mfgElapsed?`<div class="card-elapsed">製造から <span class="${mfgOld?'elapsed-warn':''}">${mfgElapsed}</span>${mfgOld?' ⚠':''}経過</div>`:''}
         </div>
       </div>
@@ -1341,7 +1337,7 @@ function renderDetail(){
           <div class="info-item-value" style="font-family:monospace;letter-spacing:.05em">${eq.serial}</div>
         </div>
         <div class="info-item">
-          <div class="info-item-label">導入年月</div>
+          <div class="info-item-label">設置日</div>
           <div class="info-item-value">${eq.date||'—'}</div>
           ${elapsed?`<div class="elapsed-badge ${old?'old':'normal'}">${elapsed}経過${old?' ⚠':''}</div>`:''}
         </div>
@@ -1350,7 +1346,6 @@ function renderDetail(){
           <div class="info-item-value">${eq.nextcheck||'—'}</div>
           ${mfgElapsed?`<div class="elapsed-badge ${mfgOld?'old':'normal'}">${mfgElapsed}経過${mfgOld?' ⚠':''}</div>`:''}
         </div>
-        <div class="info-item"><div class="info-item-label">設置日</div><div class="info-item-value">${eq.installDate||'—'}</div></div>
       </div>
     </div>
 
@@ -1757,7 +1752,6 @@ function clearForm(){
   document.getElementById('f_serial').value='';
   document.getElementById('f_date').value='';
   document.getElementById('f_nextcheck').value='';
-  document.getElementById('f_installdate').value='';
   document.getElementById('f_note').value='';
   document.getElementById('f_company').value='';
   document.getElementById('f_store').innerHTML='<option value="">販社を先に選択</option>';
@@ -1776,7 +1770,6 @@ function fillForm(eq){
   document.getElementById('f_serial').value=eq.serial;
   document.getElementById('f_date').value=eq.date||'';
   document.getElementById('f_nextcheck').value=eq.nextcheck||'';
-  document.getElementById('f_installdate').value=eq.installDate||'';
   document.getElementById('f_note').value=eq.note||'';
   document.getElementById('f_company').value=eq.companyId||'';
   onFormCompanyChange();
@@ -1793,7 +1786,7 @@ function updateElapsedPreview(){
   if(elapsed){
     const old=isOld(d);
     el.style.display='block';
-    el.innerHTML=`<span style="color:var(--gray-600)">導入からの経過：</span>
+    el.innerHTML=`<span style="color:var(--gray-600)">設置からの経過：</span>
       <span style="font-weight:700;color:${old?'var(--caution)':'var(--primary)'}">${elapsed}経過${old?' ⚠ 10年超':''}</span>`;
   }else{el.style.display='none';}
 }
@@ -1832,7 +1825,6 @@ async function saveEquipment(ev){
       Object.assign(currentEq,{name,status,maker,model,serial,
         date:document.getElementById('f_date').value,
         nextcheck:document.getElementById('f_nextcheck').value,
-        installDate:document.getElementById('f_installdate').value,
         companyId,storeId,bay,note:document.getElementById('f_note').value
       });
       if(modalPhotos['全体'])currentEq.photos['全体']=modalPhotos['全体'];
@@ -1850,7 +1842,6 @@ async function saveEquipment(ev){
       const eq={id:pendingNewEqId||_genEquipmentId(),name,status,maker,model,serial,
         date:document.getElementById('f_date').value,
         nextcheck:document.getElementById('f_nextcheck').value,
-        installDate:document.getElementById('f_installdate').value,
         companyId,storeId,bay,note:document.getElementById('f_note').value,
         photos:{'全体':modalPhotos['全体']||null,'銘板':modalPhotos['銘板']||null,extra:modalPhotos.extra},
         maintenance:[]
@@ -2424,7 +2415,7 @@ function updateExportPreview(){
 function todayStr(){return new Date().toLocaleDateString('ja-JP');}
 
 function buildEquipmentSheet(eqList, titleLabel){
-  const HDR=['No.','機器名称','メーカー','型式','製造番号','製造年月','導入年月','設置日','経過年数','ステータス','ベイ','備考'];
+  const HDR=['No.','機器名称','メーカー','型式','製造番号','製造年月','設置日','経過年数','ステータス','ベイ','備考'];
   const aoa=[
     [titleLabel],
     [`出力日：${todayStr()}`],
@@ -2440,7 +2431,6 @@ function buildEquipmentSheet(eqList, titleLabel){
       eq.serial,
       eq.nextcheck||'—',
       eq.date||'—',
-      eq.installDate||'—',
       calcElapsed(eq.date)||'—',
       statusInfo(eq.status).label||'—',
       eq.bay||'—',
