@@ -1577,6 +1577,7 @@ async function processModalPhoto(file,key){
     }
     updateModalPhotoSlot(key);
     showToast('✅ 銘板写真を追加しました','success');
+    autoFillFromNameplate(modalPhotos[key]);
   }else{
     showToast('📤 Google Driveにアップロード中...','info');
     const refEq=currentEq||{id:pendingNewEqId||_genEquipmentId(),name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||''};
@@ -1591,6 +1592,76 @@ async function handleModalPhoto(e,key){
   const file=e.target.files[0];if(!file)return;
   e.target.value='';
   await processModalPhoto(file,key);
+}
+// 銘板写真から機器情報（メーカー・型式・製造番号・製造年月）を自動読み取りし、
+// フォームへ自動入力する。読み取れた項目のみ埋め、保存前に必ず内容を確認できるようにする。
+async function autoFillFromNameplate(dataUrl){
+  showToast('🔎 銘板を読み取り中...','info');
+  let data;
+  try{
+    const res=await fetch(`${NAMEPLATE_API_BASE}/api/read-nameplate`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({image:dataUrl})
+    });
+    data=await res.json();
+    if(!data.ok)throw new Error(data.error||'read_failed');
+  }catch(e){
+    console.error('銘板の自動読み取りに失敗:',e);
+    showToast('⚠ 銘板の自動読み取りに失敗しました。手動で入力してください','error');
+    return;
+  }
+  applyNameplateResult(data);
+}
+function applyNameplateResult(data){
+  const makerSel=document.getElementById('f_maker');
+  const errMaker=document.getElementById('err_maker');
+  if(data.maker){
+    const exists=[...makerSel.options].some(o=>o.value===data.maker);
+    if(!exists){
+      const opt=document.createElement('option');
+      opt.value=data.maker;opt.textContent=data.maker;
+      makerSel.appendChild(opt);
+    }
+    makerSel.value=data.maker;
+    if(errMaker)errMaker.style.display='none';
+  }else if(errMaker){
+    errMaker.style.display='block';
+  }
+
+  const modelInput=document.getElementById('f_model');
+  const errModel=document.getElementById('err_model');
+  if(data.model){
+    modelInput.value=data.model;
+    modelInput.classList.remove('error');
+    if(errModel)errModel.style.display='none';
+  }else{
+    modelInput.classList.add('error');
+    if(errModel)errModel.style.display='block';
+  }
+
+  const serialInput=document.getElementById('f_serial');
+  const errSerial=document.getElementById('err_serial');
+  if(data.serial){
+    serialInput.value=data.serial;
+    serialInput.classList.remove('error');
+    if(errSerial)errSerial.style.display='none';
+  }else{
+    serialInput.classList.add('error');
+    if(errSerial)errSerial.style.display='block';
+  }
+
+  if(data.mfgDate){
+    document.getElementById('f_date').value=data.mfgDate;
+    updateElapsedPreview();
+  }
+
+  const filledCount=[data.maker,data.model,data.serial,data.mfgDate].filter(Boolean).length;
+  if(filledCount>0){
+    showToast(`✅ 銘板から${filledCount}項目を自動入力しました。内容を確認してください`,'success');
+  }else{
+    showToast('⚠ 銘板から情報を読み取れませんでした。手動で入力してください','error');
+  }
 }
 function updateModalPhotoSlot(key){
   const slot=document.getElementById(`modal_slot_${key}`);
@@ -2631,6 +2702,7 @@ function _initFirestore(){
 const GDRIVE_CLIENT_ID='22968334682-471ud2u2kdkkap917m24hd8jga0vcmoh.apps.googleusercontent.com';
 const GDRIVE_SCOPE='https://www.googleapis.com/auth/drive.file';
 const DRIVE_API_BASE='https://drive-token-service.vercel.app';
+const NAMEPLATE_API_BASE='https://kikikannri-nameplate-api.vercel.app';
 let _driveToken=null,_driveTokenExpiry=0,_driveCodeClient=null,_driveAutoTried=false;
 const _folderCache={};
 
