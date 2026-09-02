@@ -1726,8 +1726,7 @@ function applyNameplateResult(data){
   }
 
   if(data.mfgDate){
-    document.getElementById('f_date').value=data.mfgDate;
-    updateElapsedPreview();
+    document.getElementById('f_nextcheck').value=data.mfgDate;
   }
 
   const filledCount=[data.maker,data.model,data.serial,data.mfgDate].filter(Boolean).length;
