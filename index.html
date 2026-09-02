@@ -903,6 +903,7 @@ optgroup{font-weight:700}
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://accounts.google.com/gsi/client" async></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
 <script>
 /* ════ CONSTANTS ════ */
 const MAKERS=['アルティア','イヤサカ','バンザイ','安全自動車','スギヤス'];
@@ -1631,12 +1632,28 @@ function _compressImageToBlob(file,maxDim,quality){
     reader.readAsDataURL(file);
   });
 }
+function _isHeicFile(file){
+  const type=(file.type||'').toLowerCase();
+  const name=(file.name||'').toLowerCase();
+  return type.includes('heic')||type.includes('heif')||/\.(heic|heif)$/.test(name);
+}
 async function _prepareForDriveUpload(file){
+  let src=file;
+  if(_isHeicFile(file)&&typeof heic2any==='function'){
+    try{
+      const converted=await heic2any({blob:file,toType:'image/jpeg',quality:0.85});
+      const blob=Array.isArray(converted)?converted[0]:converted;
+      const base=(file.name||'photo').replace(/\.[^.]+$/,'');
+      src=new File([blob],`${base}.jpg`,{type:'image/jpeg'});
+    }catch(e){
+      console.warn('heic2anyでの変換に失敗しました。canvas変換にフォールバックします:',e);
+    }
+  }
   try{
-    return await _compressImageToBlob(file,1600,0.85);
+    return await _compressImageToBlob(src,1600,0.85);
   }catch(e){
     console.warn('画像の変換に失敗したため、元ファイルのままアップロードします:',e);
-    return file;
+    return src;
   }
 }
 async function processModalPhoto(file,key){
