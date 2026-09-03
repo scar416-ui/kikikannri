@@ -440,7 +440,7 @@ optgroup{font-weight:700}
 
       <div class="form-group">
         <label class="form-label">機器名称 <span class="required">*</span></label>
-        <select class="form-input" id="f_name">
+        <select class="form-input" id="f_name" onchange="onEquipmentNameChange()">
           <option value="">選択してください</option>
         </select>
       </div>
@@ -1014,6 +1014,17 @@ function onBayTypeChange(){
   const show=!!(bt&&bt.hasNumber);
   grp.style.display=show?'block':'none';
   if(!show)document.getElementById('f_bay_num').value='';
+}
+function onEquipmentNameChange(){
+  const name=document.getElementById('f_name').value;
+  const eqDef=masterData.equipmentNames.find(e=>e.name===name);
+  if(eqDef&&eqDef.category==='車検機器'){
+    const baySel=document.getElementById('f_bay_type');
+    if(baySel&&masterData.bayTypes.some(b=>b.name==='車検ライン')){
+      baySel.value='車検ライン';
+      onBayTypeChange();
+    }
+  }
 }
 function setBayValue(bay){
   const{type,num}=parseBay(bay);
