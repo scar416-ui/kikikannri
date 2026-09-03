@@ -862,7 +862,7 @@ optgroup{font-weight:700}
     <button class="lightbox-close" onclick="closeLightbox()">✕</button>
   </div>
   <div class="lightbox-label" id="lightboxLabel"></div>
-  <img id="lightboxImg" src="" alt="拡大写真" onclick="event.stopPropagation()">
+  <img id="lightboxImg" src="" alt="拡大写真" onclick="event.stopPropagation()" onerror="_photoRetry(this)">
 </div>
 
 <!-- 非表示ファイル入力 (モーダル用) -->
@@ -1239,7 +1239,7 @@ function renderList(){
     const thumbUrl=eq.photos&&eq.photos['全体']?eq.photos['全体']:null;
     return header+`<div class="equipment-card${isAct?' active':''}" onclick="showDetail(${eq.id})">
       <div class="card-body-wrap">
-        ${thumbUrl?`<img class="card-thumb" src="${thumbUrl}" alt="${eq.name}" loading="lazy" onerror="this.outerHTML='<div class=\\'card-thumb-placeholder\\'>📷</div>'">`:`<div class="card-thumb-placeholder">📷</div>`}
+        ${thumbUrl?`<img class="card-thumb" src="${thumbUrl}" alt="${eq.name}" loading="lazy" onerror="_photoRetry(this)">`:`<div class="card-thumb-placeholder">📷</div>`}
         <div class="card-main">
           <div class="card-top"><div class="card-name">${eq.name}${eq.bay?`<span class="card-bay-inline">🔧 ${eq.bay}</span>`:''}</div><span class="badge ${s.cls}">${s.label}</span></div>
           <div class="card-meta"><span>🏭 ${eq.maker}</span><span>📋 ${eq.model}</span></div>
@@ -1289,7 +1289,7 @@ function renderDetail(){
     const id=`detail_slot_${key.replace(/\s/g,'_')}`;
     return`<div class="photo-slot${hasP?' has-photo':''}" id="${id}" onclick="triggerDetailPhoto('${key}')" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onDetailPhotoDrop(event,'${key}')" onmouseenter="_setHoverSlot('detail','${key}')" onmouseleave="_clearHoverSlot('detail','${key}')">
       ${hasP
-        ?`<img src="${eq.photos[key]}" alt="${key}" onclick="openLightbox('${key}',event)">
+        ?`<img src="${eq.photos[key]}" alt="${key}" onclick="openLightbox('${key}',event)" onerror="_photoRetry(this)">
           <div class="photo-overlay">
             <button onclick="openLightbox('${key}',event)">🔍 拡大</button>
             <button onclick="triggerDetailPhoto('${key}')">📷 変更</button>
@@ -1308,7 +1308,7 @@ function renderDetail(){
 
   const extraPhotos=(eq.photos.extra||[]).map((p,i)=>
     `<div class="photo-extra-item" onclick="openLightboxExtra(${i})">
-      <img src="${p.data}" alt="${p.name}">
+      <img src="${p.data}" alt="${p.name}" onerror="_photoRetry(this)">
       <button class="photo-extra-del" onclick="deleteExtraPhoto(${i},event)">✕</button>
     </div>`).join('');
 
@@ -1559,7 +1559,7 @@ function renderModalExtraGrid(){
   if(!grid)return;
   const items=modalPhotos.extra.map((p,i)=>
     `<div class="photo-extra-item" onclick="openModalExtraLightbox(${i})">
-      <img src="${p.data}" alt="${p.name}">
+      <img src="${p.data}" alt="${p.name}" onerror="_photoRetry(this)">
       <button class="photo-extra-del" onclick="event.stopPropagation();deleteModalExtraPhoto(${i})">✕</button>
     </div>`).join('');
   grid.innerHTML=items+`<button class="btn-add-photo" onclick="triggerModalExtraPhoto()">
@@ -1753,13 +1753,40 @@ function applyNameplateResult(data){
     showToast('⚠ 銘板から情報を読み取れませんでした。手動で入力してください','error');
   }
 }
+const _PHOTO_FALLBACK_SVG='data:image/svg+xml;utf8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="150"><rect width="100%" height="100%" fill="#f3f4f6"/><text x="50%" y="50%" font-size="14" text-anchor="middle" fill="#9ca3af" dy=".3em">画像読込失敗</text></svg>');
+function _photoRetry(img){
+  try{
+    const orig=img.dataset.origSrc||img.src;
+    if(!img.dataset.origSrc)img.dataset.origSrc=orig;
+    if(orig===_PHOTO_FALLBACK_SVG){img.onerror=null;return;}
+    const n=parseInt(img.dataset.retryCount||'0',10);
+    const idMatch=orig.match(/[?&]id=([^&]+)/)||orig.match(/\/d\/([^/?]+)/);
+    const fileId=idMatch?decodeURIComponent(idMatch[1]):null;
+    const formats=fileId?[
+      `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`,
+      `https://lh3.googleusercontent.com/d/${fileId}=w800`,
+      `https://drive.google.com/uc?export=view&id=${fileId}`
+    ]:[orig];
+    if(n>=6){
+      img.onerror=null;
+      img.src=_PHOTO_FALLBACK_SVG;
+      return;
+    }
+    img.dataset.retryCount=String(n+1);
+    const nextUrl=formats[n%formats.length];
+    const bust=nextUrl+(nextUrl.includes('?')?'&':'?')+'_r='+Date.now();
+    setTimeout(()=>{img.src=bust;},700*(n+1));
+  }catch(e){
+    img.onerror=null;
+  }
+}
 function updateModalPhotoSlot(key){
   const slot=document.getElementById(`modal_slot_${key}`);
   if(!slot)return;
   const data=modalPhotos[key];
   if(data){
     slot.classList.add('has-photo');
-    slot.innerHTML=`<img src="${data}" alt="${key}" onclick="openModalLightbox('${key}',event)">
+    slot.innerHTML=`<img src="${data}" alt="${key}" onclick="openModalLightbox('${key}',event)" onerror="_photoRetry(this)">
       <div class="photo-overlay">
         <button onclick="openModalLightbox('${key}',event)">🔍 拡大</button>
         <button onclick="triggerModalPhoto('${key}')">📷 変更</button>
