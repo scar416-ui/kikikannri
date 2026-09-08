@@ -567,6 +567,17 @@ optgroup{font-weight:700}
         <label class="form-label">備考</label>
         <textarea class="form-input" id="h_note" placeholder="部品番号・費用・特記事項など" style="min-height:56px"></textarea>
       </div>
+      <div class="form-group">
+        <label class="form-label">写真</label>
+        <div class="photo-extra-grid" id="historyPhotoGrid" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onHistoryPhotoDrop(event)" onmouseenter="_setHoverSlot('history')" onmouseleave="_clearHoverSlot('history')">
+          <button class="btn-add-photo" onclick="triggerHistoryPhoto()">
+            <span style="font-size:20px">＋</span><span>写真を追加</span>
+          </button>
+          <button class="btn-add-photo" onclick="pasteImageFromClipboard('history')">
+            <span style="font-size:20px">📋</span><span>貼り付け</span>
+          </button>
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeHistoryModal()">キャンセル</button>
@@ -873,6 +884,8 @@ optgroup{font-weight:700}
 <input type="file" id="fi_detail_全体" accept="image/*" capture="environment" style="display:none" onchange="handleDetailPhoto(event,'全体')">
 <input type="file" id="fi_detail_銘板" accept="image/*" capture="environment" style="display:none" onchange="handleDetailPhoto(event,'銘板')">
 <input type="file" id="fi_detail_extra" accept="image/*" capture="environment" style="display:none" onchange="handleDetailExtraPhoto(event)">
+<!-- 非表示ファイル入力 (保守履歴写真用) -->
+<input type="file" id="fi_history" accept="image/*" capture="environment" style="display:none" onchange="handleHistoryPhoto(event)">
 
 <div class="toast" id="toast"></div>
 
@@ -1127,6 +1140,7 @@ let currentEq=null;
 let isEditMode=false;
 let filters={region:'',category:'',companyId:'',storeId:''};
 let modalPhotos={'全体':null,'銘板':null,extra:[]};
+let historyPhotos=[];
 let pendingNewEqId=null; // 新規登録モーダルで確定させる仮ID（写真アップロード先と保存時で一致させる）
 function _genEquipmentId(){
   // タイムスタンプ+ランダム値で端末間のID衝突を防止
@@ -1335,6 +1349,10 @@ function renderDetail(){
     ?'<div class="history-empty">保守履歴はまだありません</div>'
     :(eq.maintenance||[]).slice().reverse().map((h,ri)=>{
         const i=(eq.maintenance.length-1-ri);
+        const historyPhotosHTML=(h.photos&&h.photos.length)?`<div class="photo-extra-grid" style="grid-template-columns:repeat(4,1fr);margin-top:8px">${h.photos.map((p,pi)=>
+          `<div class="photo-extra-item" onclick="openSavedHistoryPhotoLightbox(${i},${pi})">
+            <img src="${p.data}" alt="${p.name}" onerror="_photoRetry(this)">
+          </div>`).join('')}</div>`:'';
         return`<div class="history-card">
           <div class="history-card-top">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -1345,6 +1363,7 @@ function renderDetail(){
           </div>
           <div class="history-content">${h.content}</div>
           ${h.note?`<div class="history-note">📝 ${h.note}</div>`:''}
+          ${historyPhotosHTML}
         </div>`;}).join('');
 
   document.getElementById('detailBody').innerHTML=`
@@ -1458,6 +1477,11 @@ function onModalExtraDrop(e){
   const file=_firstImageFile(e.dataTransfer);if(!file)return;
   processModalExtraPhoto(file);
 }
+function onHistoryPhotoDrop(e){
+  e.preventDefault();e.currentTarget.classList.remove('drag-over');
+  const file=_firstImageFile(e.dataTransfer);if(!file)return;
+  processHistoryPhoto(file);
+}
 
 /* ════ CLIPBOARD PASTE（Ctrl+V / Cmd+Vで写真スロットに画像を貼り付け） ════ */
 // スクリーンショットや他アプリからコピーした画像を、マウスカーソルが乗っている
@@ -1492,6 +1516,7 @@ function _pasteToSlot(slotId,file){
   else if(scope==='modalExtra')processModalExtraPhoto(file);
   else if(scope==='detail')processDetailPhoto(file,key);
   else if(scope==='detailExtra')processDetailExtraPhoto(file);
+  else if(scope==='history')processHistoryPhoto(file);
 }
 // 「📋 貼り付け」ボタン用：Ctrl+V操作に頼らず、ボタンクリックから明示的にクリップボードの
 // 画像を読み取る（スマートフォン等、Ctrl+Vやマウスホバーが使えない環境でも確実に貼り付けできるように）。
@@ -1863,6 +1888,8 @@ function openHistoryModal(){
   document.getElementById('h_nss').value='';
   document.getElementById('h_date').value=new Date().toISOString().slice(0,10);
   document.getElementById('h_note').value='';
+  historyPhotos=[];
+  renderHistoryPhotoGrid();
   document.getElementById('historyModalOverlay').classList.add('show');
 }
 function closeHistoryModal(){document.getElementById('historyModalOverlay').classList.remove('show')}
@@ -1874,7 +1901,7 @@ function saveHistory(){
   const note=document.getElementById('h_note').value.trim();
   if(!content||!nss||!date){showToast('⚠ 修理内容・対応NSS・修理年月日は必須です','error');return;}
   if(!currentEq.maintenance)currentEq.maintenance=[];
-  currentEq.maintenance.push({content,nss,date,note});
+  currentEq.maintenance.push({content,nss,date,note,photos:historyPhotos.slice()});
   _saveEq(currentEq);
   closeHistoryModal();renderDetail();simulateCloudSync();
   showToast('✅ 保守履歴を追加しました','success');
@@ -1884,6 +1911,51 @@ function deleteHistory(i){
   currentEq.maintenance.splice(i,1);
   _saveEq(currentEq);
   renderDetail();
+}
+function renderHistoryPhotoGrid(){
+  const grid=document.getElementById('historyPhotoGrid');
+  if(!grid)return;
+  const items=historyPhotos.map((p,i)=>
+    `<div class="photo-extra-item" onclick="openHistoryPhotoLightbox(${i})">
+      <img src="${p.data}" alt="${p.name}" onerror="_photoRetry(this)">
+      <button class="photo-extra-del" onclick="event.stopPropagation();deleteHistoryPhoto(${i})">✕</button>
+    </div>`).join('');
+  grid.innerHTML=items+`<button class="btn-add-photo" onclick="triggerHistoryPhoto()">
+    <span style="font-size:20px">＋</span><span>写真を追加</span>
+  </button><button class="btn-add-photo" onclick="pasteImageFromClipboard('history')">
+    <span style="font-size:20px">📋</span><span>貼り付け</span>
+  </button>`;
+}
+function triggerHistoryPhoto(){document.getElementById('fi_history').click();}
+async function processHistoryPhoto(file){
+  showToast('📤 Google Driveにアップロード中...','info');
+  const upFile=await _prepareForDriveUpload(file);
+  const url=await _uploadWithFallback(upFile,currentEq);
+  historyPhotos.push({name:file.name,data:url});
+  renderHistoryPhotoGrid();
+  showToast('✅ 写真を追加しました','success');
+}
+async function handleHistoryPhoto(e){
+  const file=e.target.files[0];if(!file)return;
+  e.target.value='';
+  await processHistoryPhoto(file);
+}
+function deleteHistoryPhoto(i){
+  historyPhotos.splice(i,1);
+  renderHistoryPhotoGrid();
+}
+function openHistoryPhotoLightbox(i){
+  const p=historyPhotos[i];if(!p)return;
+  document.getElementById('lightboxImg').src=p.data;
+  document.getElementById('lightboxLabel').textContent=p.name;
+  document.getElementById('lightbox').classList.add('show');
+}
+function openSavedHistoryPhotoLightbox(hi,pi){
+  const eq=currentEq;if(!eq||!eq.maintenance||!eq.maintenance[hi])return;
+  const p=(eq.maintenance[hi].photos||[])[pi];if(!p)return;
+  document.getElementById('lightboxImg').src=p.data;
+  document.getElementById('lightboxLabel').textContent=p.name;
+  document.getElementById('lightbox').classList.add('show');
 }
 
 /* ════ FORM HELPERS ════ */
