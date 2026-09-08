@@ -2024,6 +2024,7 @@ async function exportReplacementProposal(){
       (h.photos||[]).forEach(p=>{if(maintPhotos.length<2)maintPhotos.push(p);});
     });
 
+    // 表全体はA〜Hの8列を使い、写真も同じ幅（左半分A-D／右半分E-H）に揃えて中央に来るようにする
     const slots=[
       {key:'銘板',url:eq.photos&&eq.photos['銘板'],tl:{col:0,row:12},br:{col:4,row:22}},
       {key:'全体',url:eq.photos&&eq.photos['全体'],tl:{col:4,row:12},br:{col:8,row:22}},
@@ -2034,19 +2035,19 @@ async function exportReplacementProposal(){
 
     const wb=new ExcelJS.Workbook();
     const ws=wb.addWorksheet('入替提案');
-    ws.columns=[{width:4},{width:12},{width:12},{width:12},{width:12},{width:12},{width:12},{width:12}];
+    ws.columns=[{width:13},{width:13},{width:13},{width:13},{width:13},{width:13},{width:13},{width:13}];
 
     const thinBorder={top:{style:'thin'},left:{style:'thin'},bottom:{style:'thin'},right:{style:'thin'}};
     function labelValueRow(rowStart,label,value){
-      ws.mergeCells(rowStart,2,rowStart+1,3);
-      ws.mergeCells(rowStart,4,rowStart+1,8);
-      const lc=ws.getCell(rowStart,2);
+      ws.mergeCells(rowStart,1,rowStart+1,2);
+      ws.mergeCells(rowStart,3,rowStart+1,8);
+      const lc=ws.getCell(rowStart,1);
       lc.value=label;lc.font={size:16};lc.alignment={horizontal:'center',vertical:'middle'};lc.border=thinBorder;
-      const vc=ws.getCell(rowStart,4);
+      const vc=ws.getCell(rowStart,3);
       vc.value=value;vc.font={size:16};vc.alignment={horizontal:'center',vertical:'middle'};vc.border=thinBorder;
-      for(let c=2;c<=8;c++){ws.getCell(rowStart+1,c).border=thinBorder;}
-      for(let c=2;c<=3;c++){ws.getCell(rowStart,c).border=thinBorder;}
-      for(let c=4;c<=8;c++){ws.getCell(rowStart,c).border=thinBorder;}
+      for(let c=1;c<=8;c++){ws.getCell(rowStart+1,c).border=thinBorder;}
+      for(let c=1;c<=2;c++){ws.getCell(rowStart,c).border=thinBorder;}
+      for(let c=3;c<=8;c++){ws.getCell(rowStart,c).border=thinBorder;}
     }
 
     ws.mergeCells(1,1,2,8);
@@ -2078,11 +2079,11 @@ async function exportReplacementProposal(){
       }
     });
 
-    const noteLabelCell=ws.getCell(34,2);
+    // 備考：下のセルはセル結合せず、行ごとに自由に書き込めるようにする
+    const noteLabelCell=ws.getCell(34,1);
     noteLabelCell.value='備考：';
     noteLabelCell.font={size:12,bold:true};
-    ws.mergeCells(35,2,39,8);
-    const noteCell=ws.getCell(35,2);
+    const noteCell=ws.getCell(35,1);
     noteCell.value=note;
     noteCell.font={size:11};
     noteCell.alignment={horizontal:'left',vertical:'top',wrapText:true};
@@ -2092,8 +2093,9 @@ async function exportReplacementProposal(){
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
     const dateStr=new Date().toISOString().slice(0,10);
+    const namePrefix=storeName?`${storeName}_`:'';
     a.href=url;
-    a.download=`${eq.name||'機器'}_入替提案書_${dateStr}.xlsx`;
+    a.download=`${namePrefix}${eq.name||'機器'}_入替提案書_${dateStr}.xlsx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
