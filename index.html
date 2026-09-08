@@ -590,7 +590,7 @@ optgroup{font-weight:700}
       <div class="form-divider">＋ 新規追加</div>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">地域 <span class="required">*</span></label>
+          <label class="form-label">地域</label>
           <select class="form-input" id="ac_region">
             <option value="">選択してください</option>
             <optgroup label="東海4県">
@@ -608,7 +608,7 @@ optgroup{font-weight:700}
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">類別 <span class="required">*</span></label>
+          <label class="form-label">類別</label>
           <select class="form-input" id="ac_category">
             <option value="">選択してください</option>
             <option value="販設">販設</option>
@@ -618,11 +618,11 @@ optgroup{font-weight:700}
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">販社名 <span class="required">*</span></label>
+        <label class="form-label">販社名</label>
         <input type="text" class="form-input" id="ac_name" placeholder="例：岐阜日産">
       </div>
       <div class="form-group">
-        <label class="form-label">識別コード <span class="required">*</span></label>
+        <label class="form-label">識別コード</label>
         <input type="text" class="form-input" id="ac_code" placeholder="例：3501A8">
         <div style="font-size:11px;color:var(--gray-400);margin-top:4px">表示形式：販社名（識別コード）</div>
       </div>
@@ -683,11 +683,11 @@ optgroup{font-weight:700}
         </select>
       </div>
       <div class="form-group">
-        <label class="form-label">店舗名 <span class="required">*</span></label>
+        <label class="form-label">店舗名</label>
         <input type="text" class="form-input" id="as_name" placeholder="例：岐阜店">
       </div>
       <div class="form-group">
-        <label class="form-label">識別コード <span class="required">*</span></label>
+        <label class="form-label">識別コード</label>
         <input type="text" class="form-input" id="as_code" placeholder="例：GF01">
         <div style="font-size:11px;color:var(--gray-400);margin-top:4px">表示形式：店舗名（識別コード）</div>
       </div>
@@ -976,8 +976,16 @@ function getStore(companyId, storeId){
   const c=getCompany(companyId);
   return c ? (c.stores.find(s=>s.id===storeId)||null) : null;
 }
-function companyLabel(c){ return c ? `${c.name}（${c.code}）` : '—'; }
-function storeLabel(s)  { return s ? `${s.name}（${s.code}）` : '—'; }
+function companyLabel(c){
+  if(!c)return'—';
+  const nm=c.name||'（名称未設定）';
+  return c.code?`${nm}（${c.code}）`:nm;
+}
+function storeLabel(s){
+  if(!s)return'—';
+  const nm=s.name||'（名称未設定）';
+  return s.code?`${nm}（${s.code}）`:nm;
+}
 
 /* ════ ステータス HELPERS ════ */
 function statusInfo(value){
@@ -2084,14 +2092,13 @@ function saveCompany(){
   const category=document.getElementById('ac_category').value;
   const name=document.getElementById('ac_name').value.trim();
   const code=document.getElementById('ac_code').value.trim();
-  if(!region||!category||!name||!code){showToast('⚠ 全項目を入力してください','error');return;}
-  if(masterData.companies.some(c=>c.code===code)){showToast(`⚠ 識別コード「${code}」は既に他の販社で使用されています`,'error');return;}
+  if(code&&masterData.companies.some(c=>c.code===code)){showToast(`⚠ 識別コード「${code}」は既に他の販社で使用されています`,'error');return;}
   const id='c'+masterData._nextCompanyId++;
   masterData.companies.push({id,name,code,region,category,stores:[]});
   _saveMd();
   rebuildCompanySelect();
   closeAddCompanyModal();
-  showToast(`✅ 販社「${name}（${code}）」を追加しました`,'success');
+  showToast(`✅ 販社「${companyLabel({name,code})}」を追加しました`,'success');
 }
 
 /* ════ ADD STORE MODAL ════ */
@@ -2136,17 +2143,17 @@ function saveStore(){
   const companyId=document.getElementById('as_company').value;
   const name=document.getElementById('as_name').value.trim();
   const code=document.getElementById('as_code').value.trim();
-  if(!companyId||!name||!code){showToast('⚠ 全項目を入力してください','error');return;}
+  if(!companyId){showToast('⚠ 対象販社を選択してください','error');return;}
   const c=getCompany(companyId);
   if(!c){showToast('⚠ 販社が見つかりません','error');return;}
-  if(c.stores.some(s=>s.code===code)){showToast(`⚠ 識別コード「${code}」は既に「${c.name}」の他の店舗で使用されています`,'error');return;}
+  if(code&&c.stores.some(s=>s.code===code)){showToast(`⚠ 識別コード「${code}」は既に「${c.name}」の他の店舗で使用されています`,'error');return;}
   const id='s'+masterData._nextStoreId++;
   c.stores.push({id,name,code});
   _saveMd();
   // フィルタ販社が一致する場合は店舗セレクトを再構築
   if(filters.companyId===companyId)rebuildStoreSelect();
   closeAddStoreModal();
-  showToast(`✅ 店舗「${name}（${code}）」を追加しました`,'success');
+  showToast(`✅ 店舗「${storeLabel({name,code})}」を追加しました`,'success');
 }
 
 /* ════ DELETE CONFIRM (汎用) ════ */
