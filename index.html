@@ -2036,6 +2036,14 @@ async function exportReplacementProposal(){
     const wb=new ExcelJS.Workbook();
     const ws=wb.addWorksheet('入替提案');
     ws.columns=[{width:13},{width:13},{width:13},{width:13},{width:13},{width:13},{width:13},{width:13}];
+    ws.pageSetup={
+      paperSize:9, // A4
+      orientation:'portrait',
+      fitToPage:true,
+      fitToWidth:1,
+      fitToHeight:1,
+      margins:{left:0.4,right:0.4,top:0.4,bottom:0.4,header:0.2,footer:0.2}
+    };
 
     const thinBorder={top:{style:'thin'},left:{style:'thin'},bottom:{style:'thin'},right:{style:'thin'}};
     function labelValueRow(rowStart,label,value){
@@ -2079,14 +2087,31 @@ async function exportReplacementProposal(){
       }
     });
 
-    // 備考：下のセルはセル結合せず、行ごとに自由に書き込めるようにする
+    // 備考：ラベルの下に書き込み用の囲み（罫線の箱）を作る。セルは結合せず、行ごとに書き込めるようにする
     const noteLabelCell=ws.getCell(34,1);
     noteLabelCell.value='備考：';
     noteLabelCell.font={size:12,bold:true};
-    const noteCell=ws.getCell(35,1);
+
+    const noteBoxTop=35, noteBoxBottom=44;
+    ws.mergeCells(noteBoxTop,1,noteBoxTop,8);
+    const noteCell=ws.getCell(noteBoxTop,1);
     noteCell.value=note;
     noteCell.font={size:11};
     noteCell.alignment={horizontal:'left',vertical:'top',wrapText:true};
+    ws.getRow(noteBoxTop).height=60;
+
+    // 箱の外枠だけを描く（各セルは結合しない＝行ごとに自由に書き込める）
+    for(let r=noteBoxTop;r<=noteBoxBottom;r++){
+      for(let c=1;c<=8;c++){
+        const cell=ws.getCell(r,c);
+        const b={};
+        if(r===noteBoxTop)b.top={style:'medium'};
+        if(r===noteBoxBottom)b.bottom={style:'medium'};
+        if(c===1)b.left={style:'medium'};
+        if(c===8)b.right={style:'medium'};
+        if(Object.keys(b).length)cell.border=Object.assign({},cell.border,b);
+      }
+    }
 
     const buffer=await wb.xlsx.writeBuffer();
     const blob=new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
