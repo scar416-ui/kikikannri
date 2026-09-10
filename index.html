@@ -953,6 +953,7 @@ optgroup{font-weight:700}
 <script src="https://accounts.google.com/gsi/client" async></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
 <script>
 /* ════ CONSTANTS ════ */
@@ -2223,6 +2224,7 @@ async function exportReplacementProposal(selectedPhotos){
     for(let r=captionTop+1;r<photoBottom;r++)ws.getRow(r).height=6; // 上段と下段の間の余白
 
     const colPxOne=_propColPx(COL_W),rowPxOne=_propRowPx(18);
+    const _photoAnchorFixes=[];
     for(let i=0;i<slots.length;i++){
       const slot=slots[i],f=fetched[i],d=dims[i];
       // 箱の背景・外枠
@@ -2244,10 +2246,11 @@ async function exportReplacementProposal(selectedPhotos){
         const scale=Math.min((boxWpx-margin)/d.w,(boxHpx-margin)/d.h);
         const dispW=d.w*scale,dispH=d.h*scale;
         const offXpx=(boxWpx-dispW)/2,offYpx=(boxHpx-dispH)/2;
-        const tlCol=slot.col0+offXpx/colPxOne;
-        const tlRow=(slot.row0-1)+offYpx/rowPxOne;
         const imgId=wb.addImage({buffer:f.buffer,extension:f.extension});
-        ws.addImage(imgId,{tl:{col:tlCol,row:tlRow},ext:{width:dispW,height:dispH}});
+        ws.addImage(imgId,{tl:{col:slot.col0,row:slot.row0-1},ext:{width:dispW,height:dispH}});
+        // ExcelJSのtl分数座標→EMU変換が実列幅と一致せず中央からずれるため、
+        // 書き出し後にXMLのcolOff/rowOffを正確なピクセル換算値へ直接補正する
+        _photoAnchorFixes.push({colOffEmu:Math.round(offXpx*9525),rowOffEmu:Math.round(offYpx*9525)});
       }else{
         ws.mergeCells(slot.row0,slot.col0+1,slot.row0+PHOTO_ROWS-1,slot.col1);
         const c=ws.getCell(slot.row0,slot.col0+1);
@@ -2292,7 +2295,30 @@ async function exportReplacementProposal(selectedPhotos){
       }
     }
 
-    const buffer=await wb.xlsx.writeBuffer();
+    let buffer=await wb.xlsx.writeBuffer();
+    if(_photoAnchorFixes.length&&typeof JSZip!=='undefined'){
+      try{
+        const zip=await JSZip.loadAsync(buffer);
+        const drawPath='xl/drawings/drawing1.xml';
+        const drawFile=zip.file(drawPath);
+        if(drawFile){
+          let xml=await drawFile.async('string');
+          let idx=0;
+          xml=xml.replace(/<xdr:oneCellAnchor[^>]*>[\s\S]*?<\/xdr:oneCellAnchor>/g,block=>{
+            const fix=_photoAnchorFixes[idx];idx++;
+            if(!fix)return block;
+            let b=block;
+            b=b.replace(/<xdr:colOff>\d+<\/xdr:colOff>/,`<xdr:colOff>${fix.colOffEmu}</xdr:colOff>`);
+            b=b.replace(/<xdr:rowOff>\d+<\/xdr:rowOff>/,`<xdr:rowOff>${fix.rowOffEmu}</xdr:rowOff>`);
+            return b;
+          });
+          zip.file(drawPath,xml);
+          buffer=await zip.generateAsync({type:'arraybuffer'});
+        }
+      }catch(e){
+        console.error('画像位置の補正に失敗しました（出力自体は成功）:',e);
+      }
+    }
     const blob=new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
