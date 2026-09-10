@@ -141,6 +141,16 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .btn-add-photo:hover{border-color:var(--primary);color:var(--primary)}
 .photo-extra-grid.drag-over .btn-add-photo{border-color:var(--primary);color:var(--primary);background:var(--primary-light)}
 
+/* 代替提案書：写真選択 */
+.proposal-group-title{font-size:12px;font-weight:700;color:var(--gray-700);margin:14px 0 8px;padding-top:10px;border-top:1px solid var(--gray-200)}
+.proposal-group-title:first-child{border-top:none;margin-top:0;padding-top:0}
+.proposal-thumb{aspect-ratio:4/3;border-radius:6px;overflow:hidden;position:relative;cursor:pointer;background:var(--gray-100);border:2px solid var(--gray-200)}
+.proposal-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.proposal-thumb.selected{border-color:var(--primary)}
+.proposal-thumb .proposal-cap{position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);color:#fff;font-size:10px;padding:3px 6px}
+.proposal-badge{position:absolute;top:5px;left:5px;width:20px;height:20px;border-radius:50%;background:var(--primary);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.proposal-empty{font-size:12px;color:var(--gray-400);padding:10px 0}
+
 /* ── MAINTENANCE HISTORY ── */
 .history-list{display:flex;flex-direction:column;gap:10px}
 .history-card{background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);padding:12px 14px}
@@ -882,6 +892,26 @@ optgroup{font-weight:700}
   <img id="lightboxImg" src="" alt="拡大写真" onclick="event.stopPropagation()" onerror="_photoRetry(this)">
 </div>
 
+<!-- ════ 代替提案書：写真選択モーダル ════ -->
+<div class="modal-overlay" id="proposalPhotoOverlay" onclick="handleProposalPhotoOverlayClick(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">🖼 写真1・2・3 に使う写真を選択</div>
+      <button class="btn-close" onclick="closeProposalPhotoModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:var(--gray-500);margin-bottom:14px">
+        候補から<strong style="color:var(--primary)">2〜3枚</strong>選んでください（クリックした順に 写真1→写真2→写真3 になります。2枚のみでも出力できます）
+      </div>
+      <div id="proposalPhotoGroups"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeProposalPhotoModal()">キャンセル</button>
+      <button class="btn-save" id="proposalPhotoConfirmBtn" onclick="confirmProposalPhotoSelection()" disabled>💾 出力する</button>
+    </div>
+  </div>
+</div>
+
 <!-- 非表示ファイル入力 (モーダル用) -->
 <input type="file" id="fi_modal_全体" accept="image/*" capture="environment" style="display:none" onchange="handleModalPhoto(event,'全体')">
 <input type="file" id="fi_modal_銘板" accept="image/*" capture="environment" style="display:none" onchange="handleModalPhoto(event,'銘板')">
@@ -1448,7 +1478,7 @@ function renderDetail(){
       <div class="section-title">
         <span class="section-title-label">🔧 保守履歴</span>
         <div style="display:flex;gap:8px">
-          <button class="btn-add-history" onclick="exportReplacementProposal()">📋 代替提案書を出力</button>
+          <button class="btn-add-history" onclick="openProposalPhotoModal()">📋 代替提案書を出力</button>
           <button class="btn-add-history" onclick="openHistoryModal()">＋ 追加</button>
         </div>
       </div>
@@ -2009,9 +2039,97 @@ async function _fetchPhotoBuffer(url){
     return null;
   }
 }
-async function exportReplacementProposal(){
+function _imageDimsFromBuffer(buffer,extension){
+  return new Promise(resolve=>{
+    try{
+      const blob=new Blob([buffer],{type:extension==='png'?'image/png':(extension==='gif'?'image/gif':'image/jpeg')});
+      const url=URL.createObjectURL(blob);
+      const img=new Image();
+      img.onload=()=>{URL.revokeObjectURL(url);resolve({w:img.naturalWidth||img.width||4,h:img.naturalHeight||img.height||3});};
+      img.onerror=()=>{URL.revokeObjectURL(url);resolve({w:4,h:3});};
+      img.src=url;
+    }catch(e){resolve({w:4,h:3});}
+  });
+}
+function _propColPx(charW){return Math.round(((256*charW+Math.trunc(128/7))/256)*7);}
+function _propRowPx(pt){return Math.round(pt*(96/72));}
+function _proposalDateStr(){
+  const d=new Date();
+  return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;
+}
+
+/* ── 写真選択モーダル（写真1・2・3に使う写真を選ぶ） ── */
+let _proposalCandidates=[],_proposalSelected=[];
+function _buildProposalCandidates(eq){
+  const list=[];
+  if(eq.photos&&eq.photos['全体'])list.push({url:eq.photos['全体'],label:'全体写真',groupLabel:'機器の写真'});
+  if(eq.photos&&eq.photos['銘板'])list.push({url:eq.photos['銘板'],label:'銘板写真',groupLabel:'機器の写真'});
+  (eq.maintenance||[]).forEach(h=>{
+    const g=`保守履歴の写真（${h.date||'日付未設定'}　${h.content||''}）`;
+    (h.photos||[]).forEach((p,pi)=>{
+      if(p&&p.data)list.push({url:p.data,label:`写真${pi+1}`,groupLabel:g});
+    });
+  });
+  return list;
+}
+function openProposalPhotoModal(){
+  const eq=currentEq;if(!eq)return;
+  _proposalCandidates=_buildProposalCandidates(eq);
+  _proposalSelected=[];
+  renderProposalPhotoGroups();
+  document.getElementById('proposalPhotoOverlay').classList.add('show');
+}
+function closeProposalPhotoModal(){document.getElementById('proposalPhotoOverlay').classList.remove('show')}
+function handleProposalPhotoOverlayClick(e){if(e.target===document.getElementById('proposalPhotoOverlay'))closeProposalPhotoModal()}
+function renderProposalPhotoGroups(){
+  const el=document.getElementById('proposalPhotoGroups');if(!el)return;
+  if(!_proposalCandidates.length){
+    el.innerHTML='<div class="proposal-empty">選択できる写真がありません</div>';
+  }else{
+    let html='';let lastGroup=null;
+    _proposalCandidates.forEach((cand,idx)=>{
+      if(cand.groupLabel!==lastGroup){
+        if(lastGroup!==null)html+='</div>';
+        html+=`<div class="proposal-group-title">${cand.groupLabel}</div><div class="photo-extra-grid">`;
+        lastGroup=cand.groupLabel;
+      }
+      const pos=_proposalSelected.indexOf(idx);
+      const selected=pos>=0;
+      html+=`<div class="proposal-thumb${selected?' selected':''}" onclick="toggleProposalPhoto(${idx})">
+        <img src="${cand.url}" alt="${cand.label}" onerror="_photoRetry(this)">
+        ${selected?`<div class="proposal-badge">${pos+1}</div>`:''}
+        <div class="proposal-cap">${cand.label}</div>
+      </div>`;
+    });
+    html+='</div>';
+    el.innerHTML=html;
+  }
+  const btn=document.getElementById('proposalPhotoConfirmBtn');
+  const n=_proposalSelected.length;
+  btn.disabled=n<2;
+  btn.textContent=n>0?`💾 出力する（${n}枚選択中）`:'💾 出力する';
+}
+function toggleProposalPhoto(idx){
+  const pos=_proposalSelected.indexOf(idx);
+  if(pos>=0){
+    _proposalSelected.splice(pos,1);
+  }else{
+    if(_proposalSelected.length>=3){showToast('⚠ 写真は3枚まで選択できます','error');return;}
+    _proposalSelected.push(idx);
+  }
+  renderProposalPhotoGroups();
+}
+function confirmProposalPhotoSelection(){
+  if(_proposalSelected.length<2){showToast('⚠ 写真を2枚以上選択してください','error');return;}
+  const selectedPhotos=_proposalSelected.map(i=>_proposalCandidates[i]);
+  closeProposalPhotoModal();
+  exportReplacementProposal(selectedPhotos);
+}
+
+async function exportReplacementProposal(selectedPhotos){
   const eq=currentEq;if(!eq)return;
   if(typeof ExcelJS==='undefined'){showToast('⚠ 出力機能の読み込みに失敗しました。再読み込みしてお試しください','error');return;}
+  selectedPhotos=selectedPhotos||[];
   showToast('📤 代替提案書を作成中...','info');
   try{
     const store=getStore(eq.companyId,eq.storeId);
@@ -2022,26 +2140,36 @@ async function exportReplacementProposal(){
     let year='';
     const ym=eq.nextcheck||eq.date||'';
     if(ym){const yy=ym.slice(0,4);if(yy)year=`${yy}年`;}
+    let elapsedLabel='';
+    if(ym){
+      const[yy2,mm2]=ym.split('-').map(Number);
+      if(yy2){
+        const now=new Date();
+        const months=(now.getFullYear()-yy2)*12+(now.getMonth()+1-(mm2||1));
+        if(months>=0)elapsedLabel=`（${Math.floor(months/12)}年経過）`;
+      }
+    }
     const note=eq.note||'';
 
-    // 保守履歴に添付された写真を、登録順（古い順）に最大2枚取得
-    const maintPhotos=[];
-    (eq.maintenance||[]).forEach(h=>{
-      (h.photos||[]).forEach(p=>{if(maintPhotos.length<2)maintPhotos.push(p);});
-    });
+    const COLS=8,COL_W=13,PHOTO_ROWS=11,GAP_ROWS=2;
+    const photoTop=13;
+    const captionTop=photoTop+PHOTO_ROWS;
+    const photoBottom=captionTop+1+GAP_ROWS;
+    const captionBottom=photoBottom+PHOTO_ROWS;
 
-    // 表全体はA〜Hの8列を使い、写真も同じ幅（左半分A-D／右半分E-H）に揃えて中央に来るようにする
+    // 左上＝全体写真、右上・下段2枚＝ユーザーが選んだ写真1・2・3
     const slots=[
-      {key:'銘板',url:eq.photos&&eq.photos['銘板'],tl:{col:0,row:12},br:{col:4,row:22}},
-      {key:'全体',url:eq.photos&&eq.photos['全体'],tl:{col:4,row:12},br:{col:8,row:22}},
-      {key:'保守写真1',url:maintPhotos[0]&&maintPhotos[0].data,tl:{col:0,row:22},br:{col:4,row:32}},
-      {key:'保守写真2',url:maintPhotos[1]&&maintPhotos[1].data,tl:{col:4,row:22},br:{col:8,row:32}},
+      {key:'全体写真',url:eq.photos&&eq.photos['全体'],col0:0,col1:4,row0:photoTop,capRow:captionTop},
+      {key:'写真1',url:selectedPhotos[0]&&selectedPhotos[0].url,col0:4,col1:8,row0:photoTop,capRow:captionTop},
+      {key:'写真2',url:selectedPhotos[1]&&selectedPhotos[1].url,col0:0,col1:4,row0:photoBottom,capRow:captionBottom},
+      {key:'写真3',url:selectedPhotos[2]&&selectedPhotos[2].url,col0:4,col1:8,row0:photoBottom,capRow:captionBottom},
     ];
     const fetched=await Promise.all(slots.map(s=>s.url?_fetchPhotoBuffer(s.url):Promise.resolve(null)));
+    const dims=await Promise.all(fetched.map(f=>f?_imageDimsFromBuffer(f.buffer,f.extension):Promise.resolve(null)));
 
     const wb=new ExcelJS.Workbook();
     const ws=wb.addWorksheet('入替提案');
-    ws.columns=[{width:13},{width:13},{width:13},{width:13},{width:13},{width:13},{width:13},{width:13}];
+    ws.columns=Array.from({length:COLS},()=>({width:COL_W}));
     ws.pageSetup={
       paperSize:9, // A4
       orientation:'portrait',
@@ -2052,70 +2180,114 @@ async function exportReplacementProposal(){
       margins:{left:0.4,right:0.4,top:0.4,bottom:0.4,header:0.2,footer:0.2}
     };
 
-    const thinBorder={top:{style:'thin'},left:{style:'thin'},bottom:{style:'thin'},right:{style:'thin'}};
+    const grayBorderSide={style:'thin',color:{argb:'FFB7B7B7'}};
+    const grayBorder={top:grayBorderSide,left:grayBorderSide,bottom:grayBorderSide,right:grayBorderSide};
     function labelValueRow(rowStart,label,value){
       ws.mergeCells(rowStart,1,rowStart+1,2);
       ws.mergeCells(rowStart,3,rowStart+1,8);
       const lc=ws.getCell(rowStart,1);
-      lc.value=label;lc.font={size:16};lc.alignment={horizontal:'center',vertical:'middle'};lc.border=thinBorder;
+      lc.value=label;lc.font={size:13,bold:true,color:{argb:'FF444444'}};lc.alignment={horizontal:'center',vertical:'middle'};
+      lc.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF2F2F2'}};
       const vc=ws.getCell(rowStart,3);
-      vc.value=value;vc.font={size:16};vc.alignment={horizontal:'center',vertical:'middle'};vc.border=thinBorder;
-      for(let c=1;c<=8;c++){ws.getCell(rowStart+1,c).border=thinBorder;}
-      for(let c=1;c<=2;c++){ws.getCell(rowStart,c).border=thinBorder;}
-      for(let c=3;c<=8;c++){ws.getCell(rowStart,c).border=thinBorder;}
+      vc.value=value;vc.font={size:13};vc.alignment={horizontal:'center',vertical:'middle'};
+      for(let r=rowStart;r<=rowStart+1;r++){for(let c=1;c<=8;c++){ws.getCell(r,c).border=grayBorder;}}
+      ws.getRow(rowStart).height=16;ws.getRow(rowStart+1).height=16;
     }
 
-    ws.mergeCells(1,1,2,8);
+    // ── ヘッダー（アクセント帯） ──
+    ws.mergeCells(1,1,2,6);
     const titleCell=ws.getCell(1,1);
     titleCell.value=`${eq.name||'機器'} 入替提案書`;
-    titleCell.font={size:18,bold:true};
-    titleCell.alignment={horizontal:'center',vertical:'middle'};
+    titleCell.font={size:18,bold:true,color:{argb:'FFFFFFFF'}};
+    titleCell.alignment={horizontal:'left',vertical:'middle',indent:1};
+    ws.mergeCells(1,7,2,8);
+    const hdrRight=ws.getCell(1,7);
+    hdrRight.value='株式会社　アルティア\n作成日：'+_proposalDateStr();
+    hdrRight.font={size:10,color:{argb:'FFFFFFFF'}};
+    hdrRight.alignment={horizontal:'right',vertical:'center',wrapText:true,indent:1};
+    for(let r=1;r<=2;r++){for(let c=1;c<=8;c++){ws.getCell(r,c).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFC0282A'}};}}
+    ws.getRow(1).height=18;ws.getRow(2).height=18;
 
     labelValueRow(3,'店舗名',storeName);
     labelValueRow(5,'作業ベイ',bay);
     labelValueRow(7,'型式',model);
     labelValueRow(9,'製造番号',serial);
-    labelValueRow(11,'年式',year);
+    labelValueRow(11,'年式',`${year}${elapsedLabel}`);
 
-    for(let r=13;r<=32;r++)ws.getRow(r).height=18;
+    // ── 写真エリア ──
+    const boxFrameSide={style:'medium',color:{argb:'FF666666'}};
+    for(let r=photoTop;r<=photoTop+PHOTO_ROWS-1;r++)ws.getRow(r).height=18;
+    for(let r=photoBottom;r<=photoBottom+PHOTO_ROWS-1;r++)ws.getRow(r).height=18;
+    ws.getRow(captionTop).height=14;
+    ws.getRow(captionBottom).height=14;
+    for(let r=captionTop+1;r<photoBottom;r++)ws.getRow(r).height=6; // 上段と下段の間の余白
 
-    slots.forEach((slot,i)=>{
-      const f=fetched[i];
-      if(f){
+    const colPxOne=_propColPx(COL_W),rowPxOne=_propRowPx(18);
+    for(let i=0;i<slots.length;i++){
+      const slot=slots[i],f=fetched[i],d=dims[i];
+      // 箱の背景・外枠
+      for(let r=slot.row0;r<=slot.row0+PHOTO_ROWS-1;r++){
+        for(let c=slot.col0+1;c<=slot.col1;c++){
+          const cell=ws.getCell(r,c);
+          cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF5F5F5'}};
+          const b={};
+          if(r===slot.row0)b.top=boxFrameSide;
+          if(r===slot.row0+PHOTO_ROWS-1)b.bottom=boxFrameSide;
+          if(c===slot.col0+1)b.left=boxFrameSide;
+          if(c===slot.col1)b.right=boxFrameSide;
+          if(Object.keys(b).length)cell.border=b;
+        }
+      }
+      if(f&&d){
+        const boxWpx=colPxOne*4,boxHpx=rowPxOne*PHOTO_ROWS;
+        const margin=16;
+        const scale=Math.min((boxWpx-margin)/d.w,(boxHpx-margin)/d.h);
+        const dispW=d.w*scale,dispH=d.h*scale;
+        const offXpx=(boxWpx-dispW)/2,offYpx=(boxHpx-dispH)/2;
+        const tlCol=slot.col0+offXpx/colPxOne;
+        const tlRow=(slot.row0-1)+offYpx/rowPxOne;
         const imgId=wb.addImage({buffer:f.buffer,extension:f.extension});
-        ws.addImage(imgId,{tl:slot.tl,br:slot.br,editAs:'oneCell'});
+        ws.addImage(imgId,{tl:{col:tlCol,row:tlRow},ext:{width:dispW,height:dispH}});
       }else{
-        ws.mergeCells(slot.tl.row+1,slot.tl.col+1,slot.br.row,slot.br.col);
-        const c=ws.getCell(slot.tl.row+1,slot.tl.col+1);
+        ws.mergeCells(slot.row0,slot.col0+1,slot.row0+PHOTO_ROWS-1,slot.col1);
+        const c=ws.getCell(slot.row0,slot.col0+1);
         c.value='写真なし';
         c.font={size:12,color:{argb:'FF9CA3AF'}};
         c.alignment={horizontal:'center',vertical:'middle'};
-        c.border=thinBorder;
       }
-    });
+      // キャプション
+      ws.mergeCells(slot.capRow,slot.col0+1,slot.capRow,slot.col1);
+      const capCell=ws.getCell(slot.capRow,slot.col0+1);
+      capCell.value=slot.key;
+      capCell.font={size:10,color:{argb:'FF666666'}};
+      capCell.alignment={horizontal:'center',vertical:'middle'};
+    }
 
-    // 備考：ラベルの下に書き込み用の囲み（罫線の箱）を作る。セルは結合せず、行ごとに書き込めるようにする
-    const noteLabelCell=ws.getCell(34,1);
-    noteLabelCell.value='備考：';
-    noteLabelCell.font={size:12,bold:true};
+    // ── 備考：ラベル＋書き込み用の囲み（5行ぶん・行の結合はしない） ──
+    const noteLabelRow=captionBottom+2;
+    ws.getCell(noteLabelRow,1).value='備考：';
+    ws.getCell(noteLabelRow,1).font={size:12,bold:true};
+    ws.getRow(noteLabelRow).height=16;
 
-    const noteBoxTop=35, noteBoxBottom=44;
-    ws.mergeCells(noteBoxTop,1,noteBoxTop,8);
-    const noteCell=ws.getCell(noteBoxTop,1);
+    const BOX_ROWS=5;
+    const boxTop=noteLabelRow+1,boxBottom=boxTop+BOX_ROWS-1;
+    ws.mergeCells(boxTop,1,boxTop,8);
+    const noteCell=ws.getCell(boxTop,1);
     noteCell.value=note;
     noteCell.font={size:11};
     noteCell.alignment={horizontal:'left',vertical:'top',wrapText:true};
-    ws.getRow(noteBoxTop).height=60;
+    ws.getRow(boxTop).height=24;
+    for(let i=1;i<BOX_ROWS;i++)ws.getRow(boxTop+i).height=20;
 
-    // 箱の外枠だけを描く（各セルは結合しない＝行ごとに自由に書き込める）
-    for(let r=noteBoxTop;r<=noteBoxBottom;r++){
+    const mediumSide={style:'medium',color:{argb:'FF444444'}};
+    for(let r=boxTop;r<=boxBottom;r++){
       for(let c=1;c<=8;c++){
         const cell=ws.getCell(r,c);
         const b={};
-        if(r===noteBoxTop)b.top={style:'medium'};
-        if(r===noteBoxBottom)b.bottom={style:'medium'};
-        if(c===1)b.left={style:'medium'};
-        if(c===8)b.right={style:'medium'};
+        if(r===boxTop)b.top=mediumSide;
+        if(r===boxBottom)b.bottom=mediumSide;
+        if(c===1)b.left=mediumSide;
+        if(c===8)b.right=mediumSide;
         if(Object.keys(b).length)cell.border=Object.assign({},cell.border,b);
       }
     }
