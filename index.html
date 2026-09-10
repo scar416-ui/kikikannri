@@ -637,10 +637,13 @@ optgroup{font-weight:700}
         <input type="text" class="form-input" id="ac_code" placeholder="例：3501A8">
         <div style="font-size:11px;color:var(--gray-400);margin-top:4px">表示形式：販社名（識別コード）</div>
       </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-save" style="flex:1;justify-content:center" id="ac_saveBtn" onclick="saveCompany()">💾 追加する</button>
+        <button class="btn-cancel" id="ac_cancelBtn" style="display:none" onclick="cancelEditCompany()">キャンセル</button>
+      </div>
     </div>
     <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeAddCompanyModal()">キャンセル</button>
-      <button class="btn-save" onclick="saveCompany()">💾 追加する</button>
+      <button class="btn-cancel" onclick="closeAddCompanyModal()">閉じる</button>
     </div>
   </div>
 </div>
@@ -702,10 +705,13 @@ optgroup{font-weight:700}
         <input type="text" class="form-input" id="as_code" placeholder="例：GF01">
         <div style="font-size:11px;color:var(--gray-400);margin-top:4px">表示形式：店舗名（識別コード）</div>
       </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-save" style="flex:1;justify-content:center" id="as_saveBtn" onclick="saveStore()">💾 追加する</button>
+        <button class="btn-cancel" id="as_cancelBtn" style="display:none" onclick="cancelEditStore()">キャンセル</button>
+      </div>
     </div>
     <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeAddStoreModal()">キャンセル</button>
-      <button class="btn-save" onclick="saveStore()">💾 追加する</button>
+      <button class="btn-cancel" onclick="closeAddStoreModal()">閉じる</button>
     </div>
   </div>
 </div>
@@ -2324,42 +2330,92 @@ async function saveEquipment(ev){
 }
 
 /* ════ ADD COMPANY MODAL ════ */
+let _editingCompanyId=null,_editingStoreCompanyId=null,_editingStoreId=null;
 function openAddCompanyModal(){
-  document.getElementById('ac_region').value='';
-  document.getElementById('ac_category').value='';
-  document.getElementById('ac_name').value='';
-  document.getElementById('ac_code').value='';
+  cancelEditCompany();
   renderCompanyManageList();
   document.getElementById('addCompanyOverlay').classList.add('show');
 }
 function closeAddCompanyModal(){document.getElementById('addCompanyOverlay').classList.remove('show')}
 function handleAddCompanyOverlayClick(e){if(e.target===document.getElementById('addCompanyOverlay'))closeAddCompanyModal()}
+function editCompany(id){
+  const c=getCompany(id);if(!c)return;
+  _editingCompanyId=id;
+  document.getElementById('ac_region').value=c.region||'';
+  document.getElementById('ac_category').value=c.category||'';
+  document.getElementById('ac_name').value=c.name||'';
+  document.getElementById('ac_code').value=c.code||'';
+  document.getElementById('ac_saveBtn').textContent='💾 更新する';
+  document.getElementById('ac_cancelBtn').style.display='';
+}
+function cancelEditCompany(){
+  _editingCompanyId=null;
+  document.getElementById('ac_region').value='';
+  document.getElementById('ac_category').value='';
+  document.getElementById('ac_name').value='';
+  document.getElementById('ac_code').value='';
+  document.getElementById('ac_saveBtn').textContent='💾 追加する';
+  document.getElementById('ac_cancelBtn').style.display='none';
+}
 function saveCompany(){
   const region=document.getElementById('ac_region').value;
   const category=document.getElementById('ac_category').value;
   const name=document.getElementById('ac_name').value.trim();
   const code=document.getElementById('ac_code').value.trim();
-  if(code&&masterData.companies.some(c=>c.code===code)){showToast(`⚠ 識別コード「${code}」は既に他の販社で使用されています`,'error');return;}
-  const id='c'+masterData._nextCompanyId++;
-  masterData.companies.push({id,name,code,region,category,stores:[]});
-  _saveMd();
-  rebuildCompanySelect();
-  closeAddCompanyModal();
-  showToast(`✅ 販社「${companyLabel({name,code})}」を追加しました`,'success');
+  if(code&&masterData.companies.some(c=>c.code===code&&c.id!==_editingCompanyId)){showToast(`⚠ 識別コード「${code}」は既に他の販社で使用されています`,'error');return;}
+  if(_editingCompanyId){
+    const c=getCompany(_editingCompanyId);
+    if(!c){showToast('⚠ 販社が見つかりません','error');return;}
+    c.name=name;c.code=code;c.region=region;c.category=category;
+    _saveMd();
+    rebuildCompanySelect();
+    renderCompanyManageList();
+    renderList();
+    showToast(`✅ 販社「${companyLabel(c)}」を更新しました`,'success');
+    cancelEditCompany();
+  }else{
+    const id='c'+masterData._nextCompanyId++;
+    masterData.companies.push({id,name,code,region,category,stores:[]});
+    _saveMd();
+    rebuildCompanySelect();
+    renderCompanyManageList();
+    showToast(`✅ 販社「${companyLabel({name,code})}」を追加しました`,'success');
+    cancelEditCompany();
+  }
 }
 
 /* ════ ADD STORE MODAL ════ */
 function openAddStoreModal(){
+  cancelEditStore();
   // フィルタ状態から地域・類別を自動設定
   document.getElementById('as_region').value=filters.region||'';
   document.getElementById('as_category').value=filters.category||'';
   rebuildAddStoreCompanySelect();
   // 現在のフィルタ販社があれば自動選択
   if(filters.companyId)document.getElementById('as_company').value=filters.companyId;
-  document.getElementById('as_name').value='';
-  document.getElementById('as_code').value='';
   renderStoreManageList();
   document.getElementById('addStoreOverlay').classList.add('show');
+}
+function editStore(companyId,storeId){
+  const st=getStore(companyId,storeId);if(!st)return;
+  _editingStoreCompanyId=companyId;
+  _editingStoreId=storeId;
+  document.getElementById('as_region').value='';
+  document.getElementById('as_category').value='';
+  rebuildAddStoreCompanySelect();
+  document.getElementById('as_company').value=companyId;
+  document.getElementById('as_name').value=st.name||'';
+  document.getElementById('as_code').value=st.code||'';
+  document.getElementById('as_saveBtn').textContent='💾 更新する';
+  document.getElementById('as_cancelBtn').style.display='';
+}
+function cancelEditStore(){
+  _editingStoreCompanyId=null;
+  _editingStoreId=null;
+  document.getElementById('as_name').value='';
+  document.getElementById('as_code').value='';
+  document.getElementById('as_saveBtn').textContent='💾 追加する';
+  document.getElementById('as_cancelBtn').style.display='none';
 }
 function onAddStoreRegionChange(){
   rebuildAddStoreCompanySelect();
@@ -2393,14 +2449,40 @@ function saveStore(){
   if(!companyId){showToast('⚠ 対象販社を選択してください','error');return;}
   const c=getCompany(companyId);
   if(!c){showToast('⚠ 販社が見つかりません','error');return;}
-  if(code&&c.stores.some(s=>s.code===code)){showToast(`⚠ 識別コード「${code}」は既に「${c.name}」の他の店舗で使用されています`,'error');return;}
-  const id='s'+masterData._nextStoreId++;
-  c.stores.push({id,name,code});
-  _saveMd();
-  // フィルタ販社が一致する場合は店舗セレクトを再構築
-  if(filters.companyId===companyId)rebuildStoreSelect();
-  closeAddStoreModal();
-  showToast(`✅ 店舗「${storeLabel({name,code})}」を追加しました`,'success');
+  if(code&&c.stores.some(s=>s.code===code&&s.id!==_editingStoreId)){showToast(`⚠ 識別コード「${code}」は既に「${c.name}」の他の店舗で使用されています`,'error');return;}
+  if(_editingStoreId){
+    // 販社を変更した場合は元の販社の配列から移動する
+    const oldC=getCompany(_editingStoreCompanyId);
+    let st=oldC?oldC.stores.find(s=>s.id===_editingStoreId):null;
+    if(!st){showToast('⚠ 店舗が見つかりません','error');return;}
+    if(oldC.id!==companyId){
+      oldC.stores=oldC.stores.filter(s=>s.id!==_editingStoreId);
+      st={id:st.id,name,code};
+      c.stores.push(st);
+    }else{
+      st.name=name;st.code=code;
+    }
+    _saveMd();
+    equipments.forEach(e=>{
+      if(e.companyId===_editingStoreCompanyId&&e.storeId===_editingStoreId&&oldC.id!==companyId){
+        e.companyId=companyId;e.storeId=st.id;_saveEq(e);
+      }
+    });
+    if(filters.companyId===companyId||filters.companyId===_editingStoreCompanyId)rebuildStoreSelect();
+    renderStoreManageList();
+    renderList();
+    showToast(`✅ 店舗「${storeLabel(st)}」を更新しました`,'success');
+    cancelEditStore();
+  }else{
+    const id='s'+masterData._nextStoreId++;
+    c.stores.push({id,name,code});
+    _saveMd();
+    // フィルタ販社が一致する場合は店舗セレクトを再構築
+    if(filters.companyId===companyId)rebuildStoreSelect();
+    renderStoreManageList();
+    showToast(`✅ 店舗「${storeLabel({name,code})}」を追加しました`,'success');
+    cancelEditStore();
+  }
 }
 
 /* ════ DELETE CONFIRM (汎用) ════ */
@@ -2453,6 +2535,7 @@ function executeDeleteCompany(id){
   _saveMd();
   rebuildCompanySelect();
   if(filters.companyId===id){filters.companyId='';filters.storeId='';rebuildStoreSelect();}
+  if(_editingCompanyId===id)cancelEditCompany();
   renderCompanyManageList();
   renderList();
   showToast('🗑 販社を削除しました','');
@@ -2479,6 +2562,7 @@ function executeDeleteStore(companyId,storeId){
   });
   _saveMd();
   if(filters.companyId===companyId)rebuildStoreSelect();
+  if(_editingStoreId===storeId)cancelEditStore();
   renderStoreManageList();
   renderList();
   showToast('🗑 店舗を削除しました','');
@@ -2494,6 +2578,7 @@ function renderCompanyManageList(){
     `<div class="manage-item">
       <div class="manage-item-name">${companyLabel(c)}</div>
       <div class="manage-item-meta">${c.region} / ${c.category}</div>
+      <button class="btn-edit-item" onclick="editCompany('${c.id}')" title="編集">✏️</button>
       <button class="btn-del-item" onclick="confirmDeleteCompany('${c.id}')" title="削除">🗑</button>
     </div>`
   ).join('');
@@ -2513,6 +2598,7 @@ function renderStoreManageList(){
     `<div class="manage-item">
       <div class="manage-item-name">${storeLabel(s)}</div>
       <div class="manage-item-meta">${companyLabel(c)}</div>
+      <button class="btn-edit-item" onclick="editStore('${c.id}','${s.id}')" title="編集">✏️</button>
       <button class="btn-del-item" onclick="confirmDeleteStore('${c.id}','${s.id}')" title="削除">🗑</button>
     </div>`
   ).join('');
