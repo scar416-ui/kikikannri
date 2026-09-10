@@ -953,7 +953,6 @@ optgroup{font-weight:700}
 <script src="https://accounts.google.com/gsi/client" async></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
 <script>
 /* ════ CONSTANTS ════ */
@@ -2054,6 +2053,39 @@ function _imageDimsFromBuffer(buffer,extension){
 }
 function _propColPx(charW){return Math.round(((256*charW+Math.trunc(128/7))/256)*7);}
 function _propRowPx(pt){return Math.round(pt*(96/72));}
+// 写真を指定アスペクト比の枠いっぱいに（object-fit:coverと同様に中央部分を切り抜いて）収める。
+// セル境界にオフセットなしで画像を配置できるようにし、Excel/LibreOffice等の
+// 列幅ピクセル換算の違いによる中央ずれを根本的に回避する。
+function _cropImageToCover(buffer,extension,targetAspect){
+  return new Promise(resolve=>{
+    try{
+      const blob=new Blob([buffer],{type:extension==='png'?'image/png':(extension==='gif'?'image/gif':'image/jpeg')});
+      const url=URL.createObjectURL(blob);
+      const img=new Image();
+      img.onload=()=>{
+        try{
+          const iw=img.naturalWidth||img.width||4,ih=img.naturalHeight||img.height||3;
+          const srcAspect=iw/ih;
+          let sx,sy,sw,sh;
+          if(srcAspect>targetAspect){ sh=ih; sw=ih*targetAspect; sy=0; sx=(iw-sw)/2; }
+          else{ sw=iw; sh=iw/targetAspect; sx=0; sy=(ih-sh)/2; }
+          const outW=900,outH=Math.round(outW/targetAspect);
+          const canvas=document.createElement('canvas');
+          canvas.width=outW;canvas.height=outH;
+          const ctx=canvas.getContext('2d');
+          ctx.drawImage(img,sx,sy,sw,sh,0,0,outW,outH);
+          URL.revokeObjectURL(url);
+          canvas.toBlob(croppedBlob=>{
+            if(!croppedBlob){resolve(null);return;}
+            croppedBlob.arrayBuffer().then(buf=>resolve({buffer:buf,extension:'jpeg'})).catch(()=>resolve(null));
+          },'image/jpeg',0.9);
+        }catch(e){URL.revokeObjectURL(url);resolve(null);}
+      };
+      img.onerror=()=>{URL.revokeObjectURL(url);resolve(null);};
+      img.src=url;
+    }catch(e){resolve(null);}
+  });
+}
 function _proposalDateStr(){
   const d=new Date();
   return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;
@@ -2224,7 +2256,7 @@ async function exportReplacementProposal(selectedPhotos){
     for(let r=captionTop+1;r<photoBottom;r++)ws.getRow(r).height=6; // 上段と下段の間の余白
 
     const colPxOne=_propColPx(COL_W),rowPxOne=_propRowPx(18);
-    const _photoAnchorFixes=[];
+    const boxAspect=(colPxOne*4)/(rowPxOne*PHOTO_ROWS);
     for(let i=0;i<slots.length;i++){
       const slot=slots[i],f=fetched[i],d=dims[i];
       // 箱の背景・外枠
@@ -2241,16 +2273,23 @@ async function exportReplacementProposal(selectedPhotos){
         }
       }
       if(f&&d){
-        const boxWpx=colPxOne*4,boxHpx=rowPxOne*PHOTO_ROWS;
-        const margin=16;
-        const scale=Math.min((boxWpx-margin)/d.w,(boxHpx-margin)/d.h);
-        const dispW=d.w*scale,dispH=d.h*scale;
-        const offXpx=(boxWpx-dispW)/2,offYpx=(boxHpx-dispH)/2;
-        const imgId=wb.addImage({buffer:f.buffer,extension:f.extension});
-        ws.addImage(imgId,{tl:{col:slot.col0,row:slot.row0-1},ext:{width:dispW,height:dispH}});
-        // ExcelJSのtl分数座標→EMU変換が実列幅と一致せず中央からずれるため、
-        // 書き出し後にXMLのcolOff/rowOffを正確なピクセル換算値へ直接補正する
-        _photoAnchorFixes.push({colOffEmu:Math.round(offXpx*9525),rowOffEmu:Math.round(offYpx*9525)});
+        // 写真を枠のアスペクト比に合わせて中央部分を切り抜き、セル境界（オフセット0）に
+        // ぴったり合わせて配置する。列幅・行高さのピクセル換算に依存しないため、
+        // アプリによる表示のずれが起こらない。
+        const cropped=await _cropImageToCover(f.buffer,f.extension,boxAspect);
+        if(cropped){
+          const imgId=wb.addImage({buffer:cropped.buffer,extension:cropped.extension});
+          ws.addImage(imgId,{
+            tl:{col:slot.col0,row:slot.row0-1},
+            br:{col:slot.col1,row:slot.row0-1+PHOTO_ROWS}
+          });
+        }else{
+          ws.mergeCells(slot.row0,slot.col0+1,slot.row0+PHOTO_ROWS-1,slot.col1);
+          const c=ws.getCell(slot.row0,slot.col0+1);
+          c.value='写真の読み込みに失敗しました';
+          c.font={size:11,color:{argb:'FF9CA3AF'}};
+          c.alignment={horizontal:'center',vertical:'middle',wrapText:true};
+        }
       }else{
         ws.mergeCells(slot.row0,slot.col0+1,slot.row0+PHOTO_ROWS-1,slot.col1);
         const c=ws.getCell(slot.row0,slot.col0+1);
@@ -2295,30 +2334,7 @@ async function exportReplacementProposal(selectedPhotos){
       }
     }
 
-    let buffer=await wb.xlsx.writeBuffer();
-    if(_photoAnchorFixes.length&&typeof JSZip!=='undefined'){
-      try{
-        const zip=await JSZip.loadAsync(buffer);
-        const drawPath='xl/drawings/drawing1.xml';
-        const drawFile=zip.file(drawPath);
-        if(drawFile){
-          let xml=await drawFile.async('string');
-          let idx=0;
-          xml=xml.replace(/<xdr:oneCellAnchor[^>]*>[\s\S]*?<\/xdr:oneCellAnchor>/g,block=>{
-            const fix=_photoAnchorFixes[idx];idx++;
-            if(!fix)return block;
-            let b=block;
-            b=b.replace(/<xdr:colOff>\d+<\/xdr:colOff>/,`<xdr:colOff>${fix.colOffEmu}</xdr:colOff>`);
-            b=b.replace(/<xdr:rowOff>\d+<\/xdr:rowOff>/,`<xdr:rowOff>${fix.rowOffEmu}</xdr:rowOff>`);
-            return b;
-          });
-          zip.file(drawPath,xml);
-          buffer=await zip.generateAsync({type:'arraybuffer'});
-        }
-      }catch(e){
-        console.error('画像位置の補正に失敗しました（出力自体は成功）:',e);
-      }
-    }
+    const buffer=await wb.xlsx.writeBuffer();
     const blob=new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
