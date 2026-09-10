@@ -511,7 +511,7 @@ optgroup{font-weight:700}
           </select>
         </div>
         <div class="form-group" id="f_bay_num_group" style="display:none">
-          <label class="form-label">ベイ番号 <span class="required">*</span></label>
+          <label class="form-label">ベイ番号</label>
           <div class="bay-num-wrap">
             <input type="number" class="form-input" id="f_bay_num" min="1" max="99" placeholder="例：3">
             <span class="bay-num-label">番</span>
@@ -1031,7 +1031,7 @@ function buildBay(){
   const bt=getBayTypeByName(type);
   if(bt&&bt.hasNumber){
     const n=document.getElementById('f_bay_num').value.trim();
-    return n?`${type} ${n}番`:'';
+    return n?`${type} ${n}番`:type;
   }
   return type;
 }
@@ -2265,10 +2265,13 @@ async function saveEquipment(ev){
   const companyId=document.getElementById('f_company').value;
   const storeId=document.getElementById('f_store').value;
   const bay=buildBay();
-  if(document.getElementById('f_bay_type').value==='整備ベイ'){
-    const bayNum=Number(document.getElementById('f_bay_num').value);
-    if(!Number.isInteger(bayNum)||bayNum<1||bayNum>99){
-      showToast('⚠ ベイ番号は1〜99の整数で入力してください','error');return;
+  {
+    const bayNumRaw=document.getElementById('f_bay_num').value.trim();
+    if(bayNumRaw){
+      const bayNum=Number(bayNumRaw);
+      if(!Number.isInteger(bayNum)||bayNum<1||bayNum>99){
+        showToast('⚠ ベイ番号は1〜99の整数で入力してください','error');return;
+      }
     }
   }
   if(!navigator.onLine){
