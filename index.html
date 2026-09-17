@@ -934,12 +934,8 @@ optgroup{font-weight:700}
       <div class="login-logo-sub">クラウド同期対応 — ログインしてください</div>
     </div>
     <div class="login-form-group">
-      <label class="login-label">メールアドレス</label>
-      <input type="email" class="login-input" id="login_email" placeholder="example@email.com" autocomplete="email">
-    </div>
-    <div class="login-form-group">
       <label class="login-label">パスワード</label>
-      <input type="password" class="login-input" id="login_password" placeholder="パスワードを入力" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+      <input type="password" class="login-input" id="login_password" placeholder="パスワードを入力" autocomplete="current-password" autofocus onkeydown="if(event.key==='Enter')doLogin()">
     </div>
     <button class="btn-login" onclick="doLogin()">🔐 ログイン</button>
     <div class="login-loading" id="loginLoading">⏳ 認証中...</div>
@@ -957,6 +953,9 @@ optgroup{font-weight:700}
 <script>
 /* ════ CONSTANTS ════ */
 const MAKERS=['アルティア','イヤサカ','バンザイ','安全自動車','スギヤス'];
+/* 社内共有ログイン用の固定アカウント（メールアドレスのみ。パスワードはコードに含めず、
+   入力されたものをそのままFirebase側で照合する） */
+const APP_LOGIN_EMAIL='shinomiya@altia.co.jp';
 const COLOR_VAR_MAP={'badge-ok':'--ok','badge-caution':'--caution','badge-parts':'--parts','badge-danger':'--danger','badge-info':'--info','badge-gray':'--neutral'};
 
 /* 機器名称・ステータス・ベイ種別の既定値（Firestoreに未保存の場合のフォールバック） */
@@ -3319,17 +3318,16 @@ auth.onAuthStateChanged(user=>{
 });
 
 function doLogin(){
-  const email=document.getElementById('login_email').value.trim();
   const pw=document.getElementById('login_password').value;
-  if(!email||!pw)return;
+  if(!pw)return;
   const loadEl=document.getElementById('loginLoading');
   const errEl=document.getElementById('loginError');
   loadEl.classList.add('show');errEl.classList.remove('show');
-  auth.signInWithEmailAndPassword(email,pw).catch(err=>{
+  auth.signInWithEmailAndPassword(APP_LOGIN_EMAIL,pw).catch(err=>{
     loadEl.classList.remove('show');
     const badCodes=['auth/invalid-credential','auth/wrong-password','auth/user-not-found','auth/invalid-email'];
     errEl.textContent=badCodes.includes(err.code)
-      ?'⚠ メールアドレスまたはパスワードが正しくありません'
+      ?'⚠ パスワードが正しくありません'
       :'ログイン失敗: '+err.message;
     errEl.classList.add('show');
   });
