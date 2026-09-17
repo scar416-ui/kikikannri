@@ -934,8 +934,12 @@ optgroup{font-weight:700}
       <div class="login-logo-sub">クラウド同期対応 — ログインしてください</div>
     </div>
     <div class="login-form-group">
+      <label class="login-label">メールアドレス</label>
+      <input type="email" class="login-input" id="login_email" placeholder="example@email.com" autocomplete="email">
+    </div>
+    <div class="login-form-group">
       <label class="login-label">パスワード</label>
-      <input type="password" class="login-input" id="login_password" placeholder="パスワードを入力" autocomplete="current-password" autofocus onkeydown="if(event.key==='Enter')doLogin()">
+      <input type="password" class="login-input" id="login_password" placeholder="パスワードを入力" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
     </div>
     <button class="btn-login" onclick="doLogin()">🔐 ログイン</button>
     <div class="login-loading" id="loginLoading">⏳ 認証中...</div>
@@ -3318,16 +3322,18 @@ auth.onAuthStateChanged(user=>{
 });
 
 function doLogin(){
+  const emailInput=document.getElementById('login_email').value.trim();
+  const email=emailInput||APP_LOGIN_EMAIL;
   const pw=document.getElementById('login_password').value;
   if(!pw)return;
   const loadEl=document.getElementById('loginLoading');
   const errEl=document.getElementById('loginError');
   loadEl.classList.add('show');errEl.classList.remove('show');
-  auth.signInWithEmailAndPassword(APP_LOGIN_EMAIL,pw).catch(err=>{
+  auth.signInWithEmailAndPassword(email,pw).catch(err=>{
     loadEl.classList.remove('show');
-    const badCodes=['auth/invalid-credential','auth/wrong-password','auth/user-not-found','auth/invalid-email'];
+    const badCodes=['auth/invalid-credential','auth/invalid-login-credentials','auth/wrong-password','auth/user-not-found','auth/invalid-email'];
     errEl.textContent=badCodes.includes(err.code)
-      ?'⚠ パスワードが正しくありません'
+      ?'⚠ メールアドレスまたはパスワードが正しくありません'
       :'ログイン失敗: '+err.message;
     errEl.classList.add('show');
   });
