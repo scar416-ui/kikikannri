@@ -913,15 +913,17 @@ optgroup{font-weight:700}
 </div>
 
 <!-- 非表示ファイル入力 (モーダル用) -->
-<input type="file" id="fi_modal_全体" accept="image/*" capture="environment" style="display:none" onchange="handleModalPhoto(event,'全体')">
-<input type="file" id="fi_modal_銘板" accept="image/*" capture="environment" style="display:none" onchange="handleModalPhoto(event,'銘板')">
-<input type="file" id="fi_modal_extra" accept="image/*" capture="environment" style="display:none" onchange="handleModalExtraPhoto(event)">
+<!-- capture="environment" は付けない：付けるとiPhone等でカメラ撮影しか選べず、
+     写真ライブラリから既存の写真を選んで「変更」することができなくなるため -->
+<input type="file" id="fi_modal_全体" accept="image/*" style="display:none" onchange="handleModalPhoto(event,'全体')">
+<input type="file" id="fi_modal_銘板" accept="image/*" style="display:none" onchange="handleModalPhoto(event,'銘板')">
+<input type="file" id="fi_modal_extra" accept="image/*" style="display:none" onchange="handleModalExtraPhoto(event)">
 <!-- 非表示ファイル入力 (詳細画面用) -->
-<input type="file" id="fi_detail_全体" accept="image/*" capture="environment" style="display:none" onchange="handleDetailPhoto(event,'全体')">
-<input type="file" id="fi_detail_銘板" accept="image/*" capture="environment" style="display:none" onchange="handleDetailPhoto(event,'銘板')">
-<input type="file" id="fi_detail_extra" accept="image/*" capture="environment" style="display:none" onchange="handleDetailExtraPhoto(event)">
+<input type="file" id="fi_detail_全体" accept="image/*" style="display:none" onchange="handleDetailPhoto(event,'全体')">
+<input type="file" id="fi_detail_銘板" accept="image/*" style="display:none" onchange="handleDetailPhoto(event,'銘板')">
+<input type="file" id="fi_detail_extra" accept="image/*" style="display:none" onchange="handleDetailExtraPhoto(event)">
 <!-- 非表示ファイル入力 (保守履歴写真用) -->
-<input type="file" id="fi_history" accept="image/*" capture="environment" style="display:none" onchange="handleHistoryPhoto(event)">
+<input type="file" id="fi_history" accept="image/*" style="display:none" onchange="handleHistoryPhoto(event)">
 
 <div class="toast" id="toast"></div>
 
