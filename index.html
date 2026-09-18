@@ -375,6 +375,15 @@ optgroup{font-weight:700}
       </select>
       <button class="btn-filter-add" onclick="openAddStoreModal()" title="店舗を追加">＋</button>
     </div>
+
+    <span class="filter-arrow">›</span>
+
+    <div class="filter-group">
+      <label style="display:flex;align-items:center;gap:4px;font-size:13px;color:var(--gray-500);cursor:pointer;white-space:nowrap">
+        <input type="checkbox" id="filterShowRetired" onchange="onFilterShowRetiredChange()">
+        🗑 撤去済みも表示
+      </label>
+    </div>
   </div>
 
   <div class="main">
@@ -714,6 +723,25 @@ optgroup{font-weight:700}
         <label class="form-label">識別コード</label>
         <input type="text" class="form-input" id="as_code" placeholder="例：GF01">
         <div style="font-size:11px;color:var(--gray-400);margin-top:4px">表示形式：店舗名（識別コード）</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">住所 <span class="optional-tag">任意</span></label>
+        <input type="text" class="form-input" id="as_address" placeholder="例：岐阜県岐阜市〇〇1-2-3">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">工場長 <span class="optional-tag">任意</span></label>
+          <input type="text" class="form-input" id="as_manager" placeholder="例：山田 太郎">
+        </div>
+        <div class="form-group">
+          <label class="form-label">登録年月 <span class="optional-tag">任意</span></label>
+          <input type="month" class="form-input" id="as_managerSince">
+          <div style="font-size:11px;color:var(--gray-400);margin-top:4px">工場長が異動した年月を記録</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">備考 <span class="optional-tag">任意</span></label>
+        <textarea class="form-input" id="as_note" rows="2" placeholder="例：定休日、連絡先など"></textarea>
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn-save" style="flex:1;justify-content:center" id="as_saveBtn" onclick="saveStore()">💾 追加する</button>
@@ -1180,7 +1208,7 @@ let equipments=[
 let nextId=7;
 let currentEq=null;
 let isEditMode=false;
-let filters={region:'',category:'',companyId:'',storeId:''};
+let filters={region:'',category:'',companyId:'',storeId:'',showRetired:false};
 let modalPhotos={'全体':null,'銘板':null,extra:[]};
 let historyPhotos=[];
 let pendingNewEqId=null; // 新規登録モーダルで確定させる仮ID（写真アップロード先と保存時で一致させる）
@@ -1250,6 +1278,10 @@ function onFilterStoreChange(){
   filters.storeId=document.getElementById('filterStore').value;
   applyFilters();
 }
+function onFilterShowRetiredChange(){
+  filters.showRetired=document.getElementById('filterShowRetired').checked;
+  applyFilters();
+}
 function applyFilters(){renderList();}
 
 // ベイの種類ごとの表示順：masterData.bayTypes の並び順に従う（番号ありの種別は番号順）。未設定・未登録の種別は最後にまとめる。
@@ -1279,6 +1311,7 @@ function getFiltered(){
     if(filters.category&&(!c||c.category!==filters.category))return false;
     if(filters.companyId&&eq.companyId!==filters.companyId)return false;
     if(filters.storeId&&eq.storeId!==filters.storeId)return false;
+    if(!filters.showRetired&&eq.retired)return false;
     return true;
   }).sort((a,b)=>{
     const ka=bayCategorySortKey(a.bay),kb=bayCategorySortKey(b.bay);
@@ -1316,7 +1349,7 @@ function renderList(){
       <div class="card-body-wrap">
         ${thumbUrl?`<img class="card-thumb" src="${thumbUrl}" alt="${eq.name}" loading="lazy" onerror="_photoRetry(this)">`:`<div class="card-thumb-placeholder">📷</div>`}
         <div class="card-main">
-          <div class="card-top"><div class="card-name">${eq.name}${eq.bay?`<span class="card-bay-inline">🔧 ${eq.bay}</span>`:''}</div><span class="badge ${s.cls}">${s.label}</span></div>
+          <div class="card-top"><div class="card-name">${eq.name}${eq.bay?`<span class="card-bay-inline">🔧 ${eq.bay}</span>`:''}</div>${eq.retired?`<span class="badge badge-gray">🗑 撤去済み</span>`:''}<span class="badge ${s.cls}">${s.label}</span></div>
           <div class="card-meta"><span>🏭 ${eq.maker}</span><span>📋 ${eq.model}</span></div>
           <div class="card-location">
             ${c?`<span class="location-tag">🏢 ${companyLabel(c)}</span>`:''}
@@ -1412,6 +1445,7 @@ function renderDetail(){
     <div class="section">
       <div class="section-title"><span class="section-title-label">📊 ステータス</span></div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        ${eq.retired?`<span class="badge badge-gray" style="font-size:13px;padding:4px 12px">🗑 撤去済み${eq.retiredAt?`（${eq.retiredAt}）`:''}</span>`:''}
         <span class="badge ${s.cls}" style="font-size:13px;padding:4px 12px">${s.label}</span>
         ${eq.note?`<span style="font-size:13px;color:var(--gray-500)">${eq.note}</span>`:''}
       </div>
@@ -1458,6 +1492,9 @@ function renderDetail(){
           <div class="info-item-label">ベイ</div>
           <div class="info-item-value">${eq.bay||'—'}</div>
         </div>
+        ${st&&st.address?`<div class="info-item" style="grid-column:span 2"><div class="info-item-label">店舗住所</div><div class="info-item-value">${st.address}</div></div>`:''}
+        ${st&&st.manager?`<div class="info-item"><div class="info-item-label">工場長</div><div class="info-item-value">${st.manager}${st.managerSince?`<span style="font-size:11px;color:var(--gray-400);margin-left:6px">（${st.managerSince}〜）</span>`:''}</div></div>`:''}
+        ${st&&st.note?`<div class="info-item" style="grid-column:span 2"><div class="info-item-label">店舗備考</div><div class="info-item-value">${st.note}</div></div>`:''}
       </div>
     </div>
 
@@ -2628,6 +2665,10 @@ function editStore(companyId,storeId){
   document.getElementById('as_company').value=companyId;
   document.getElementById('as_name').value=st.name||'';
   document.getElementById('as_code').value=st.code||'';
+  document.getElementById('as_address').value=st.address||'';
+  document.getElementById('as_manager').value=st.manager||'';
+  document.getElementById('as_managerSince').value=st.managerSince||'';
+  document.getElementById('as_note').value=st.note||'';
   document.getElementById('as_saveBtn').textContent='💾 更新する';
   document.getElementById('as_cancelBtn').style.display='';
 }
@@ -2636,6 +2677,10 @@ function cancelEditStore(){
   _editingStoreId=null;
   document.getElementById('as_name').value='';
   document.getElementById('as_code').value='';
+  document.getElementById('as_address').value='';
+  document.getElementById('as_manager').value='';
+  document.getElementById('as_managerSince').value='';
+  document.getElementById('as_note').value='';
   document.getElementById('as_saveBtn').textContent='💾 追加する';
   document.getElementById('as_cancelBtn').style.display='none';
 }
@@ -2668,6 +2713,10 @@ function saveStore(){
   const companyId=document.getElementById('as_company').value;
   const name=document.getElementById('as_name').value.trim();
   const code=document.getElementById('as_code').value.trim();
+  const address=document.getElementById('as_address').value.trim();
+  const manager=document.getElementById('as_manager').value.trim();
+  const managerSince=document.getElementById('as_managerSince').value;
+  const note=document.getElementById('as_note').value.trim();
   if(!companyId){showToast('⚠ 対象販社を選択してください','error');return;}
   const c=getCompany(companyId);
   if(!c){showToast('⚠ 販社が見つかりません','error');return;}
@@ -2679,10 +2728,10 @@ function saveStore(){
     if(!st){showToast('⚠ 店舗が見つかりません','error');return;}
     if(oldC.id!==companyId){
       oldC.stores=oldC.stores.filter(s=>s.id!==_editingStoreId);
-      st={id:st.id,name,code};
+      st={id:st.id,name,code,address,manager,managerSince,note};
       c.stores.push(st);
     }else{
-      st.name=name;st.code=code;
+      st.name=name;st.code=code;st.address=address;st.manager=manager;st.managerSince=managerSince;st.note=note;
     }
     _saveMd();
     equipments.forEach(e=>{
@@ -2697,7 +2746,7 @@ function saveStore(){
     cancelEditStore();
   }else{
     const id='s'+masterData._nextStoreId++;
-    c.stores.push({id,name,code});
+    c.stores.push({id,name,code,address,manager,managerSince,note});
     _saveMd();
     // フィルタ販社が一致する場合は店舗セレクトを再構築
     if(filters.companyId===companyId)rebuildStoreSelect();
@@ -2705,6 +2754,31 @@ function saveStore(){
     showToast(`✅ 店舗「${storeLabel({name,code})}」を追加しました`,'success');
     cancelEditStore();
   }
+}
+
+/* ════ 将来拡張：店舗情報の一括更新 ════
+   店舗の識別コード(code)をキーに、CSV/Excel等から読み込んだ一覧で
+   住所・工場長・登録年月・備考をまとめて更新するための土台。
+   現時点ではUI（ファイル読み込み・確認画面）は未実装で、この関数はどこからも呼ばれていない。
+   将来、識別コードを含むCSV等を読み込む機能を追加する際はここから呼び出す想定。
+   rows: [{code, name?, address?, manager?, managerSince?, note?}, ...] */
+function bulkUpdateStoresByCode(rows){
+  let updated=0;
+  (rows||[]).forEach(r=>{
+    if(!r||!r.code)return;
+    masterData.companies.forEach(c=>{
+      const s=c.stores.find(x=>x.code===r.code);
+      if(!s)return;
+      if(r.name!==undefined)s.name=r.name;
+      if(r.address!==undefined)s.address=r.address;
+      if(r.manager!==undefined)s.manager=r.manager;
+      if(r.managerSince!==undefined)s.managerSince=r.managerSince;
+      if(r.note!==undefined)s.note=r.note;
+      updated++;
+    });
+  });
+  if(updated)_saveMd();
+  return updated;
 }
 
 /* ════ DELETE CONFIRM (汎用) ════ */
@@ -2819,7 +2893,7 @@ function renderStoreManageList(){
   el.innerHTML=rows.map(({c,s})=>
     `<div class="manage-item">
       <div class="manage-item-name">${storeLabel(s)}</div>
-      <div class="manage-item-meta">${companyLabel(c)}</div>
+      <div class="manage-item-meta">${companyLabel(c)}${s.manager?` ／ 工場長：${s.manager}${s.managerSince?`（${s.managerSince}〜）`:''}`:''}</div>
       <button class="btn-edit-item" onclick="editStore('${c.id}','${s.id}')" title="編集">✏️</button>
       <button class="btn-del-item" onclick="confirmDeleteStore('${c.id}','${s.id}')" title="削除">🗑</button>
     </div>`
@@ -3074,6 +3148,8 @@ function closeConfirm(){document.getElementById('confirmOverlay').classList.remo
 function executeRetire(){
   if(!currentEq)return;
   currentEq.status='danger';currentEq.note='廃棄・入替済み';
+  currentEq.retired=true;
+  currentEq.retiredAt=new Date().toISOString().slice(0,10);
   if(!currentEq.maintenance)currentEq.maintenance=[];
   currentEq.maintenance.push({
     content:'廃棄・入替として記録',nss:'システム',
