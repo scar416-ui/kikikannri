@@ -3110,6 +3110,7 @@ function openExportModal(){
   if(filters.companyId){
     document.getElementById('sc_company').checked=true;
     cSel.value=filters.companyId;
+    onExportCompanyChange(); // 店舗セレクトを構築（値をJSで直接セットしただけではonchangeが発火しないため必須）
     onExportScopeChange();
     if(filters.storeId){
       document.getElementById('sc_store').checked=true;
