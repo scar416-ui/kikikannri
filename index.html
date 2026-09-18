@@ -63,6 +63,12 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .list-group-header{display:flex;align-items:center;gap:8px;margin:14px 0 6px;font-size:12px;font-weight:700;color:var(--primary);letter-spacing:.02em}
 .list-group-header:first-child{margin-top:0}
 .list-group-header::after{content:'';flex:1;height:1px;background:var(--primary-border)}
+.store-info-banner{background:var(--primary-light);border:1px solid var(--primary-border);border-radius:10px;padding:12px 14px;margin-bottom:14px}
+.store-info-banner-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.store-info-banner-title{font-size:14px;font-weight:700;color:var(--primary)}
+.store-info-banner-company{font-weight:500;font-size:12px;color:var(--gray-500);margin-left:4px}
+.store-info-banner-meta{margin-top:6px;font-size:12px;color:var(--gray-600);line-height:1.6}
+.store-info-banner-empty{color:var(--gray-400)}
 .card-meta{margin-top:6px;font-size:12px;color:var(--gray-500);display:flex;gap:12px;flex-wrap:wrap}
 .card-location{margin-top:8px;display:flex;flex-wrap:wrap;gap:4px}
 .location-tag{display:inline-flex;align-items:center;gap:3px;background:var(--primary-light);color:var(--primary);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;border:1px solid var(--primary-border)}
@@ -206,9 +212,13 @@ textarea.form-input{resize:vertical;min-height:72px}
 #elapsedPreview{font-size:12px;margin-top:-8px;margin-bottom:12px;padding:6px 12px;background:var(--primary-light);border-radius:6px;border:1px solid var(--primary-border);display:none}
 .lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:500;align-items:center;justify-content:center;flex-direction:column;gap:12px}
 .lightbox.show{display:flex}
-.lightbox img{max-width:90vw;max-height:80vh;border-radius:8px;object-fit:contain}
+.lightbox-imgwrap{position:relative;max-width:92vw;max-height:80vh;overflow:hidden;display:flex;align-items:center;justify-content:center;touch-action:none}
+.lightbox img{max-width:90vw;max-height:80vh;border-radius:8px;object-fit:contain;transform-origin:center center;transition:transform .15s ease;cursor:zoom-in;user-select:none;-webkit-user-drag:none}
+.lightbox img.zoomed{cursor:grab}
+.lightbox img.dragging{cursor:grabbing;transition:none}
 .lightbox-close{background:rgba(255,255,255,.15);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .lightbox-label{color:#fff;font-size:14px;font-weight:600}
+.lightbox-zoomhint{color:rgba(255,255,255,.55);font-size:11px}
 .confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:300;align-items:center;justify-content:center;padding:20px}
 .confirm-overlay.show{display:flex}
 .confirm-box{background:#fff;border-radius:12px;padding:24px;max-width:400px;width:100%;box-shadow:var(--shadow-md);border-top:4px solid var(--primary)}
@@ -917,7 +927,10 @@ optgroup{font-weight:700}
     <button class="lightbox-close" onclick="closeLightbox()">✕</button>
   </div>
   <div class="lightbox-label" id="lightboxLabel"></div>
-  <img id="lightboxImg" src="" alt="拡大写真" onclick="event.stopPropagation()" onerror="_photoRetry(this)">
+  <div class="lightbox-imgwrap" id="lightboxImgWrap" onclick="event.stopPropagation()">
+    <img id="lightboxImg" src="" alt="拡大写真" onerror="_photoRetry(this)">
+  </div>
+  <div class="lightbox-zoomhint" id="lightboxZoomHint">🔍 ダブルタップ／ピンチ／ホイールでさらに拡大できます</div>
 </div>
 
 <!-- ════ 代替提案書：写真選択モーダル ════ -->
@@ -1324,12 +1337,33 @@ function renderList(){
   const list=getFiltered();
   document.getElementById('listCount').textContent=list.length+' 件';
   const el=document.getElementById('equipmentList');
+
+  // 店舗で絞り込み中は、その店舗の情報（住所・工場長・備考）を一覧の先頭に表示
+  let bannerHTML='';
+  if(filters.storeId){
+    const bc=getCompany(filters.companyId);
+    const bst=getStore(filters.companyId,filters.storeId);
+    if(bst){
+      const metaParts=[];
+      if(bst.address)metaParts.push(`📍 ${bst.address}`);
+      if(bst.manager)metaParts.push(`👤 工場長：${bst.manager}${bst.managerSince?`（${bst.managerSince}〜）`:''}`);
+      if(bst.note)metaParts.push(`📝 ${bst.note}`);
+      bannerHTML=`<div class="store-info-banner">
+        <div class="store-info-banner-head">
+          <div class="store-info-banner-title">🏬 ${storeLabel(bst)}${bc?`<span class="store-info-banner-company">（${companyLabel(bc)}）</span>`:''}</div>
+          <button class="btn-edit-item" onclick="editStoreFromBanner('${filters.companyId}','${filters.storeId}')" title="店舗情報を編集">✏️ 編集</button>
+        </div>
+        ${metaParts.length?`<div class="store-info-banner-meta">${metaParts.join('　')}</div>`:'<div class="store-info-banner-meta store-info-banner-empty">住所・工場長などの情報は未登録です</div>'}
+      </div>`;
+    }
+  }
+
   if(!list.length){
-    el.innerHTML='<div class="empty-state"><div class="empty-icon">🔍</div><div>該当する機器が見つかりません</div></div>';
+    el.innerHTML=bannerHTML+'<div class="empty-state"><div class="empty-icon">🔍</div><div>該当する機器が見つかりません</div></div>';
     return;
   }
   let lastGroup=null;
-  el.innerHTML=list.map(eq=>{
+  el.innerHTML=bannerHTML+list.map(eq=>{
     const s=statusInfo(eq.status);
     const elapsed=calcElapsed(eq.date);
     const old=isOld(eq.date);
@@ -1962,7 +1996,105 @@ function openLightboxExtra(i){
   document.getElementById('lightboxLabel').textContent=eq.photos.extra[i].name;
   document.getElementById('lightbox').classList.add('show');
 }
-function closeLightbox(){document.getElementById('lightbox').classList.remove('show')}
+function closeLightbox(){document.getElementById('lightbox').classList.remove('show');if(window._lightboxResetZoom)_lightboxResetZoom();}
+
+/* ════ ライトボックス：さらに拡大（ピンチ／ホイール／ダブルタップ／ドラッグ） ════ */
+(function(){
+  let scale=1,tx=0,ty=0;
+  let pinchStartDist=0,pinchStartScale=1;
+  let dragging=false,dragStartX=0,dragStartY=0,startTx=0,startTy=0;
+  const MIN=1,MAX=4;
+
+  function img(){return document.getElementById('lightboxImg');}
+  function clamp(v,min,max){return Math.max(min,Math.min(max,v));}
+  function apply(){
+    const el=img();if(!el)return;
+    el.style.transform=`translate(${tx}px,${ty}px) scale(${scale})`;
+    el.classList.toggle('zoomed',scale>1.01);
+  }
+  function resetZoom(){
+    scale=1;tx=0;ty=0;
+    const el=img();if(!el)return;
+    el.classList.remove('dragging');
+    apply();
+  }
+  window._lightboxResetZoom=resetZoom;
+
+  function onDblClick(e){
+    e.stopPropagation();
+    if(scale>1){resetZoom();return;}
+    scale=2.5;tx=0;ty=0;apply();
+  }
+  function onWheel(e){
+    e.preventDefault();e.stopPropagation();
+    scale=clamp(scale*(e.deltaY<0?1.15:0.87),MIN,MAX);
+    if(scale<=1.01){scale=1;tx=0;ty=0;}
+    apply();
+  }
+  function dist(a,b){return Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);}
+  function onTouchStart(e){
+    if(e.touches.length===2){
+      pinchStartDist=dist(e.touches[0],e.touches[1]);
+      pinchStartScale=scale;
+    }else if(e.touches.length===1&&scale>1){
+      dragging=true;
+      dragStartX=e.touches[0].clientX;dragStartY=e.touches[0].clientY;
+      startTx=tx;startTy=ty;
+      img().classList.add('dragging');
+    }
+  }
+  function onTouchMove(e){
+    if(e.touches.length===2&&pinchStartDist){
+      e.preventDefault();
+      const d=dist(e.touches[0],e.touches[1]);
+      scale=clamp(pinchStartScale*(d/pinchStartDist),MIN,MAX);
+      if(scale<=1.01){scale=1;tx=0;ty=0;}
+      apply();
+    }else if(e.touches.length===1&&dragging){
+      e.preventDefault();
+      tx=startTx+(e.touches[0].clientX-dragStartX);
+      ty=startTy+(e.touches[0].clientY-dragStartY);
+      apply();
+    }
+  }
+  function onTouchEnd(e){
+    if(e.touches.length<2)pinchStartDist=0;
+    if(e.touches.length===0){dragging=false;const el=img();if(el)el.classList.remove('dragging');}
+  }
+  function onMouseDown(e){
+    if(scale<=1)return;
+    e.preventDefault();
+    dragging=true;dragStartX=e.clientX;dragStartY=e.clientY;startTx=tx;startTy=ty;
+    img().classList.add('dragging');
+  }
+  function onMouseMove(e){
+    if(!dragging)return;
+    tx=startTx+(e.clientX-dragStartX);
+    ty=startTy+(e.clientY-dragStartY);
+    apply();
+  }
+  function onMouseUp(){
+    if(!dragging)return;
+    dragging=false;
+    const el=img();if(el)el.classList.remove('dragging');
+  }
+  function bind(){
+    const el=img();if(!el)return;
+    el.addEventListener('dblclick',onDblClick);
+    el.addEventListener('wheel',onWheel,{passive:false});
+    el.addEventListener('touchstart',onTouchStart,{passive:true});
+    el.addEventListener('touchmove',onTouchMove,{passive:false});
+    el.addEventListener('touchend',onTouchEnd);
+    el.addEventListener('touchcancel',onTouchEnd);
+    el.addEventListener('mousedown',onMouseDown);
+    window.addEventListener('mousemove',onMouseMove);
+    window.addEventListener('mouseup',onMouseUp);
+    // 表示する写真が切り替わった際（src変更時）はズーム状態をリセットする
+    new MutationObserver(resetZoom).observe(el,{attributes:true,attributeFilter:['src']});
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);
+  else bind();
+})();
 
 /* ════ MAINTENANCE HISTORY ════ */
 function openHistoryModal(){
@@ -2654,6 +2786,15 @@ function openAddStoreModal(){
   if(filters.companyId)document.getElementById('as_company').value=filters.companyId;
   renderStoreManageList();
   document.getElementById('addStoreOverlay').classList.add('show');
+}
+// 一覧上部の店舗情報バナーから「編集」をタップした際に、店舗管理モーダルを開いて該当店舗を編集状態にする
+function editStoreFromBanner(companyId,storeId){
+  document.getElementById('as_region').value='';
+  document.getElementById('as_category').value='';
+  rebuildAddStoreCompanySelect();
+  renderStoreManageList();
+  document.getElementById('addStoreOverlay').classList.add('show');
+  editStore(companyId,storeId);
 }
 function editStore(companyId,storeId){
   const st=getStore(companyId,storeId);if(!st)return;
