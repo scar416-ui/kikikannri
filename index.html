@@ -1915,6 +1915,7 @@ function _withTimeout(promise,ms,label){
   });
 }
 let _processingQueue=false;
+let _lastQueueErrorToast=0;
 // 送信待ちキューを順番に処理する。同時に複数呼ばれても多重実行しないようにする。
 async function _processPendingQueue(){
   if(_processingQueue)return;
@@ -1935,6 +1936,15 @@ async function _processPendingQueue(){
           item.status='uploaded';item.driveUrl=url;
         }catch(e){
           console.warn('写真のバックグラウンドアップロードに失敗しました（後で再試行します）:',e);
+          const failCount=(item.failCount||0)+1;
+          await _updatePendingPhoto(item.id,{failCount});
+          // 何度も失敗が続く場合は、原因が分かるようトースト（ただし連投を防ぐため
+          // 直近2分以内に表示済みならスキップ）でユーザーに知らせる。
+          if(failCount>=3&&Date.now()-_lastQueueErrorToast>120000){
+            _lastQueueErrorToast=Date.now();
+            const msg=(e&&e.message)||'不明なエラー';
+            showToast(`⚠ 写真のDrive送信が繰り返し失敗しています：${msg}`,'error');
+          }
           continue;
         }
       }
