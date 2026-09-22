@@ -4130,11 +4130,19 @@ async function _uploadWithFallback(file,eq){
     return await _uploadToDrive(file,eq);
   }catch(err){
     console.warn('Drive upload failed, using base64:',err);
-    return new Promise(resolve=>{
-      const reader=new FileReader();
-      reader.onload=ev=>resolve(ev.target.result);
-      reader.readAsDataURL(file);
-    });
+    // Driveアップロード失敗時のフォールバックは、Firestoreの1文書あたり約1MBという
+    // サイズ上限を超えて保存自体が失敗しないよう、通常時（Drive保存）より小さく
+    // 再圧縮してからbase64として直接保存する。
+    try{
+      return await _compressImageToDataURL(file,1200,0.75);
+    }catch(e2){
+      console.warn('フォールバック用の再圧縮に失敗したため、そのままbase64化します:',e2);
+      return new Promise(resolve=>{
+        const reader=new FileReader();
+        reader.onload=ev=>resolve(ev.target.result);
+        reader.readAsDataURL(file);
+      });
+    }
   }
 }
 
