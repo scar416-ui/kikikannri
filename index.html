@@ -213,7 +213,6 @@ textarea.form-input{resize:vertical;min-height:72px}
 /* ── MISC ── */
 .sync-banner{display:none;background:#fef3c7;color:#92400e;padding:7px 16px;font-size:12px;font-weight:600;align-items:center;gap:8px;border-bottom:1px solid #fde68a}
 .sync-banner.show{display:flex}
-#elapsedPreview{font-size:12px;margin-top:-8px;margin-bottom:12px;padding:6px 12px;background:var(--primary-light);border-radius:6px;border:1px solid var(--primary-border);display:none}
 .lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:500;align-items:center;justify-content:center;flex-direction:column;gap:12px}
 .lightbox.show{display:flex}
 .lightbox-imgwrap{position:relative;max-width:92vw;max-height:80vh;overflow:hidden;display:flex;align-items:center;justify-content:center;touch-action:none}
@@ -506,17 +505,13 @@ optgroup{font-weight:700}
         <div class="error-msg" id="err_serial" style="display:none">⚠ 読み取り失敗 — 手動入力</div>
       </div>
 
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">設置日</label>
-          <input type="month" class="form-input" id="f_date" onchange="updateElapsedPreview()">
-        </div>
-        <div class="form-group">
-          <label class="form-label">製造年月</label>
-          <input type="month" class="form-input" id="f_nextcheck">
+      <div class="form-group">
+        <label class="form-label">製造年月</label>
+        <div class="form-row" style="gap:8px">
+          <select class="form-input" id="f_nextcheck_year"><option value="">年</option></select>
+          <select class="form-input" id="f_nextcheck_month"><option value="">月</option></select>
         </div>
       </div>
-      <div id="elapsedPreview"></div>
 
       <!-- ── 設置場所 ── -->
       <div class="form-divider">設置場所</div>
@@ -1983,7 +1978,7 @@ function applyNameplateResult(data){
   }
 
   if(data.mfgDate){
-    document.getElementById('f_nextcheck').value=data.mfgDate;
+    _mfgSelectsSet(data.mfgDate);
   }
 
   const filledCount=[data.maker,data.model,data.serial,data.mfgDate].filter(Boolean).length;
@@ -2681,8 +2676,7 @@ function clearForm(){
   document.getElementById('f_maker').value='アルティア';
   document.getElementById('f_model').value='';
   document.getElementById('f_serial').value='';
-  document.getElementById('f_date').value='';
-  document.getElementById('f_nextcheck').value='';
+  _mfgSelectsSet('');
   document.getElementById('f_note').value='';
   document.getElementById('f_company').value='';
   document.getElementById('f_store').innerHTML='<option value="">販社を先に選択</option>';
@@ -2691,7 +2685,6 @@ function clearForm(){
   document.getElementById('f_bay_num_group').style.display='none';
   ['err_model','err_serial'].forEach(id=>document.getElementById(id).style.display='none');
   ['f_model','f_serial'].forEach(id=>document.getElementById(id).classList.remove('error'));
-  document.getElementById('elapsedPreview').style.display='none';
 }
 function fillForm(eq){
   document.getElementById('f_name').value=eq.name;
@@ -2699,8 +2692,7 @@ function fillForm(eq){
   document.getElementById('f_maker').value=eq.maker;
   document.getElementById('f_model').value=eq.model;
   document.getElementById('f_serial').value=eq.serial;
-  document.getElementById('f_date').value=eq.date||'';
-  document.getElementById('f_nextcheck').value=eq.nextcheck||'';
+  _mfgSelectsSet(eq.nextcheck||'');
   document.getElementById('f_note').value=eq.note||'';
   document.getElementById('f_company').value=eq.companyId||'';
   onFormCompanyChange();
@@ -2708,19 +2700,59 @@ function fillForm(eq){
   setBayValue(eq.bay);
   ['err_model','err_serial'].forEach(id=>document.getElementById(id).style.display='none');
   ['f_model','f_serial'].forEach(id=>document.getElementById(id).classList.remove('error'));
-  updateElapsedPreview();
 }
-function updateElapsedPreview(){
-  const d=document.getElementById('f_date').value;
-  const el=document.getElementById('elapsedPreview');
-  const elapsed=calcElapsed(d);
-  if(elapsed){
-    const old=isOld(d);
-    el.style.display='block';
-    el.innerHTML=`<span style="color:var(--gray-600)">設置からの経過：</span>
-      <span style="font-weight:700;color:${old?'var(--caution)':'var(--primary)'}">${elapsed}経過${old?' ⚠ 10年超':''}</span>`;
-  }else{el.style.display='none';}
+
+/* ════ 製造年月：年（西暦／和暦）・月（アルファベット）選択 ════ */
+function _warekiYearLabel(y){
+  if(y===2019)return '平成31／令和元';
+  if(y>2019)return `令和${(y-2018)===1?'元':(y-2018)}`;
+  if(y===1989)return '平成元';
+  if(y>1989)return `平成${y-1988}`;
+  if(y>=1926)return `昭和${(y-1925)===1?'元':(y-1925)}`;
+  return `大正${(y-1911)===1?'元':(y-1911)}`;
 }
+function _monthLetter(m){return String.fromCharCode(64+m);}
+function _populateMfgSelects(){
+  const ySel=document.getElementById('f_nextcheck_year');
+  const mSel=document.getElementById('f_nextcheck_month');
+  if(!ySel||!mSel||ySel.dataset.filled)return;
+  const curY=new Date().getFullYear();
+  let yOpts='<option value="">年</option>';
+  for(let y=curY+1;y>=1970;y--){
+    yOpts+=`<option value="${y}">${y}年（${_warekiYearLabel(y)}）</option>`;
+  }
+  ySel.innerHTML=yOpts;
+  ySel.dataset.filled='1';
+  let mOpts='<option value="">月</option>';
+  for(let m=1;m<=12;m++){
+    mOpts+=`<option value="${m}">${m}月（${_monthLetter(m)}）</option>`;
+  }
+  mSel.innerHTML=mOpts;
+  mSel.dataset.filled='1';
+}
+function _mfgSelectsGet(){
+  const ySel=document.getElementById('f_nextcheck_year');
+  const mSel=document.getElementById('f_nextcheck_month');
+  const y=ySel?ySel.value:'',m=mSel?mSel.value:'';
+  if(!y||!m)return '';
+  return `${y}-${String(m).padStart(2,'0')}`;
+}
+function _mfgSelectsSet(ym){
+  _populateMfgSelects();
+  const ySel=document.getElementById('f_nextcheck_year');
+  const mSel=document.getElementById('f_nextcheck_month');
+  if(!ySel||!mSel)return;
+  if(ym){
+    const[y,m]=ym.split('-');
+    ySel.value=y;
+    mSel.value=String(Number(m));
+  }else{
+    ySel.value='';
+    mSel.value='';
+  }
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',_populateMfgSelects);
+else _populateMfgSelects();
 
 /* ════ SAVE EQUIPMENT ════ */
 async function saveEquipment(ev){
@@ -2757,8 +2789,7 @@ async function saveEquipment(ev){
     if(isEditMode&&currentEq){
       const backup=JSON.parse(JSON.stringify(currentEq));
       Object.assign(currentEq,{name,status,maker,model,serial,
-        date:document.getElementById('f_date').value,
-        nextcheck:document.getElementById('f_nextcheck').value,
+        nextcheck:_mfgSelectsGet(),
         companyId,storeId,bay,note:document.getElementById('f_note').value
       });
       if(modalPhotos['全体'])currentEq.photos['全体']=modalPhotos['全体'];
@@ -2774,8 +2805,7 @@ async function saveEquipment(ev){
       renderDetail();renderList();
     }else{
       const eq={id:pendingNewEqId||_genEquipmentId(),name,status,maker,model,serial,
-        date:document.getElementById('f_date').value,
-        nextcheck:document.getElementById('f_nextcheck').value,
+        nextcheck:_mfgSelectsGet(),
         companyId,storeId,bay,note:document.getElementById('f_note').value,
         photos:{'全体':modalPhotos['全体']||null,'銘板':modalPhotos['銘板']||null,extra:modalPhotos.extra},
         maintenance:[]
