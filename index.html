@@ -147,6 +147,8 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .photo-extra-item img{width:100%;height:100%;object-fit:cover}
 .photo-extra-del{position:absolute;top:3px;right:3px;background:rgba(0,0,0,.55);color:#fff;border:none;width:20px;height:20px;border-radius:50%;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .2s}
 .photo-extra-item:hover .photo-extra-del{opacity:1}
+.photo-pending-badge{position:absolute;left:4px;bottom:4px;background:rgba(0,0,0,.65);color:#fff;font-size:10px;font-weight:700;padding:3px 7px;border-radius:10px;display:flex;align-items:center;gap:4px;z-index:2;pointer-events:none}
+.photo-pending-badge .spinner{width:9px;height:9px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:photoUploadSpin .7s linear infinite;flex-shrink:0}
 .btn-add-photo{background:var(--gray-50);border:2px dashed var(--gray-300);border-radius:6px;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;cursor:pointer;font-size:12px;color:var(--gray-500);font-weight:600;width:100%;transition:border-color .2s,color .2s;font-family:inherit}
 .btn-add-photo:hover{border-color:var(--primary);color:var(--primary)}
 .photo-extra-grid.drag-over .btn-add-photo{border-color:var(--primary);color:var(--primary);background:var(--primary-light)}
@@ -1522,12 +1524,20 @@ function renderDetail(){
 
   function detailPhotoSlot(key,icon,ocr){
     const hasP=!!eq.photos[key];
+    const pending=_isPendingPhoto(eq.id,'main',key);
     const id=`detail_slot_${key.replace(/\s/g,'_')}`;
     return`<div class="photo-slot${hasP?' has-photo':''}" id="${id}">
       ${hasP
         ?`<img src="${eq.photos[key]}" alt="${key}" onclick="openLightbox('${key}',event)" onerror="_photoRetry(this)">
+          ${pending?'<span class="photo-pending-badge"><span class="spinner"></span>送信中</span>':''}
           <div class="photo-overlay">
             <button onclick="openLightbox('${key}',event)">🔍 拡大</button>
+          </div>`
+        :pending
+        ?`<div class="photo-placeholder">
+            <span class="photo-placeholder-icon">📤</span>
+            <span class="photo-placeholder-label">${key}写真</span>
+            <span class="photo-placeholder-sub">Driveへ送信中…</span>
           </div>`
         :`<div class="photo-placeholder">
             <span class="photo-placeholder-icon">${icon}</span>
@@ -1541,6 +1551,7 @@ function renderDetail(){
   const extraPhotos=(eq.photos.extra||[]).map((p,i)=>
     `<div class="photo-extra-item" onclick="openLightboxExtra(${i})">
       <img src="${p.data}" alt="${p.name}" onerror="_photoRetry(this)">
+      ${p.localId&&_isPendingPhoto(eq.id,'extra',p.localId)?'<span class="photo-pending-badge"><span class="spinner"></span>送信中</span>':''}
     </div>`).join('');
 
   const maintenanceHTML=(eq.maintenance||[]).length===0
@@ -1550,6 +1561,7 @@ function renderDetail(){
         const historyPhotosHTML=(h.photos&&h.photos.length)?`<div class="photo-extra-grid" style="grid-template-columns:repeat(4,1fr);margin-top:8px">${h.photos.map((p,pi)=>
           `<div class="photo-extra-item" onclick="openSavedHistoryPhotoLightbox(${i},${pi})">
             <img src="${p.data}" alt="${p.name}" onerror="_photoRetry(this)">
+            ${p.localId&&_isPendingPhoto(eq.id,'history',p.localId)?'<span class="photo-pending-badge"><span class="spinner"></span>送信中</span>':''}
           </div>`).join('')}</div>`:'';
         return`<div class="history-card">
           <div class="history-card-top">
@@ -1742,20 +1754,10 @@ async function pasteImageFromClipboard(scope,key){
 
 function triggerDetailPhoto(key){document.getElementById(`fi_detail_${key}`).click();}
 async function processDetailPhoto(file,key){
-  // アップロード開始時点の機器を固定しておく（他の機器に切り替わっても正しい保存先に反映するため）
   const eq=currentEq;
-  _beginPhotoUpload(eq.id);
-  try{
-    showToast('📤 Google Driveにアップロード中...','info');
-    const upFile=await _prepareForDriveUpload(file);
-    const{url,isFallback}=await _uploadWithFallback(upFile,eq,`${key}写真`);
-    eq.photos[key]=url;
-    await _saveEq(eq);
-    if(currentEq===eq){renderDetail();const[msg,type]=_photoUploadToast(`${key}写真を追加しました`,isFallback);showToast(msg,type);}
-    else{renderList();const[msg,type]=_photoUploadToast(`${eq.name}の${key}写真を保存しました`,isFallback);showToast(msg,type);}
-  }finally{
-    _endPhotoUpload(eq.id);
-  }
+  await _captureAndQueuePhoto(file,eq,'main',key,`${key}写真`);
+  showToast('📤 写真をDriveへ送信中です…','info');
+  if(currentEq===eq)renderDetail();
 }
 async function handleDetailPhoto(e,key){
   const file=e.target.files[0];if(!file)return;
@@ -1765,18 +1767,11 @@ async function handleDetailPhoto(e,key){
 function triggerDetailExtraPhoto(){document.getElementById('fi_detail_extra').click();}
 async function processDetailExtraPhoto(file){
   const eq=currentEq;
-  _beginPhotoUpload(eq.id);
-  try{
-    showToast('📤 Google Driveにアップロード中...','info');
-    const upFile=await _prepareForDriveUpload(file);
-    const{url,isFallback}=await _uploadWithFallback(upFile,eq,'追加写真');
-    eq.photos.extra.push({name:file.name,data:url});
-    await _saveEq(eq);
-    if(currentEq===eq){renderDetail();const[msg,type]=_photoUploadToast('写真を追加しました',isFallback);showToast(msg,type);}
-    else{renderList();const[msg,type]=_photoUploadToast(`${eq.name}に追加写真を保存しました`,isFallback);showToast(msg,type);}
-  }finally{
-    _endPhotoUpload(eq.id);
-  }
+  const localId=_genLocalId();
+  const localUrl=await _captureAndQueuePhoto(file,eq,'extra',localId,'追加写真');
+  eq.photos.extra.push({name:file.name,data:localUrl,localId});
+  showToast('📤 写真をDriveへ送信中です…','info');
+  if(currentEq===eq)renderDetail();
 }
 async function handleDetailExtraPhoto(e){
   const file=e.target.files[0];if(!file)return;
@@ -1784,81 +1779,229 @@ async function handleDetailExtraPhoto(e){
   await processDetailExtraPhoto(file);
 }
 function deleteExtraPhoto(i,e){
-  e.stopPropagation();currentEq.photos.extra.splice(i,1);
+  e.stopPropagation();
+  const removed=currentEq.photos.extra[i];
+  currentEq.photos.extra.splice(i,1);
   _saveEq(currentEq);
   renderDetail();
+  if(removed&&removed.localId)_cancelPendingPhotosFor(currentEq.id,'extra',removed.localId);
 }
 
-/* ════ 写真アップロード進捗管理 ════ */
-// 機器（新規登録中は仮ID）ごとに、進行中の写真アップロード件数を保持する。
-// ・完了するまで画面下部に「写真を保存中…」を表示し続ける（完了が分からず
-// 　保存を終えてしまう不具合の対策）。
-// ・アップロード中に保存→別の機器の登録・編集に進んでしまった場合でも、
-// 　開始時点で対象だった機器（targetId）を各処理関数側で覚えておくことで、
-// 　完了後に正しい保存先へ反映できるようにする。
-const _photoUploadCounts=new Map();
-let _photoUploadTotal=0;
-function _beginPhotoUpload(targetId){
-  _photoUploadCounts.set(targetId,(_photoUploadCounts.get(targetId)||0)+1);
-  _photoUploadTotal++;
-  _updatePhotoUploadIndicator();
+/* ════ 写真ローカル先行保存＋バックグラウンドDriveアップロード ════ */
+// 写真は撮影・選択した時点でまず端末内（IndexedDB）に保存し、機器の登録・保存は
+// 待たせない。Google Driveへのアップロードはバックグラウンドのキューで順次実行し、
+// 完了したものから機器データへ反映する。通信が不安定でも、アップロード中に画面を
+// 離れても、この端末・このタブを開いている限り自動的にリトライ・継続される。
+// （iPhone SafariはBackground Sync非対応のため、アプリを閉じている間は進まず、
+// 　次にアプリを開いたタイミングで自動的に再開する）
+const PENDING_DB_NAME='kikikannriPendingPhotos';
+const PENDING_STORE='pending';
+let _pendingDBPromise=null;
+function _openPendingDB(){
+  if(_pendingDBPromise)return _pendingDBPromise;
+  _pendingDBPromise=new Promise((resolve,reject)=>{
+    const req=indexedDB.open(PENDING_DB_NAME,1);
+    req.onupgradeneeded=()=>{
+      const db=req.result;
+      if(!db.objectStoreNames.contains(PENDING_STORE)){
+        const store=db.createObjectStore(PENDING_STORE,{keyPath:'id',autoIncrement:true});
+        store.createIndex('eqId','eqId',{unique:false});
+      }
+    };
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+  });
+  return _pendingDBPromise;
 }
-function _endPhotoUpload(targetId){
-  const n=(_photoUploadCounts.get(targetId)||1)-1;
-  if(n<=0)_photoUploadCounts.delete(targetId);else _photoUploadCounts.set(targetId,n);
-  _photoUploadTotal=Math.max(0,_photoUploadTotal-1);
-  _updatePhotoUploadIndicator();
+async function _addPendingPhoto(record){
+  const db=await _openPendingDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(PENDING_STORE,'readwrite');
+    const req=tx.objectStore(PENDING_STORE).add(record);
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+  });
 }
-function _isPhotoUploading(targetId){
-  return(_photoUploadCounts.get(targetId)||0)>0;
+async function _deletePendingPhoto(id){
+  const db=await _openPendingDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(PENDING_STORE,'readwrite');
+    tx.objectStore(PENDING_STORE).delete(id);
+    tx.oncomplete=()=>resolve();
+    tx.onerror=()=>reject(tx.error);
+  });
+}
+async function _updatePendingPhoto(id,changes){
+  const db=await _openPendingDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(PENDING_STORE,'readwrite');
+    const store=tx.objectStore(PENDING_STORE);
+    const getReq=store.get(id);
+    getReq.onsuccess=()=>{
+      const rec=getReq.result;
+      if(!rec){resolve();return;}
+      Object.assign(rec,changes);
+      store.put(rec);
+    };
+    tx.oncomplete=()=>resolve();
+    tx.onerror=()=>reject(tx.error);
+  });
+}
+async function _getAllPendingPhotos(){
+  const db=await _openPendingDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(PENDING_STORE,'readonly');
+    const req=tx.objectStore(PENDING_STORE).getAll();
+    req.onsuccess=()=>resolve(req.result||[]);
+    req.onerror=()=>reject(req.error);
+  });
+}
+// 特定の写真スロット（機器ID＋種別＋キー）の未送信データを取り消す
+// （同じスロットへ写真を撮り直した場合や、写真を削除した場合に古い送信を防ぐ）
+async function _cancelPendingPhotosFor(eqId,slotType,slotKey){
+  const items=await _getAllPendingPhotos();
+  for(const it of items){
+    if(it.eqId===eqId&&it.slotType===slotType&&it.slotKey===slotKey){
+      await _deletePendingPhoto(it.id);
+      _pendingPhotoKeys.delete(_pendingKeyOf(it.eqId,it.slotType,it.slotKey));
+    }
+  }
+}
+// 保守履歴を丸ごと削除した場合に、その履歴に紐づく未送信の写真も取り消す
+async function _cancelPendingPhotosForEntry(eqId,entryLocalId){
+  const items=await _getAllPendingPhotos();
+  for(const it of items){
+    if(it.eqId===eqId&&it.slotType==='history'&&it.entryLocalId===entryLocalId){
+      await _deletePendingPhoto(it.id);
+      _pendingPhotoKeys.delete(_pendingKeyOf(it.eqId,it.slotType,it.slotKey));
+    }
+  }
+}
+// メモリ上で「このスロットは送信待ち／送信中」を即座に判定するためのSet
+// （画面描画のたびにIndexedDBへ問い合わせなくて済むようにする）
+const _pendingPhotoKeys=new Set();
+function _pendingKeyOf(eqId,slotType,slotKey){return `${eqId}::${slotType}::${slotKey}`;}
+function _isPendingPhoto(eqId,slotType,slotKey){return _pendingPhotoKeys.has(_pendingKeyOf(eqId,slotType,slotKey));}
+function _genLocalId(){return 'L'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);}
+
+// 写真を選んだ／撮影した瞬間に端末内へ先行保存し、プレビュー用のローカルURLを
+// 即座に返す（機器の保存はこの完了を待たない）。実際のDriveアップロードは
+// _processPendingQueue がバックグラウンドで行う。
+async function _captureAndQueuePhoto(file,eqSnapshot,slotType,slotKey,category,entryLocalId){
+  const upFile=await _prepareForDriveUpload(file);
+  const localPreviewUrl=URL.createObjectURL(upFile);
+  if(slotType==='main'){
+    // 全体写真などの単一スロットは、撮り直した場合に古い送信待ちを消しておく
+    await _cancelPendingPhotosFor(eqSnapshot.id,slotType,slotKey);
+  }
+  await _addPendingPhoto({
+    eqId:eqSnapshot.id,slotType,slotKey,entryLocalId:entryLocalId||null,
+    fileName:file.name,category,blob:upFile,eqSnapshot,
+    status:'pending',driveUrl:null,createdAt:Date.now(),lastAttempt:0
+  });
+  _pendingPhotoKeys.add(_pendingKeyOf(eqSnapshot.id,slotType,slotKey));
+  _updatePhotoUploadIndicator();
+  _processPendingQueue();
+  return localPreviewUrl;
+}
+
+let _processingQueue=false;
+// 送信待ちキューを順番に処理する。同時に複数呼ばれても多重実行しないようにする。
+async function _processPendingQueue(){
+  if(_processingQueue)return;
+  _processingQueue=true;
+  try{
+    let items;
+    try{items=await _getAllPendingPhotos();}catch(e){console.warn('保留中の写真の取得に失敗しました:',e);return;}
+    for(const item of items){
+      if(item.status==='pending'){
+        if(Date.now()-(item.lastAttempt||0)<15000)continue; // 直近失敗した分は少し間隔を空けてリトライ
+        try{
+          await _updatePendingPhoto(item.id,{lastAttempt:Date.now()});
+          const url=await _uploadToDrive(item.blob,item.eqSnapshot,item.category);
+          await _updatePendingPhoto(item.id,{status:'uploaded',driveUrl:url});
+          item.status='uploaded';item.driveUrl=url;
+        }catch(e){
+          console.warn('写真のバックグラウンドアップロードに失敗しました（後で再試行します）:',e);
+          continue;
+        }
+      }
+      if(item.status==='uploaded'){
+        const applied=await _tryApplyPendingPhoto(item);
+        if(applied)await _deletePendingPhoto(item.id);
+      }
+    }
+  }finally{
+    _processingQueue=false;
+    _updatePhotoUploadIndicator();
+  }
+}
+// アップロード済みの写真を、対象機器の実データへ反映して保存する。
+// 対象機器がまだ存在しない（新規登録の保存が完了していない）場合はfalseを返し、
+// 次回のキュー処理で改めて試す。
+async function _tryApplyPendingPhoto(item){
+  const eq=equipments.find(e=>e.id===item.eqId);
+  if(!eq)return false;
+  eq.photos=eq.photos||{'全体':null,'銘板':null,extra:[]};
+  if(item.slotType==='main'){
+    eq.photos[item.slotKey]=item.driveUrl;
+  }else if(item.slotType==='extra'){
+    eq.photos.extra=eq.photos.extra||[];
+    const idx=eq.photos.extra.findIndex(p=>p&&p.localId===item.slotKey);
+    if(idx>=0)eq.photos.extra[idx]={name:item.fileName,data:item.driveUrl};
+    else eq.photos.extra.push({name:item.fileName,data:item.driveUrl});
+  }else if(item.slotType==='history'){
+    const entry=(eq.maintenance||[]).find(h=>h._localId===item.entryLocalId);
+    if(!entry)return false;
+    entry.photos=entry.photos||[];
+    const idx=entry.photos.findIndex(p=>p&&p.localId===item.slotKey);
+    if(idx>=0)entry.photos[idx]={name:item.fileName,data:item.driveUrl};
+    else entry.photos.push({name:item.fileName,data:item.driveUrl});
+  }
+  const ok=await _saveEq(eq);
+  if(!ok)return false;
+  _pendingPhotoKeys.delete(_pendingKeyOf(item.eqId,item.slotType,item.slotKey));
+  if(currentEq&&currentEq.id===eq.id)renderDetail();
+  if(isEditMode&&(currentEq?currentEq.id:pendingNewEqId)===eq.id){
+    if(item.slotType==='main'){modalPhotos[item.slotKey]=item.driveUrl;updateModalPhotoSlot(item.slotKey);}
+    if(item.slotType==='extra'&&modalPhotos.extra){
+      const mi=modalPhotos.extra.findIndex(p=>p&&p.localId===item.slotKey);
+      if(mi>=0){modalPhotos.extra[mi]={name:item.fileName,data:item.driveUrl};renderModalExtraGrid();}
+    }
+  }
+  if(item.slotType==='history'&&currentEq&&currentEq.id===eq.id){
+    const hi=historyPhotos.findIndex(p=>p&&p.localId===item.slotKey);
+    if(hi>=0){historyPhotos[hi]={name:item.fileName,data:item.driveUrl,localId:item.slotKey};renderHistoryPhotoGrid();}
+  }
+  renderList();
+  return true;
 }
 function _updatePhotoUploadIndicator(){
   const el=document.getElementById('photoUploadIndicator');
   if(!el)return;
-  el.style.display=_photoUploadTotal>0?'flex':'none';
+  const n=_pendingPhotoKeys.size;
+  el.style.display=n>0?'flex':'none';
   const textEl=document.getElementById('photoUploadIndicatorText');
-  if(textEl)textEl.textContent=_photoUploadTotal>1?`写真を保存中…（${_photoUploadTotal}件）`:'写真を保存中…';
+  if(textEl)textEl.textContent=n>1?`写真をDriveへ送信中…（${n}件）`:'写真をDriveへ送信中…';
 }
 
 /* ════ MODAL PHOTOS ════ */
 function triggerModalPhoto(key){document.getElementById(`fi_modal_${key}`).click();}
 function triggerModalExtraPhoto(){document.getElementById('fi_modal_extra').click();}
 async function processModalExtraPhoto(file){
-  // アップロード開始時点で編集対象だった機器を固定しておく（詳細は_photoUploadCounts欄のコメント参照）
+  // 撮影開始時点で編集対象だった機器を固定しておく（詳細はキュー処理欄のコメント参照）
   const targetId=currentEq?currentEq.id:pendingNewEqId;
-  _beginPhotoUpload(targetId);
-  try{
-    showToast('📤 Google Driveにアップロード中...','info');
-    const refEq=currentEq||{id:targetId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
-    const upFile=await _prepareForDriveUpload(file);
-    const{url,isFallback}=await _uploadWithFallback(upFile,refEq,'追加写真');
-    const stillSameTarget=document.getElementById('modalOverlay').classList.contains('show')&&
-      (currentEq?currentEq.id:pendingNewEqId)===targetId;
-    if(stillSameTarget){
-      modalPhotos.extra.push({name:file.name,data:url});
-      renderModalExtraGrid();
-      const[msg,type]=_photoUploadToast('写真を追加しました',isFallback);
-      showToast(msg,type);
-    }else{
-      // 既にこの機器の登録・編集を保存し終えて別の機器に進んでいた場合は、
-      // 保存済みの機器データ側に直接追記する（写真が別の機器に紐付いてしまう不具合の対策）
-      const savedEq=equipments.find(e=>e.id===targetId);
-      if(savedEq){
-        savedEq.photos=savedEq.photos||{};
-        savedEq.photos.extra=savedEq.photos.extra||[];
-        savedEq.photos.extra.push({name:file.name,data:url});
-        _saveEq(savedEq);
-        if(currentEq&&currentEq.id===savedEq.id)renderDetail();
-        renderList();
-        const[msg,type]=_photoUploadToast(`${savedEq.name}の追加写真を保存しました`,isFallback);
-        showToast(msg,type);
-      }else{
-        console.warn('写真の保存先の機器が見つかりませんでした（保存前に画面を離れた可能性があります）:',targetId);
-        showToast('⚠ 保存先の機器が見つからず、写真を反映できませんでした','error');
-      }
-    }
-  }finally{
-    _endPhotoUpload(targetId);
+  const refEq=currentEq||{id:targetId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
+  const localId=_genLocalId();
+  const localUrl=await _captureAndQueuePhoto(file,refEq,'extra',localId,'追加写真');
+  const stillSameTarget=document.getElementById('modalOverlay').classList.contains('show')&&
+    (currentEq?currentEq.id:pendingNewEqId)===targetId;
+  if(stillSameTarget){
+    modalPhotos.extra.push({name:file.name,data:localUrl,localId});
+    renderModalExtraGrid();
+    showToast('📤 写真を追加しました（Driveへ送信中…）','info');
+  }else{
+    showToast('📤 写真をDriveへ送信中です…','info');
   }
 }
 async function handleModalExtraPhoto(e){
@@ -1867,14 +2010,21 @@ async function handleModalExtraPhoto(e){
   await processModalExtraPhoto(file);
 }
 function deleteModalExtraPhoto(i){
+  const removed=modalPhotos.extra[i];
   modalPhotos.extra.splice(i,1);renderModalExtraGrid();
+  if(removed&&removed.localId){
+    const targetId=currentEq?currentEq.id:pendingNewEqId;
+    _cancelPendingPhotosFor(targetId,'extra',removed.localId);
+  }
 }
 function renderModalExtraGrid(){
   const grid=document.getElementById('modalExtraGrid');
   if(!grid)return;
+  const targetId=currentEq?currentEq.id:pendingNewEqId;
   const items=modalPhotos.extra.map((p,i)=>
     `<div class="photo-extra-item" onclick="openModalExtraLightbox(${i})">
       <img src="${p.data}" alt="${p.name}" onerror="_photoRetry(this)">
+      ${p.localId&&_isPendingPhoto(targetId,'extra',p.localId)?'<span class="photo-pending-badge"><span class="spinner"></span>送信中</span>':''}
       <button class="photo-extra-del" onclick="event.stopPropagation();deleteModalExtraPhoto(${i})">✕</button>
     </div>`).join('');
   grid.innerHTML=items+`<button class="btn-add-photo" onclick="triggerModalExtraPhoto()">
@@ -2031,31 +2181,33 @@ function _applyModalPhotoResult(targetId,key,value,successMsg,isFallback){
   }
 }
 async function processModalPhoto(file,key){
-  // アップロード開始時点で編集対象だった機器を固定しておく（詳細は_photoUploadCounts欄のコメント参照）
+  // 撮影開始時点で編集対象だった機器を固定しておく（詳細はキュー処理欄のコメント参照）
   const targetId=currentEq?currentEq.id:pendingNewEqId;
-  _beginPhotoUpload(targetId);
-  try{
-    // 銘板は端末内で圧縮してbase64保存、それ以外はDrive
-    if(key==='銘板'){
-      let dataUrl;
-      try{
-        dataUrl=await _compressImageToDataURL(file,1400,0.8);
-      }catch(e){
-        console.error(e);
-        showToast('⚠ 画像の処理に失敗しました','error');
-        return;
-      }
-      _applyModalPhotoResult(targetId,key,dataUrl,'銘板写真を追加しました');
-      autoFillFromNameplate(dataUrl);
-    }else{
-      showToast('📤 Google Driveにアップロード中...','info');
-      const refEq=currentEq||{id:targetId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
-      const upFile=await _prepareForDriveUpload(file);
-      const{url,isFallback}=await _uploadWithFallback(upFile,refEq,`${key}写真`);
-      _applyModalPhotoResult(targetId,key,url,`${key}写真を追加しました`,isFallback);
+  // 銘板は端末内で圧縮してbase64保存（軽量なので即時保存、Drive送信キューは使わない）
+  if(key==='銘板'){
+    let dataUrl;
+    try{
+      dataUrl=await _compressImageToDataURL(file,1400,0.8);
+    }catch(e){
+      console.error(e);
+      showToast('⚠ 画像の処理に失敗しました','error');
+      return;
     }
-  }finally{
-    _endPhotoUpload(targetId);
+    _applyModalPhotoResult(targetId,key,dataUrl,'銘板写真を追加しました');
+    autoFillFromNameplate(dataUrl);
+  }else{
+    // 全体写真は端末内へ先行保存し、Driveへはバックグラウンドで送信する
+    const refEq=currentEq||{id:targetId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
+    const localUrl=await _captureAndQueuePhoto(file,refEq,'main',key,`${key}写真`);
+    const stillSameTarget=document.getElementById('modalOverlay').classList.contains('show')&&
+      (currentEq?currentEq.id:pendingNewEqId)===targetId;
+    if(stillSameTarget){
+      modalPhotos[key]=localUrl;
+      updateModalPhotoSlot(key);
+      showToast(`📤 ${key}写真を追加しました（Driveへ送信中…）`,'info');
+    }else{
+      showToast('📤 写真をDriveへ送信中です…','info');
+    }
   }
 }
 async function handleModalPhoto(e,key){
@@ -2164,8 +2316,11 @@ function updateModalPhotoSlot(key){
   if(!slot)return;
   const data=modalPhotos[key];
   if(data){
+    const targetId=currentEq?currentEq.id:pendingNewEqId;
+    const pendingBadge=_isPendingPhoto(targetId,'main',key)?'<span class="photo-pending-badge"><span class="spinner"></span>送信中</span>':'';
     slot.classList.add('has-photo');
     slot.innerHTML=`<img src="${data}" alt="${key}" onclick="openModalLightbox('${key}',event)" onerror="_photoRetry(this)">
+      ${pendingBadge}
       <div class="photo-overlay">
         <button onclick="openModalLightbox('${key}',event)">🔍 拡大</button>
         <button onclick="triggerModalPhoto('${key}')">📷 変更</button>
@@ -2319,12 +2474,14 @@ function closeLightbox(){document.getElementById('lightbox').classList.remove('s
 })();
 
 /* ════ MAINTENANCE HISTORY ════ */
+let _currentHistoryEntryLocalId=null;
 function openHistoryModal(){
   document.getElementById('h_content').value='';
   document.getElementById('h_nss').value='';
   document.getElementById('h_date').value=new Date().toISOString().slice(0,10);
   document.getElementById('h_note').value='';
   historyPhotos=[];
+  _currentHistoryEntryLocalId=_genLocalId();
   renderHistoryPhotoGrid();
   document.getElementById('historyModalOverlay').classList.add('show');
 }
@@ -2336,30 +2493,31 @@ function saveHistory(){
   const date=document.getElementById('h_date').value;
   const note=document.getElementById('h_note').value.trim();
   if(!content||!nss||!date){showToast('⚠ 修理内容・対応NSS・修理年月日は必須です','error');return;}
-  // 写真のアップロードが完了する前に保存してしまうと、写真が保守履歴に
-  // 反映されない原因になるため、完了するまで保存をブロックする。
-  if(currentEq&&_isPhotoUploading(currentEq.id)){
-    showToast('📤 写真を保存中です。完了してから保存してください','error');
-    return;
-  }
   if(!currentEq.maintenance)currentEq.maintenance=[];
-  currentEq.maintenance.push({content,nss,date,note,photos:historyPhotos.slice()});
+  // まだDriveへの送信が終わっていない写真も保守履歴自体はすぐ保存できる
+  // （blob:のプレビューはFirestoreには保存されず、送信完了後に自動で反映される）。
+  currentEq.maintenance.push({content,nss,date,note,photos:historyPhotos.slice(),_localId:_currentHistoryEntryLocalId});
   _saveEq(currentEq);
   closeHistoryModal();renderDetail();simulateCloudSync();
   showToast('✅ 保守履歴を追加しました','success');
+  _processPendingQueue();
 }
 function deleteHistory(i){
   if(!confirm('この保守記録を削除しますか？'))return;
+  const removed=currentEq.maintenance[i];
   currentEq.maintenance.splice(i,1);
   _saveEq(currentEq);
   renderDetail();
+  if(removed&&removed._localId)_cancelPendingPhotosForEntry(currentEq.id,removed._localId);
 }
 function renderHistoryPhotoGrid(){
   const grid=document.getElementById('historyPhotoGrid');
   if(!grid)return;
+  const eqId=currentEq?currentEq.id:null;
   const items=historyPhotos.map((p,i)=>
     `<div class="photo-extra-item" onclick="openHistoryPhotoLightbox(${i})">
       <img src="${p.data}" alt="${p.name}" onerror="_photoRetry(this)">
+      ${p.localId&&eqId!=null&&_isPendingPhoto(eqId,'history',p.localId)?'<span class="photo-pending-badge"><span class="spinner"></span>送信中</span>':''}
       <button class="photo-extra-del" onclick="event.stopPropagation();deleteHistoryPhoto(${i})">✕</button>
     </div>`).join('');
   grid.innerHTML=items+`<button class="btn-add-photo" onclick="triggerHistoryPhoto()">
@@ -2371,32 +2529,16 @@ function renderHistoryPhotoGrid(){
 function triggerHistoryPhoto(){document.getElementById('fi_history').click();}
 async function processHistoryPhoto(file){
   const eq=currentEq;
-  _beginPhotoUpload(eq.id);
-  try{
-    showToast('📤 Google Driveにアップロード中...','info');
-    const upFile=await _prepareForDriveUpload(file);
-    const{url,isFallback}=await _uploadWithFallback(upFile,eq,'保守履歴写真');
-    const stillSameHistoryTarget=document.getElementById('historyModalOverlay').classList.contains('show')&&currentEq===eq;
-    if(stillSameHistoryTarget){
-      historyPhotos.push({name:file.name,data:url});
-      renderHistoryPhotoGrid();
-      const[msg,type]=_photoUploadToast('写真を追加しました',isFallback);
-      showToast(msg,type);
-    }else if(eq.maintenance&&eq.maintenance.length){
-      // 既に保守履歴の保存を終えて画面を離れていた場合は、直近の保守履歴に追記する
-      const last=eq.maintenance[eq.maintenance.length-1];
-      last.photos=last.photos||[];
-      last.photos.push({name:file.name,data:url});
-      _saveEq(eq);
-      if(currentEq===eq)renderDetail();
-      const[msg,type]=_photoUploadToast(`${eq.name}の保守履歴に写真を追加しました`,isFallback);
-      showToast(msg,type);
-    }else{
-      console.warn('写真の追加先の保守履歴が見つかりませんでした:',eq.id);
-      showToast('⚠ 追加先の保守履歴が見つからず、写真を反映できませんでした','error');
-    }
-  }finally{
-    _endPhotoUpload(eq.id);
+  const entryLocalId=_currentHistoryEntryLocalId;
+  const localId=_genLocalId();
+  const localUrl=await _captureAndQueuePhoto(file,eq,'history',localId,'保守履歴写真',entryLocalId);
+  const stillSameHistoryTarget=document.getElementById('historyModalOverlay').classList.contains('show')&&currentEq===eq&&_currentHistoryEntryLocalId===entryLocalId;
+  if(stillSameHistoryTarget){
+    historyPhotos.push({name:file.name,data:localUrl,localId});
+    renderHistoryPhotoGrid();
+    showToast('📤 写真を追加しました（Driveへ送信中…）','info');
+  }else{
+    showToast('📤 写真をDriveへ送信中です…','info');
   }
 }
 async function handleHistoryPhoto(e){
@@ -2405,8 +2547,10 @@ async function handleHistoryPhoto(e){
   await processHistoryPhoto(file);
 }
 function deleteHistoryPhoto(i){
+  const removed=historyPhotos[i];
   historyPhotos.splice(i,1);
   renderHistoryPhotoGrid();
+  if(removed&&removed.localId&&currentEq)_cancelPendingPhotosFor(currentEq.id,'history',removed.localId);
 }
 function openHistoryPhotoLightbox(i){
   const p=historyPhotos[i];if(!p)return;
@@ -2977,16 +3121,8 @@ async function saveEquipment(ev){
     showToast('⚠ 通信がオフラインです。電波の良い場所で再度お試しください','error');
     return;
   }
-  // 写真のアップロード・保存が完了する前に機器を保存してしまうと、写真が
-  // 反映されない、または後から別の機器に紐付いてしまう原因になるため、
-  // 完了するまで保存をブロックする。
-  {
-    const targetId=isEditMode&&currentEq?currentEq.id:pendingNewEqId;
-    if(_isPhotoUploading(targetId)){
-      showToast('📤 写真を保存中です。完了してから保存してください','error');
-      return;
-    }
-  }
+  // 写真は端末内へ先行保存済みのため、Driveへの送信完了を待たずに機器を保存できる
+  // （送信が終わった写真は自動的に後から機器データへ反映される）。
   // 二重送信防止（通信が遅い環境で連打されると重複登録・競合の原因になる）
   if(btn){
     if(btn.disabled)return;
@@ -4173,6 +4309,10 @@ function _initFirestore(){
       if(up){currentEq=up;renderDetail();}
       else closeDetail();
     }
+    // equipmentsが最新化されたタイミングで、送信待ち写真のキューを再開する
+    // （新規登録直後に対象機器がまだequipmentsに無くて反映待ちだったものや、
+    // 　前回セッションから残っていた未送信写真の再開もここでまとめて処理する）
+    _processPendingQueue();
   },err=>console.error('equipments snapshot error:',err));
 }
 
@@ -4427,10 +4567,28 @@ async function _shrinkOversizedPhotos(eq){
     }
   }
 }
+// 写真は撮影直後、Driveへの送信が終わるまで端末内一時URL（blob:）でプレビューされる。
+// blob:はこのタブ限りでしか有効でないため、誤ってクラウドに保存してしまうと
+// 他端末・再読み込み後にリンク切れになる。保存前に必ず取り除く（送信が終われば
+// _tryApplyPendingPhotoが本物のDrive URLに差し替えて改めて保存する）。
+function _stripBlobUrls(eq){
+  const clone=JSON.parse(JSON.stringify(eq));
+  if(clone.photos){
+    ['全体','銘板'].forEach(k=>{if(typeof clone.photos[k]==='string'&&clone.photos[k].startsWith('blob:'))clone.photos[k]=null;});
+    if(Array.isArray(clone.photos.extra))clone.photos.extra=clone.photos.extra.filter(p=>!(p&&typeof p.data==='string'&&p.data.startsWith('blob:')));
+  }
+  if(Array.isArray(clone.maintenance)){
+    clone.maintenance.forEach(h=>{
+      if(Array.isArray(h.photos))h.photos=h.photos.filter(p=>!(p&&typeof p.data==='string'&&p.data.startsWith('blob:')));
+    });
+  }
+  return clone;
+}
 async function _saveEq(eq){
   try{
-    await _shrinkOversizedPhotos(eq);
-    await db.collection('equipments').doc(String(eq.id)).set(eq);
+    const toSave=_stripBlobUrls(eq);
+    await _shrinkOversizedPhotos(toSave);
+    await db.collection('equipments').doc(String(eq.id)).set(toSave);
     return true;
   }catch(e){
     console.error(e);
@@ -4448,6 +4606,14 @@ async function _saveEq(eq){
 async function _delEq(id){
   try{await db.collection('equipments').doc(String(id)).delete();}
   catch(e){console.error(e);showToast('⚠ 削除に失敗しました','error');}
+  // 削除した機器に紐づく未送信の写真があれば、無駄なアップロードが走らないよう取り消す
+  try{
+    const items=await _getAllPendingPhotos();
+    for(const it of items){
+      if(it.eqId===id){await _deletePendingPhoto(it.id);_pendingPhotoKeys.delete(_pendingKeyOf(it.eqId,it.slotType,it.slotKey));}
+    }
+    _updatePhotoUploadIndicator();
+  }catch(e){console.warn('未送信写真の取り消しに失敗しました:',e);}
 }
 async function _saveMd(){
   try{await db.doc('masterData/config').set({
@@ -4471,6 +4637,7 @@ window.addEventListener('offline',()=>{
 });
 window.addEventListener('online',()=>{
   showToast('📶 通信が復帰しました','success');
+  _processPendingQueue();
 });
 
 /* ════ INIT ════ */
@@ -4479,6 +4646,12 @@ rebuildEquipmentNameSelect();
 rebuildStatusSelect();
 rebuildBayTypeSelect();
 renderList();
+// 前回終了時に残っていた送信待ち写真があれば、バッジ表示・インジケーターに反映しておく
+// （実際のアップロード再開は、ログイン後equipmentsが揃ってから自動的に行われる）
+_getAllPendingPhotos().then(items=>{
+  items.forEach(it=>_pendingPhotoKeys.add(_pendingKeyOf(it.eqId,it.slotType,it.slotKey)));
+  _updatePhotoUploadIndicator();
+}).catch(e=>console.warn('送信待ち写真の読み込みに失敗しました:',e));
 </script>
 </body>
 </html>
