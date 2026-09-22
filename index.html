@@ -987,6 +987,7 @@ optgroup{font-weight:700}
   <div class="lightbox-imgwrap" id="lightboxImgWrap" onclick="event.stopPropagation()">
     <img id="lightboxImg" src="" alt="拡大写真" onerror="_photoRetry(this)">
   </div>
+  <a id="lightboxOriginalLink" href="#" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="display:none;color:#fff;background:rgba(255,255,255,.15);padding:8px 16px;border-radius:20px;font-size:13px;text-decoration:none;margin-top:10px">🔗 Driveで元画質を見る</a>
   <div class="lightbox-zoomhint" id="lightboxZoomHint">🔍 ダブルタップ／ピンチ／ホイールでさらに拡大できます</div>
 </div>
 
@@ -1799,6 +1800,7 @@ function renderModalExtraGrid(){
 function openModalExtraLightbox(i){
   const p=modalPhotos.extra[i];if(!p)return;
   document.getElementById('lightboxImg').src=_hiresLightboxUrl(p.data);
+  _setLightboxOriginalLink(p.data);
   document.getElementById('lightboxLabel').textContent=p.name;
   document.getElementById('lightbox').classList.add('show');
 }
@@ -2048,6 +2050,7 @@ function openModalLightbox(key,e){
   e.stopPropagation();
   if(!modalPhotos[key])return;
   document.getElementById('lightboxImg').src=_hiresLightboxUrl(modalPhotos[key]);
+  _setLightboxOriginalLink(modalPhotos[key]);
   document.getElementById('lightboxLabel').textContent=key+'写真';
   document.getElementById('lightbox').classList.add('show');
 }
@@ -2057,12 +2060,14 @@ function openLightbox(key,e){
   if(e)e.stopPropagation();
   const eq=currentEq;if(!eq||!eq.photos[key])return;
   document.getElementById('lightboxImg').src=_hiresLightboxUrl(eq.photos[key]);
+  _setLightboxOriginalLink(eq.photos[key]);
   document.getElementById('lightboxLabel').textContent=key+'写真';
   document.getElementById('lightbox').classList.add('show');
 }
 function openLightboxExtra(i){
   const eq=currentEq;if(!eq||!eq.photos.extra[i])return;
   document.getElementById('lightboxImg').src=_hiresLightboxUrl(eq.photos.extra[i].data);
+  _setLightboxOriginalLink(eq.photos.extra[i].data);
   document.getElementById('lightboxLabel').textContent=eq.photos.extra[i].name;
   document.getElementById('lightbox').classList.add('show');
 }
@@ -2231,6 +2236,7 @@ function deleteHistoryPhoto(i){
 function openHistoryPhotoLightbox(i){
   const p=historyPhotos[i];if(!p)return;
   document.getElementById('lightboxImg').src=_hiresLightboxUrl(p.data);
+  _setLightboxOriginalLink(p.data);
   document.getElementById('lightboxLabel').textContent=p.name;
   document.getElementById('lightbox').classList.add('show');
 }
@@ -2238,6 +2244,7 @@ function openSavedHistoryPhotoLightbox(hi,pi){
   const eq=currentEq;if(!eq||!eq.maintenance||!eq.maintenance[hi])return;
   const p=(eq.maintenance[hi].photos||[])[pi];if(!p)return;
   document.getElementById('lightboxImg').src=_hiresLightboxUrl(p.data);
+  _setLightboxOriginalLink(p.data);
   document.getElementById('lightboxLabel').textContent=p.name;
   document.getElementById('lightbox').classList.add('show');
 }
@@ -2251,6 +2258,20 @@ function _hiresLightboxUrl(url){
   const fileId=m?decodeURIComponent(m[1]):null;
   if(!fileId)return url;
   return `https://drive.google.com/thumbnail?id=${fileId}&sz=w2000`;
+}
+// ライトボックスに「Driveで元画質を見る」リンクを表示する。Drive保存の写真のみ対象
+// （銘板写真などbase64直接保存のものは、表示中の画像がすでに元データそのものなので非表示）。
+function _setLightboxOriginalLink(url){
+  const a=document.getElementById('lightboxOriginalLink');
+  if(!a)return;
+  const fileId=(url&&typeof url==='string'&&url.includes('drive.google.com'))?_extractDriveFileId(url):null;
+  if(fileId){
+    a.href=`https://drive.google.com/file/d/${fileId}/view`;
+    a.style.display='inline-block';
+  }else{
+    a.removeAttribute('href');
+    a.style.display='none';
+  }
 }
 /* ════ 代替提案書（Excel）出力 ════ */
 function _extractDriveFileId(url){
