@@ -4666,6 +4666,7 @@ async function _saveEq(eq){
     const toSave=_stripBlobUrls(eq);
     await _shrinkOversizedPhotos(toSave);
     await db.collection('equipments').doc(String(eq.id)).set(toSave);
+    _backupEquipmentsToDrive(false);
     return true;
   }catch(e){
     console.error(e);
@@ -4681,7 +4682,10 @@ async function _saveEq(eq){
   }
 }
 async function _delEq(id){
-  try{await db.collection('equipments').doc(String(id)).delete();}
+  try{
+    await db.collection('equipments').doc(String(id)).delete();
+    _backupEquipmentsToDrive(true);
+  }
   catch(e){console.error(e);showToast('⚠ 削除に失敗しました','error');}
   // 削除した機器に紐づく未送信の写真があれば、無駄なアップロードが走らないよう取り消す
   try{
@@ -4693,19 +4697,147 @@ async function _delEq(id){
   }catch(e){console.warn('未送信写真の取り消しに失敗しました:',e);}
 }
 async function _saveMd(){
-  try{await db.doc('masterData/config').set({
-    companies:masterData.companies,
-    _nextCompanyId:masterData._nextCompanyId,
-    _nextStoreId:masterData._nextStoreId,
-    equipmentNames:masterData.equipmentNames,
-    _nextEqNameId:masterData._nextEqNameId,
-    statuses:masterData.statuses,
-    _nextStatusId:masterData._nextStatusId,
-    bayTypes:masterData.bayTypes,
-    _nextBayTypeId:masterData._nextBayTypeId,
-    _nextManagerId:masterData._nextManagerId
-  });}
+  try{
+    await db.doc('masterData/config').set({
+      companies:masterData.companies,
+      _nextCompanyId:masterData._nextCompanyId,
+      _nextStoreId:masterData._nextStoreId,
+      equipmentNames:masterData.equipmentNames,
+      _nextEqNameId:masterData._nextEqNameId,
+      statuses:masterData.statuses,
+      _nextStatusId:masterData._nextStatusId,
+      bayTypes:masterData.bayTypes,
+      _nextBayTypeId:masterData._nextBayTypeId,
+      _nextManagerId:masterData._nextManagerId
+    });
+    _backupMasterDataToDrive();
+  }
   catch(e){console.error(e);}
+}
+
+/* ════ 自動バックアップ（Google Drive） ════
+   2026-09-22に発生したmasterData/config消失事故を受けて追加。
+   データが更新されるたびに、現在の内容をGoogle Driveの
+   「設備機器管理/_バックアップ/」以下へJSONスナップショットとして保存しておく。
+   万一Firestoreのデータが消えても、このバックアップから復元できるようにするための保険。
+   保存に失敗しても（Drive未接続時など）コンソール警告のみとし、本来の保存操作は妨げない。 */
+let _backupInFlight=false,_lastEqBackupAt=0;
+const EQ_BACKUP_MIN_INTERVAL_MS=5*60*1000; // 機器バックアップは連続保存時の負荷軽減のため5分間隔に間引く（削除時は毎回実行）
+
+function _backupTimestamp(){
+  const d=new Date();
+  const pad=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
+
+async function _uploadJsonToDrive(folderId,fileName,obj){
+  const token=await _getDriveToken();
+  const blob=new Blob([JSON.stringify(obj)],{type:'application/json'});
+  const metadata=JSON.stringify({name:fileName,parents:[folderId]});
+  const form=new FormData();
+  form.append('metadata',new Blob([metadata],{type:'application/json'}));
+  form.append('file',blob);
+  const r=await _fetchWithTimeout('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',{
+    method:'POST',headers:{'Authorization':`Bearer ${token}`},body:form
+  },60000);
+  const uploaded=await r.json();
+  if(!uploaded.id)throw new Error('Backup upload failed:'+JSON.stringify(uploaded));
+  return uploaded.id;
+}
+
+// 指定フォルダ内のバックアップを作成日時の新しい順に取得し、keep件を超える古いものを削除する
+// （Driveの容量を無限に消費し続けないための世代管理）
+async function _cleanupOldBackups(folderId,keep){
+  try{
+    const token=await _getDriveToken();
+    const resp=await _driveGet('/files',{
+      q:`'${folderId}' in parents and trashed=false`,
+      fields:'files(id,createdTime)',
+      orderBy:'createdTime desc',
+      pageSize:200
+    });
+    const files=resp.files||[];
+    const toDelete=files.slice(keep);
+    for(const f of toDelete){
+      try{
+        await _fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${f.id}`,{
+          method:'DELETE',headers:{'Authorization':`Bearer ${token}`}
+        },20000);
+      }catch(e){console.warn('古いバックアップの削除に失敗:',e);}
+    }
+  }catch(e){console.warn('バックアップ整理に失敗:',e);}
+}
+
+// 銘板写真等のbase64データは容量が大きく、Drive上の写真フォルダに実体が別途あるため
+// バックアップからは除外し、ファイルを軽量に保つ
+function _stripPhotosForBackup(eq){
+  const clone=JSON.parse(JSON.stringify(eq));
+  if(clone.photos){
+    Object.keys(clone.photos).forEach(k=>{
+      const v=clone.photos[k];
+      if(typeof v==='string'&&v.startsWith('data:'))clone.photos[k]='[base64画像・バックアップ対象外]';
+    });
+  }
+  if(Array.isArray(clone.maintenance)){
+    clone.maintenance.forEach(h=>{
+      if(Array.isArray(h.photos)){
+        h.photos.forEach(p=>{
+          if(p&&typeof p.data==='string'&&p.data.startsWith('data:'))p.data='[base64画像・バックアップ対象外]';
+        });
+      }
+    });
+  }
+  return clone;
+}
+
+async function _backupMasterDataToDrive(){
+  try{
+    const rootId=await _findOrCreateFolder('設備機器管理','root');
+    const backupRootId=await _findOrCreateFolder('_バックアップ',rootId);
+    const mdFolderId=await _findOrCreateFolder('masterData',backupRootId);
+    const fileName=`masterData_${_backupTimestamp()}.json`;
+    await _uploadJsonToDrive(mdFolderId,fileName,{
+      backupAt:new Date().toISOString(),
+      companies:masterData.companies,
+      _nextCompanyId:masterData._nextCompanyId,
+      _nextStoreId:masterData._nextStoreId,
+      equipmentNames:masterData.equipmentNames,
+      _nextEqNameId:masterData._nextEqNameId,
+      statuses:masterData.statuses,
+      _nextStatusId:masterData._nextStatusId,
+      bayTypes:masterData.bayTypes,
+      _nextBayTypeId:masterData._nextBayTypeId,
+      _nextManagerId:masterData._nextManagerId
+    });
+    _cleanupOldBackups(mdFolderId,100);
+  }catch(e){
+    console.warn('masterDataのバックアップに失敗しました（保存自体は成功しています）:',e);
+  }
+}
+
+async function _backupEquipmentsToDrive(force){
+  const now=Date.now();
+  if(!force&&now-_lastEqBackupAt<EQ_BACKUP_MIN_INTERVAL_MS)return;
+  if(_backupInFlight)return;
+  _backupInFlight=true;
+  _lastEqBackupAt=now;
+  try{
+    const rootId=await _findOrCreateFolder('設備機器管理','root');
+    const backupRootId=await _findOrCreateFolder('_バックアップ',rootId);
+    const eqFolderId=await _findOrCreateFolder('equipments',backupRootId);
+    const fileName=`equipments_${_backupTimestamp()}.json`;
+    const snapshot=equipments.map(_stripPhotosForBackup);
+    await _uploadJsonToDrive(eqFolderId,fileName,{
+      backupAt:new Date().toISOString(),
+      count:snapshot.length,
+      equipments:snapshot
+    });
+    _cleanupOldBackups(eqFolderId,30);
+  }catch(e){
+    console.warn('equipmentsのバックアップに失敗しました（保存自体は成功しています）:',e);
+  }finally{
+    _backupInFlight=false;
+  }
 }
 
 /* ════ ONLINE / OFFLINE 検知 ════ */
