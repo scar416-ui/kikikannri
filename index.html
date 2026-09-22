@@ -3211,9 +3211,20 @@ function renderStoreManageList(){
   }
   el.innerHTML=rows.map(({c,s})=>{
     const m=getStoreManager(c.id,s.id);
+    const contactParts=[];
+    if(s.address)contactParts.push(`📍${s.address}`);
+    if(s.tel)contactParts.push(`TEL:${s.tel}`);
+    if(s.fax)contactParts.push(`FAX:${s.fax}`);
+    const contactLine=contactParts.length?`<div class="manage-item-meta">${contactParts.join(' ／ ')}</div>`:'';
+    const mgrContactParts=[];
+    if(m?.mobile)mgrContactParts.push(`📱${m.mobile}`);
+    if(m?.email)mgrContactParts.push(`✉️${m.email}`);
+    const mgrContactLine=mgrContactParts.length?`<div class="manage-item-meta">${mgrContactParts.join(' ／ ')}</div>`:'';
     return `<div class="manage-item">
       <div class="manage-item-name">${storeLabel(s)}</div>
       <div class="manage-item-meta">${companyLabel(c)}${m?` ／ 工場長：${m.name}${m.since?`（${m.since}〜）`:''}`:''}</div>
+      ${contactLine}
+      ${mgrContactLine}
       <button class="btn-edit-item" onclick="editStore('${c.id}','${s.id}')" title="編集">✏️</button>
       <button class="btn-del-item" onclick="confirmDeleteStore('${c.id}','${s.id}')" title="削除">🗑</button>
     </div>`;
