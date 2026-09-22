@@ -802,6 +802,10 @@ optgroup{font-weight:700}
         </div>
       </div>
       <div class="form-group">
+        <label class="form-label">メールアドレス <span class="optional-tag">任意</span></label>
+        <input type="email" class="form-input" id="mg_email" placeholder="例：taro_yamada@example.co.jp">
+      </div>
+      <div class="form-group">
         <label class="form-label">配属先店舗（複数選択可＝兼任）</label>
         <div class="manage-list" id="mg_assignList" style="max-height:200px;overflow-y:auto"></div>
         <div style="font-size:11px;color:var(--gray-400);margin-top:4px">チェックした店舗に配属されます。何もチェックしなければ「保留」。既に別の工場長がいる店舗をチェックすると、その工場長はその店舗分だけ自動的に外れます（異動扱い）。</div>
@@ -3266,7 +3270,7 @@ function renderManagerList(){
       :`<span class="manager-status-tag hold">⏸ 保留</span>`;
     return `<div class="manage-item">
       <div style="flex:1;min-width:0">
-        <div class="manage-item-name">${m.name}${m.mobile?` <span style="font-weight:400;color:var(--gray-400);font-size:11px">📱${m.mobile}</span>`:''}</div>
+        <div class="manage-item-name">${m.name}${m.mobile?` <span style="font-weight:400;color:var(--gray-400);font-size:11px">📱${m.mobile}</span>`:''}${m.email?` <span style="font-weight:400;color:var(--gray-400);font-size:11px">✉️${m.email}</span>`:''}</div>
         <div class="manage-item-meta" style="white-space:normal">${statusHTML}${m.since?` （${m.since}〜）`:''}</div>
       </div>
       <button class="btn-edit-item" onclick="editManager('${companyId}','${m.id}')" title="編集・異動">✏️</button>
@@ -3282,6 +3286,7 @@ function editManager(companyId,managerId){
   document.getElementById('mg_name').value=m.name||'';
   document.getElementById('mg_mobile').value=m.mobile||'';
   document.getElementById('mg_since').value=m.since||'';
+  document.getElementById('mg_email').value=m.email||'';
   renderManagerAssignCheckboxes();
   document.getElementById('mg_saveBtn').textContent='💾 更新する';
   document.getElementById('mg_cancelBtn').style.display='';
@@ -3293,6 +3298,7 @@ function cancelEditManager(){
   document.getElementById('mg_name').value='';
   document.getElementById('mg_mobile').value='';
   document.getElementById('mg_since').value='';
+  document.getElementById('mg_email').value='';
   document.getElementById('mg_saveBtn').textContent='💾 追加する';
   document.getElementById('mg_cancelBtn').style.display='none';
   renderManagerAssignCheckboxes();
@@ -3302,6 +3308,7 @@ function saveManager(){
   const name=document.getElementById('mg_name').value.trim();
   const mobile=document.getElementById('mg_mobile').value.trim();
   const since=document.getElementById('mg_since').value;
+  const email=document.getElementById('mg_email').value.trim();
   const storeIds=Array.from(document.querySelectorAll('#mg_assignList .mg-assign-checkbox:checked')).map(cb=>cb.value);
   if(!companyId){showToast('⚠ 対象販社を選択してください','error');return;}
   if(!name){showToast('⚠ 氏名を入力してください','error');return;}
@@ -3319,12 +3326,12 @@ function saveManager(){
   if(_editingManagerId){
     const m=c.managers.find(x=>x.id===_editingManagerId);
     if(!m){showToast('⚠ 工場長が見つかりません','error');return;}
-    m.name=name;m.mobile=mobile;m.since=since;m.storeIds=storeIds;
+    m.name=name;m.mobile=mobile;m.since=since;m.email=email;m.storeIds=storeIds;
     _saveMd();
     showToast(`✅ 工場長「${name}」を更新しました`,'success');
   }else{
     const id='mg'+masterData._nextManagerId++;
-    c.managers.push({id,name,mobile,since,storeIds});
+    c.managers.push({id,name,mobile,since,email,storeIds});
     _saveMd();
     showToast(`✅ 工場長「${name}」を追加しました`,'success');
   }
