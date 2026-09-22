@@ -1915,6 +1915,27 @@ function _compressImageToDataURL(file,maxDim,quality){
     reader.readAsDataURL(file);
   });
 }
+// 既にdata:image形式のbase64になっている画像を、さらに小さく再圧縮する
+// （Firestoreの1文書あたりの上限（約1MB）に近づいた場合の緊急退避用）。
+// Imageはdata:URLをそのまま読み込めるため、FileReaderを経由する必要はない。
+function _recompressDataUrl(dataUrl,maxDim,quality){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();
+    img.onload=()=>{
+      let w=img.width,h=img.height;
+      if(w>maxDim||h>maxDim){
+        if(w>=h){h=Math.round(h*maxDim/w);w=maxDim;}
+        else{w=Math.round(w*maxDim/h);h=maxDim;}
+      }
+      const canvas=document.createElement('canvas');
+      canvas.width=w;canvas.height=h;
+      canvas.getContext('2d').drawImage(img,0,0,w,h);
+      resolve(canvas.toDataURL('image/jpeg',quality));
+    };
+    img.onerror=()=>reject(new Error('画像の再圧縮に失敗しました'));
+    img.src=dataUrl;
+  });
+}
 // iPhoneのカメラで撮影した写真は初期設定でHEIC/HEIF形式になっており、そのままGoogle Driveに
 // アップロードすると、Driveのサムネイル生成がHEICを処理できず一覧やプレビューが❓（読み込み失敗）
 //表示になることがある。端末内（Safari/iOSは<img>でHEICをデコードできる）でJPEGに変換・圧縮してから
@@ -4354,13 +4375,54 @@ async function _uploadWithFallback(file,eq,category){
 }
 
 /* ── Firestore 書き込みヘルパー ── */
+// Firestoreの1文書あたりのサイズ上限（約1,048,487バイト）に近づいている場合、
+// 通信状況とは無関係にドキュメントの保存自体が失敗する。原因は主に、Drive保存に
+// 失敗した際のフォールバックや、銘板写真のように元からbase64で保存している写真が
+// 複数重なった場合。保存前にサイズを確認し、必要であれば自動的にさらに圧縮して
+// 「通信状況に問題はないのに保存できない」不具合を防ぐ。
+async function _shrinkOversizedPhotos(eq){
+  const LIMIT=950000; // Firestore上限に対する安全マージン
+  const isBase64Photo=v=>typeof v==='string'&&v.startsWith('data:image');
+  for(let pass=0;pass<3;pass++){
+    let size;
+    try{size=new Blob([JSON.stringify(eq)]).size;}catch(e){return;}
+    if(size<=LIMIT)return;
+    const candidates=[];
+    if(eq.photos){
+      if(isBase64Photo(eq.photos['銘板']))candidates.push(['銘板',eq.photos['銘板']]);
+      if(isBase64Photo(eq.photos['全体']))candidates.push(['全体',eq.photos['全体']]);
+      (eq.photos.extra||[]).forEach((p,i)=>{if(p&&isBase64Photo(p.data))candidates.push([`extra:${i}`,p.data]);});
+    }
+    if(candidates.length===0)return; // これ以上圧縮できる写真が無い
+    // 一番大きいものから順に、緊急退避としてさらに圧縮する
+    candidates.sort((a,b)=>b[1].length-a[1].length);
+    const [target,dataUrl]=candidates[0];
+    try{
+      const shrunk=await _recompressDataUrl(dataUrl,900,0.6);
+      if(target==='銘板')eq.photos['銘板']=shrunk;
+      else if(target==='全体')eq.photos['全体']=shrunk;
+      else eq.photos.extra[Number(target.split(':')[1])].data=shrunk;
+    }catch(e){
+      console.warn('写真の追加圧縮に失敗しました:',e);
+      return;
+    }
+  }
+}
 async function _saveEq(eq){
   try{
+    await _shrinkOversizedPhotos(eq);
     await db.collection('equipments').doc(String(eq.id)).set(eq);
     return true;
   }catch(e){
     console.error(e);
-    showToast('⚠ クラウド保存に失敗しました。通信状況を確認してもう一度お試しください','error');
+    // 「通信状況を確認してください」は、実際にはデータサイズ超過など通信と無関係な
+    // 原因の場合に誤解を招くため、原因を区別して案内する。
+    const msg=(e&&e.message)||'';
+    if(/longer than|exceeds|maximum|too large|1048487/i.test(msg)){
+      showToast('⚠ 写真データが大きすぎるため保存できませんでした。銘板写真を撮り直すか、写真を減らして再度お試しください','error');
+    }else{
+      showToast(`⚠ クラウド保存に失敗しました：${msg||'原因不明のエラー'}`,'error');
+    }
     return false;
   }
 }
