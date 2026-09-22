@@ -1422,7 +1422,7 @@ function renderList(){
       if(bst.address)metaParts.push(`📍 ${bst.address}`);
       if(bst.tel)metaParts.push(`☎ ${bst.tel}`);
       if(bst.fax)metaParts.push(`📠 ${bst.fax}`);
-      if(bm)metaParts.push(`👤 工場長：${bm.name}${bm.mobile?`（📱${bm.mobile}）`:''}${bm.since?`（${bm.since}〜）`:''}`);
+      if(bm)metaParts.push(`👤 工場長：${bm.name}${bm.mobile?`（📱${bm.mobile}）`:''}${bm.email?`（✉️${bm.email}）`:''}${bm.since?`（${bm.since}〜）`:''}`);
       if(bst.note)metaParts.push(`📝 ${bst.note}`);
       bannerHTML=`<div class="store-info-banner">
         <div class="store-info-banner-head">
@@ -1606,7 +1606,7 @@ function renderDetail(){
         ${st&&st.address?`<div class="info-item" style="grid-column:span 2"><div class="info-item-label">店舗住所</div><div class="info-item-value">${st.address}</div></div>`:''}
         ${st&&st.tel?`<div class="info-item"><div class="info-item-label">店舗TEL</div><div class="info-item-value">${st.tel}</div></div>`:''}
         ${st&&st.fax?`<div class="info-item"><div class="info-item-label">店舗FAX</div><div class="info-item-value">${st.fax}</div></div>`:''}
-        ${stMgr?`<div class="info-item" style="grid-column:span 2"><div class="info-item-label">工場長</div><div class="info-item-value">${stMgr.name}${stMgr.mobile?`<span style="font-size:11px;color:var(--gray-400);margin-left:6px">📱 ${stMgr.mobile}</span>`:''}${stMgr.since?`<span style="font-size:11px;color:var(--gray-400);margin-left:6px">（${stMgr.since}〜）</span>`:''}</div></div>`:''}
+        ${stMgr?`<div class="info-item" style="grid-column:span 2"><div class="info-item-label">工場長</div><div class="info-item-value">${stMgr.name}${stMgr.mobile?`<span style="font-size:11px;color:var(--gray-400);margin-left:6px">📱 ${stMgr.mobile}</span>`:''}${stMgr.email?`<span style="font-size:11px;color:var(--gray-400);margin-left:6px">✉️ ${stMgr.email}</span>`:''}${stMgr.since?`<span style="font-size:11px;color:var(--gray-400);margin-left:6px">（${stMgr.since}〜）</span>`:''}</div></div>`:''}
         ${st&&st.note?`<div class="info-item" style="grid-column:span 2"><div class="info-item-label">店舗備考</div><div class="info-item-value">${st.note}</div></div>`:''}
       </div>
     </div>
@@ -2956,7 +2956,7 @@ function renderAsManagerInfo(){
   const m=getStoreManager(_editingStoreCompanyId,_editingStoreId);
   btn.style.display='';
   if(m){
-    box.innerHTML=`👤 ${m.name}${m.mobile?`　📱 ${m.mobile}`:''}${m.since?`　（${m.since}〜）`:''}`;
+    box.innerHTML=`👤 ${m.name}${m.mobile?`　📱 ${m.mobile}`:''}${m.email?`　✉️ ${m.email}`:''}${m.since?`　（${m.since}〜）`:''}`;
   }else{
     box.textContent='未配属（保留）';
   }
