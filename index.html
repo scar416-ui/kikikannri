@@ -1579,11 +1579,6 @@ function renderDetail(){
           <div class="info-item-value" style="font-family:monospace;letter-spacing:.05em">${eq.serial}</div>
         </div>
         <div class="info-item">
-          <div class="info-item-label">設置日</div>
-          <div class="info-item-value">${eq.date||'—'}</div>
-          ${elapsed?`<div class="elapsed-badge ${old?'old':'normal'}">${elapsed}経過${old?' ⚠':''}</div>`:''}
-        </div>
-        <div class="info-item">
           <div class="info-item-label">製造年月</div>
           <div class="info-item-value">${eq.nextcheck||'—'}</div>
           ${mfgElapsed?`<div class="elapsed-badge ${mfgOld?'old':'normal'}">${mfgElapsed}経過${mfgOld?' ⚠':''}</div>`:''}
