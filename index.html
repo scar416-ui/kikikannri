@@ -1732,7 +1732,7 @@ function triggerDetailPhoto(key){document.getElementById(`fi_detail_${key}`).cli
 async function processDetailPhoto(file,key){
   showToast('📤 Google Driveにアップロード中...','info');
   const upFile=await _prepareForDriveUpload(file);
-  const url=await _uploadWithFallback(upFile,currentEq);
+  const url=await _uploadWithFallback(upFile,currentEq,`${key}写真`);
   currentEq.photos[key]=url;
   await _saveEq(currentEq);
   renderDetail();showToast(`✅ ${key}写真を追加しました`,'success');
@@ -1746,7 +1746,7 @@ function triggerDetailExtraPhoto(){document.getElementById('fi_detail_extra').cl
 async function processDetailExtraPhoto(file){
   showToast('📤 Google Driveにアップロード中...','info');
   const upFile=await _prepareForDriveUpload(file);
-  const url=await _uploadWithFallback(upFile,currentEq);
+  const url=await _uploadWithFallback(upFile,currentEq,'追加写真');
   currentEq.photos.extra.push({name:file.name,data:url});
   await _saveEq(currentEq);
   renderDetail();showToast('✅ 写真を追加しました','success');
@@ -1767,9 +1767,9 @@ function triggerModalPhoto(key){document.getElementById(`fi_modal_${key}`).click
 function triggerModalExtraPhoto(){document.getElementById('fi_modal_extra').click();}
 async function processModalExtraPhoto(file){
   showToast('📤 Google Driveにアップロード中...','info');
-  const refEq=currentEq||{id:pendingNewEqId||_genEquipmentId(),name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||''};
+  const refEq=currentEq||{id:pendingNewEqId||_genEquipmentId(),name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
   const upFile=await _prepareForDriveUpload(file);
-  const url=await _uploadWithFallback(upFile,refEq);
+  const url=await _uploadWithFallback(upFile,refEq,'追加写真');
   modalPhotos.extra.push({name:file.name,data:url});
   renderModalExtraGrid();
   showToast('✅ 写真を追加しました','success');
@@ -1878,7 +1878,9 @@ async function _prepareForDriveUpload(file){
     }
   }
   try{
-    return await _compressImageToBlob(src,2400,0.92);
+    // Driveには容量上限が実質無いため、ほぼ元画質のまま保存する
+    // （6000pxはスマホカメラの一般的な解像度を上回らない上限として設定）。
+    return await _compressImageToBlob(src,6000,0.97);
   }catch(e){
     console.warn('画像の変換に失敗したため、元ファイルのままアップロードします:',e);
     return src;
@@ -1899,9 +1901,9 @@ async function processModalPhoto(file,key){
     autoFillFromNameplate(modalPhotos[key]);
   }else{
     showToast('📤 Google Driveにアップロード中...','info');
-    const refEq=currentEq||{id:pendingNewEqId||_genEquipmentId(),name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||''};
+    const refEq=currentEq||{id:pendingNewEqId||_genEquipmentId(),name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
     const upFile=await _prepareForDriveUpload(file);
-    const url=await _uploadWithFallback(upFile,refEq);
+    const url=await _uploadWithFallback(upFile,refEq,`${key}写真`);
     modalPhotos[key]=url;
     updateModalPhotoSlot(key);
     showToast('✅ 全体写真を追加しました','success');
@@ -2212,7 +2214,7 @@ function triggerHistoryPhoto(){document.getElementById('fi_history').click();}
 async function processHistoryPhoto(file){
   showToast('📤 Google Driveにアップロード中...','info');
   const upFile=await _prepareForDriveUpload(file);
-  const url=await _uploadWithFallback(upFile,currentEq);
+  const url=await _uploadWithFallback(upFile,currentEq,'保守履歴写真');
   historyPhotos.push({name:file.name,data:url});
   renderHistoryPhotoGrid();
   showToast('✅ 写真を追加しました','success');
@@ -4094,7 +4096,18 @@ async function _findOrCreateFolder(name,parentId){
   _folderCache[key]=created.id;return created.id;
 }
 
-async function _uploadToDrive(file,eq){
+// Driveに保存するファイル名を「ベイ名_機器名_写真の種類_日時」のように分かりやすくする。
+// ファイル名から見ただけで何の写真か判別できるようにするための処理。
+function _driveFileLabel(eq,category){
+  const bay=(eq&&eq.bay)?String(eq.bay):'';
+  const name=(eq&&eq.name)?String(eq.name):'';
+  const d=new Date();
+  const pad=n=>String(n).padStart(2,'0');
+  const ts=`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  const base=[bay,name,category].filter(Boolean).join('_').replace(/[\\/:*?"<>|]/g,'_');
+  return `${base}_${ts}.jpg`;
+}
+async function _uploadToDrive(file,eq,category){
   const token=await _getDriveToken();
   const company=getCompany(eq.companyId);
   const store=getStore(eq.companyId,eq.storeId);
@@ -4106,8 +4119,9 @@ async function _uploadToDrive(file,eq){
   const companyFId=await _findOrCreateFolder(companyName,rootId);
   const storeFId=await _findOrCreateFolder(storeName,companyFId);
   const eqFId=await _findOrCreateFolder(eqFolderName,storeFId);
-  // ファイルをアップロード
-  const metadata=JSON.stringify({name:file.name,parents:[eqFId]});
+  // ファイルをアップロード（写真の種類が分かるファイル名にする）
+  const fileName=category?_driveFileLabel(eq,category):file.name;
+  const metadata=JSON.stringify({name:fileName,parents:[eqFId]});
   const form=new FormData();
   form.append('metadata',new Blob([metadata],{type:'application/json'}));
   form.append('file',file);
@@ -4125,9 +4139,9 @@ async function _uploadToDrive(file,eq){
   return `https://drive.google.com/thumbnail?id=${uploaded.id}&sz=w800`;
 }
 
-async function _uploadWithFallback(file,eq){
+async function _uploadWithFallback(file,eq,category){
   try{
-    return await _uploadToDrive(file,eq);
+    return await _uploadToDrive(file,eq,category);
   }catch(err){
     console.warn('Drive upload failed, using base64:',err);
     // Driveアップロード失敗時のフォールバックは、Firestoreの1文書あたり約1MBという
