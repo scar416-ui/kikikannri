@@ -4147,6 +4147,22 @@ const GDRIVE_CLIENT_ID='22968334682-471ud2u2kdkkap917m24hd8jga0vcmoh.apps.google
 const GDRIVE_SCOPE='https://www.googleapis.com/auth/drive.file';
 const DRIVE_API_BASE='https://drive-token-service.vercel.app';
 const NAMEPLATE_API_BASE='https://kikikannri-nameplate-api.vercel.app';
+// 通信が極端に遅い・固まっている場合に、いつまでも「写真を保存中…」のまま
+// 終わらなくなる不具合を防ぐためのタイムアウト付きfetch。
+// タイムアウトした場合はエラーとしてthrowし、_uploadWithFallback側でbase64保存に
+// 自動的に切り替わるようにする。
+async function _fetchWithTimeout(url,opts={},timeoutMs=20000){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),timeoutMs);
+  try{
+    return await fetch(url,{...opts,signal:controller.signal});
+  }catch(e){
+    if(e.name==='AbortError')throw new Error(`通信がタイムアウトしました（${Math.round(timeoutMs/1000)}秒応答なし）`);
+    throw e;
+  }finally{
+    clearTimeout(timer);
+  }
+}
 let _driveToken=null,_driveTokenExpiry=0,_driveCodeClient=null,_driveAutoTried=false;
 const _folderCache={};
 
@@ -4176,10 +4192,10 @@ function _initDriveCodeClient(){
       }
       try{
         const idToken=await auth.currentUser.getIdToken();
-        const r=await fetch(`${DRIVE_API_BASE}/api/drive-auth`,{
+        const r=await _fetchWithTimeout(`${DRIVE_API_BASE}/api/drive-auth`,{
           method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({code:resp.code,idToken})
-        });
+        },15000);
         const data=await r.json();
         if(!r.ok||!data.ok)throw new Error(data.detail||data.error||'不明なエラー');
         showToast('✅ Google Driveへの自動接続を設定しました','success');
@@ -4206,10 +4222,10 @@ async function _autoConnectDrive(silent){
   _setDriveBtn('connecting');
   try{
     const idToken=await auth.currentUser.getIdToken();
-    const r=await fetch(`${DRIVE_API_BASE}/api/drive-token`,{
+    const r=await _fetchWithTimeout(`${DRIVE_API_BASE}/api/drive-token`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({idToken})
-    });
+    },15000);
     if(r.status===404){_setDriveBtn('disconnected');return;} // まだ一度も許可していない
     const data=await r.json();
     if(!r.ok||!data.access_token)throw new Error(data.detail||data.error||'不明なエラー');
@@ -4245,9 +4261,9 @@ async function _getDriveToken(){
 async function _driveGet(path,params={}){
   const token=await _getDriveToken();
   const qs=new URLSearchParams(params).toString();
-  const r=await fetch(`https://www.googleapis.com/drive/v3${path}${qs?'?'+qs:''}`,{
+  const r=await _fetchWithTimeout(`https://www.googleapis.com/drive/v3${path}${qs?'?'+qs:''}`,{
     headers:{'Authorization':`Bearer ${token}`}
-  });
+  },20000);
   return r.json();
 }
 
@@ -4261,11 +4277,11 @@ async function _findOrCreateFolder(name,parentId){
     _folderCache[key]=resp.files[0].id;return resp.files[0].id;
   }
   const token=await _getDriveToken();
-  const r=await fetch('https://www.googleapis.com/drive/v3/files',{
+  const r=await _fetchWithTimeout('https://www.googleapis.com/drive/v3/files',{
     method:'POST',
     headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
     body:JSON.stringify({name,mimeType:'application/vnd.google-apps.folder',parents:[parentId]})
-  });
+  },20000);
   const created=await r.json();
   _folderCache[key]=created.id;return created.id;
 }
@@ -4299,17 +4315,20 @@ async function _uploadToDrive(file,eq,category){
   const form=new FormData();
   form.append('metadata',new Blob([metadata],{type:'application/json'}));
   form.append('file',file);
-  const uploadResp=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',{
+  // 元画質に近い設定でファイルサイズが大きいため、通常の通信より長めの
+  // タイムアウト（90秒）を設定。それでも応答が無い場合は通信不良とみなし、
+  // base64保存へのフォールバックに切り替える。
+  const uploadResp=await _fetchWithTimeout('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',{
     method:'POST',headers:{'Authorization':`Bearer ${token}`},body:form
-  });
+  },90000);
   const uploaded=await uploadResp.json();
   if(!uploaded.id)throw new Error('Upload failed:'+JSON.stringify(uploaded));
   // 公開設定（URLで閲覧可能）
-  await fetch(`https://www.googleapis.com/drive/v3/files/${uploaded.id}/permissions`,{
+  await _fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${uploaded.id}/permissions`,{
     method:'POST',
     headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
     body:JSON.stringify({role:'reader',type:'anyone'})
-  });
+  },20000);
   return `https://drive.google.com/thumbnail?id=${uploaded.id}&sz=w800`;
 }
 
