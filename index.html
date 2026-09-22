@@ -1940,7 +1940,9 @@ async function _processPendingQueue(){
           const url=await _withTimeout(_uploadToDrive(item.blob,item.eqSnapshot,item.category),180000,'写真のアップロード');
           await _updatePendingPhoto(item.id,{status:'uploaded',driveUrl:url,lastError:null});
           item.status='uploaded';item.driveUrl=url;
-          _lastQueueErrorMsg=null;
+          // ここではDriveへのアップロード自体は成功しただけで、機器データへの反映
+          // （下のif(item.status==='uploaded')ブロック）がまだ済んでいないため、
+          // _lastQueueErrorMsgのクリアはそちらが完全に成功した時点まで行わない。
         }catch(e){
           console.warn('写真のバックグラウンドアップロードに失敗しました（後で再試行します）:',e);
           const failCount=(item.failCount||0)+1;
@@ -1960,7 +1962,28 @@ async function _processPendingQueue(){
       }
       if(item.status==='uploaded'){
         const applied=await _tryApplyPendingPhoto(item);
-        if(applied)await _deletePendingPhoto(item.id);
+        if(applied){
+          await _deletePendingPhoto(item.id);
+          _lastQueueErrorMsg=null;
+        }else{
+          // Driveへの送信自体は成功しているが、反映先の機器データが見つからない状態。
+          // 主に「新規登録の保存が完了しないまま画面を離れた」場合に起きるため、
+          // 繰り返し発生する場合はユーザーに分かるようにする。
+          const applyFailCount=(item.applyFailCount||0)+1;
+          item.applyFailCount=applyFailCount;
+          if(applyFailCount>=3){
+            const eqName=(item.eqSnapshot&&item.eqSnapshot.name)?item.eqSnapshot.name:`機器ID:${item.eqId}`;
+            const msg=`「${eqName}」が見つからないため、送信済みの写真を反映できていません（新規登録の保存が完了していない可能性があります）`;
+            await _updatePendingPhoto(item.id,{applyFailCount,lastError:msg});
+            _lastQueueErrorMsg=msg;
+            if(Date.now()-_lastQueueErrorToast>120000){
+              _lastQueueErrorToast=Date.now();
+              showToast(`⚠ ${msg}`,'error');
+            }
+          }else{
+            await _updatePendingPhoto(item.id,{applyFailCount});
+          }
+        }
       }
     }
   }finally{
