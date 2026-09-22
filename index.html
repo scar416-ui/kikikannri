@@ -1748,11 +1748,11 @@ async function processDetailPhoto(file,key){
   try{
     showToast('📤 Google Driveにアップロード中...','info');
     const upFile=await _prepareForDriveUpload(file);
-    const url=await _uploadWithFallback(upFile,eq,`${key}写真`);
+    const{url,isFallback}=await _uploadWithFallback(upFile,eq,`${key}写真`);
     eq.photos[key]=url;
     await _saveEq(eq);
-    if(currentEq===eq){renderDetail();showToast(`✅ ${key}写真を追加しました`,'success');}
-    else{renderList();showToast(`✅ ${eq.name}の${key}写真を保存しました`,'success');}
+    if(currentEq===eq){renderDetail();const[msg,type]=_photoUploadToast(`${key}写真を追加しました`,isFallback);showToast(msg,type);}
+    else{renderList();const[msg,type]=_photoUploadToast(`${eq.name}の${key}写真を保存しました`,isFallback);showToast(msg,type);}
   }finally{
     _endPhotoUpload(eq.id);
   }
@@ -1769,11 +1769,11 @@ async function processDetailExtraPhoto(file){
   try{
     showToast('📤 Google Driveにアップロード中...','info');
     const upFile=await _prepareForDriveUpload(file);
-    const url=await _uploadWithFallback(upFile,eq,'追加写真');
+    const{url,isFallback}=await _uploadWithFallback(upFile,eq,'追加写真');
     eq.photos.extra.push({name:file.name,data:url});
     await _saveEq(eq);
-    if(currentEq===eq){renderDetail();showToast('✅ 写真を追加しました','success');}
-    else{renderList();showToast(`✅ ${eq.name}に追加写真を保存しました`,'success');}
+    if(currentEq===eq){renderDetail();const[msg,type]=_photoUploadToast('写真を追加しました',isFallback);showToast(msg,type);}
+    else{renderList();const[msg,type]=_photoUploadToast(`${eq.name}に追加写真を保存しました`,isFallback);showToast(msg,type);}
   }finally{
     _endPhotoUpload(eq.id);
   }
@@ -1831,13 +1831,14 @@ async function processModalExtraPhoto(file){
     showToast('📤 Google Driveにアップロード中...','info');
     const refEq=currentEq||{id:targetId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
     const upFile=await _prepareForDriveUpload(file);
-    const url=await _uploadWithFallback(upFile,refEq,'追加写真');
+    const{url,isFallback}=await _uploadWithFallback(upFile,refEq,'追加写真');
     const stillSameTarget=document.getElementById('modalOverlay').classList.contains('show')&&
       (currentEq?currentEq.id:pendingNewEqId)===targetId;
     if(stillSameTarget){
       modalPhotos.extra.push({name:file.name,data:url});
       renderModalExtraGrid();
-      showToast('✅ 写真を追加しました','success');
+      const[msg,type]=_photoUploadToast('写真を追加しました',isFallback);
+      showToast(msg,type);
     }else{
       // 既にこの機器の登録・編集を保存し終えて別の機器に進んでいた場合は、
       // 保存済みの機器データ側に直接追記する（写真が別の機器に紐付いてしまう不具合の対策）
@@ -1849,7 +1850,8 @@ async function processModalExtraPhoto(file){
         _saveEq(savedEq);
         if(currentEq&&currentEq.id===savedEq.id)renderDetail();
         renderList();
-        showToast(`✅ ${savedEq.name}の追加写真を保存しました`,'success');
+        const[msg,type]=_photoUploadToast(`${savedEq.name}の追加写真を保存しました`,isFallback);
+        showToast(msg,type);
       }else{
         console.warn('写真の保存先の機器が見つかりませんでした（保存前に画面を離れた可能性があります）:',targetId);
         showToast('⚠ 保存先の機器が見つからず、写真を反映できませんでした','error');
@@ -1993,17 +1995,25 @@ async function _prepareForDriveUpload(file){
     return src;
   }
 }
+// Drive保存に失敗し、圧縮画像を直接埋め込むフォールバック保存になった場合、
+// 通常の保存とは異なる（元画質ではない）旨をトーストで分かるようにする。
+function _photoUploadToast(successMsg,isFallback){
+  return isFallback
+    ?[`⚠ Drive保存に失敗したため圧縮版で${successMsg}（元画質ではありません。通信の良い場所で撮り直すと元画質で保存できます）`,'error']
+    :[`✅ ${successMsg}`,'success'];
+}
 // アップロード（または銘板の圧縮）完了時点で、まだ同じ機器の登録・編集画面を
 // 開いていればモーダルの表示（modalPhotos）に反映し、既に保存を終えて別の
 // 機器の登録・編集に進んでいた場合は保存済みの機器データ側に直接反映する
 // （写真が別の機器に紐付いてしまう不具合の対策）。
-function _applyModalPhotoResult(targetId,key,value,successMsg){
+function _applyModalPhotoResult(targetId,key,value,successMsg,isFallback){
   const stillSameTarget=document.getElementById('modalOverlay').classList.contains('show')&&
     (currentEq?currentEq.id:pendingNewEqId)===targetId;
+  const[msg,type]=_photoUploadToast(successMsg,isFallback);
   if(stillSameTarget){
     modalPhotos[key]=value;
     updateModalPhotoSlot(key);
-    showToast(`✅ ${successMsg}`,'success');
+    showToast(msg,type);
     return;
   }
   const savedEq=equipments.find(e=>e.id===targetId);
@@ -2013,7 +2023,8 @@ function _applyModalPhotoResult(targetId,key,value,successMsg){
     _saveEq(savedEq);
     if(currentEq&&currentEq.id===savedEq.id)renderDetail();
     renderList();
-    showToast(`✅ ${savedEq.name}の${successMsg}`,'success');
+    const[msg2,type2]=_photoUploadToast(`${savedEq.name}の${successMsg}`,isFallback);
+    showToast(msg2,type2);
   }else{
     console.warn('写真の保存先の機器が見つかりませんでした（保存前に画面を離れた可能性があります）:',targetId);
     showToast('⚠ 保存先の機器が見つからず、写真を反映できませんでした','error');
@@ -2040,8 +2051,8 @@ async function processModalPhoto(file,key){
       showToast('📤 Google Driveにアップロード中...','info');
       const refEq=currentEq||{id:targetId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
       const upFile=await _prepareForDriveUpload(file);
-      const url=await _uploadWithFallback(upFile,refEq,`${key}写真`);
-      _applyModalPhotoResult(targetId,key,url,`${key}写真を追加しました`);
+      const{url,isFallback}=await _uploadWithFallback(upFile,refEq,`${key}写真`);
+      _applyModalPhotoResult(targetId,key,url,`${key}写真を追加しました`,isFallback);
     }
   }finally{
     _endPhotoUpload(targetId);
@@ -2364,12 +2375,13 @@ async function processHistoryPhoto(file){
   try{
     showToast('📤 Google Driveにアップロード中...','info');
     const upFile=await _prepareForDriveUpload(file);
-    const url=await _uploadWithFallback(upFile,eq,'保守履歴写真');
+    const{url,isFallback}=await _uploadWithFallback(upFile,eq,'保守履歴写真');
     const stillSameHistoryTarget=document.getElementById('historyModalOverlay').classList.contains('show')&&currentEq===eq;
     if(stillSameHistoryTarget){
       historyPhotos.push({name:file.name,data:url});
       renderHistoryPhotoGrid();
-      showToast('✅ 写真を追加しました','success');
+      const[msg,type]=_photoUploadToast('写真を追加しました',isFallback);
+      showToast(msg,type);
     }else if(eq.maintenance&&eq.maintenance.length){
       // 既に保守履歴の保存を終えて画面を離れていた場合は、直近の保守履歴に追記する
       const last=eq.maintenance[eq.maintenance.length-1];
@@ -2377,7 +2389,8 @@ async function processHistoryPhoto(file){
       last.photos.push({name:file.name,data:url});
       _saveEq(eq);
       if(currentEq===eq)renderDetail();
-      showToast(`✅ ${eq.name}の保守履歴に写真を追加しました`,'success');
+      const[msg,type]=_photoUploadToast(`${eq.name}の保守履歴に写真を追加しました`,isFallback);
+      showToast(msg,type);
     }else{
       console.warn('写真の追加先の保守履歴が見つかりませんでした:',eq.id);
       showToast('⚠ 追加先の保守履歴が見つからず、写真を反映できませんでした','error');
@@ -4353,23 +4366,29 @@ async function _uploadToDrive(file,eq,category){
   return `https://drive.google.com/thumbnail?id=${uploaded.id}&sz=w800`;
 }
 
+// 戻り値は{url, isFallback}。isFallbackがtrueの場合、Driveへの保存に失敗し、
+// 代わりに圧縮した画像を機器データに直接埋め込んで保存したことを示す
+// （呼び出し側で、通常の保存とは異なる旨をユーザーに知らせるために使う）。
 async function _uploadWithFallback(file,eq,category){
   try{
-    return await _uploadToDrive(file,eq,category);
+    const url=await _uploadToDrive(file,eq,category);
+    return{url,isFallback:false};
   }catch(err){
     console.warn('Drive upload failed, using base64:',err);
     // Driveアップロード失敗時のフォールバックは、Firestoreの1文書あたり約1MBという
     // サイズ上限を超えて保存自体が失敗しないよう、通常時（Drive保存）より小さく
     // 再圧縮してからbase64として直接保存する。
     try{
-      return await _compressImageToDataURL(file,1200,0.75);
+      const url=await _compressImageToDataURL(file,1200,0.75);
+      return{url,isFallback:true};
     }catch(e2){
       console.warn('フォールバック用の再圧縮に失敗したため、そのままbase64化します:',e2);
-      return new Promise(resolve=>{
+      const url=await new Promise(resolve=>{
         const reader=new FileReader();
         reader.onload=ev=>resolve(ev.target.result);
         reader.readAsDataURL(file);
       });
+      return{url,isFallback:true};
     }
   }
 }
