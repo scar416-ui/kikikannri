@@ -69,6 +69,10 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .store-info-banner-company{font-weight:500;font-size:12px;color:var(--gray-500);margin-left:4px}
 .store-info-banner-meta{margin-top:6px;font-size:12px;color:var(--gray-600);line-height:1.6}
 .store-info-banner-empty{color:var(--gray-400)}
+.manager-info-box{background:var(--gray-50);border:1px solid var(--gray-200);border-radius:6px;padding:8px 10px;font-size:13px;color:var(--gray-700);line-height:1.6}
+.manager-status-tag{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;border:1px solid}
+.manager-status-tag.assigned{background:var(--primary-light);color:var(--primary);border-color:var(--primary-border)}
+.manager-status-tag.hold{background:var(--gray-100);color:var(--gray-500);border-color:var(--gray-300)}
 .card-meta{margin-top:6px;font-size:12px;color:var(--gray-500);display:flex;gap:12px;flex-wrap:wrap}
 .card-location{margin-top:8px;display:flex;flex-wrap:wrap;gap:4px}
 .location-tag{display:inline-flex;align-items:center;gap:3px;background:var(--primary-light);color:var(--primary);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;border:1px solid var(--primary-border)}
@@ -329,6 +333,7 @@ optgroup{font-weight:700}
     <span class="header-user" id="loginUserEmail"></span>
     <button class="btn-drive" id="btnDrive" onclick="connectDrive()" title="Google Driveに接続">📁 Drive未接続</button>
     <button class="btn-drive" onclick="openItemManageModal()" title="機器名称・ステータス・ベイ種別を管理">⚙ 項目管理</button>
+    <button class="btn-drive" onclick="openManagerModal()" title="販社ごとの工場長の一覧・異動を管理">🧑‍💼 工場長管理</button>
     <button class="btn-logout" onclick="doLogout()">ログアウト</button>
   </div>
 </div>
@@ -740,14 +745,18 @@ optgroup{font-weight:700}
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">工場長 <span class="optional-tag">任意</span></label>
-          <input type="text" class="form-input" id="as_manager" placeholder="例：山田 太郎">
+          <label class="form-label">店舗TEL <span class="optional-tag">任意</span></label>
+          <input type="tel" class="form-input" id="as_tel" placeholder="例：058-000-0000">
         </div>
         <div class="form-group">
-          <label class="form-label">登録年月 <span class="optional-tag">任意</span></label>
-          <input type="month" class="form-input" id="as_managerSince">
-          <div style="font-size:11px;color:var(--gray-400);margin-top:4px">工場長が異動した年月を記録</div>
+          <label class="form-label">店舗FAX <span class="optional-tag">任意</span></label>
+          <input type="tel" class="form-input" id="as_fax" placeholder="例：058-000-0001">
         </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">工場長</label>
+        <div class="manager-info-box" id="as_managerInfo">店舗を保存すると設定できます</div>
+        <button type="button" class="btn-cancel" style="margin-top:6px;display:none" id="as_managerBtn" onclick="manageStoreManagerFromForm()">🧑‍💼 工場長を異動・追加</button>
       </div>
       <div class="form-group">
         <label class="form-label">備考 <span class="optional-tag">任意</span></label>
@@ -760,6 +769,57 @@ optgroup{font-weight:700}
     </div>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeAddStoreModal()">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ 工場長管理モーダル ════ -->
+<div class="modal-overlay" id="managerOverlay" onclick="handleManagerOverlayClick(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">🧑‍💼 工場長を管理</div>
+      <button class="btn-close" onclick="closeManagerModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">対象販社 <span class="required">*</span></label>
+        <select class="form-input" id="mg_company" onchange="onManagerCompanyChange()">
+          <option value="">選択してください</option>
+        </select>
+      </div>
+      <div class="manage-section">
+        <div class="manage-section-title">工場長一覧</div>
+        <div class="manage-list" id="managerManageList"></div>
+      </div>
+      <div class="form-divider">＋ 新規追加 ／ 編集</div>
+      <div class="form-group">
+        <label class="form-label">氏名</label>
+        <input type="text" class="form-input" id="mg_name" placeholder="例：山田 太郎">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">携帯番号 <span class="optional-tag">任意</span></label>
+          <input type="tel" class="form-input" id="mg_mobile" placeholder="例：090-0000-0000">
+        </div>
+        <div class="form-group">
+          <label class="form-label">登録年月 <span class="optional-tag">任意</span></label>
+          <input type="month" class="form-input" id="mg_since">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">配属先</label>
+        <select class="form-input" id="mg_assign">
+          <option value="">保留（配属先未定）</option>
+        </select>
+        <div style="font-size:11px;color:var(--gray-400);margin-top:4px">既に工場長がいる店舗を選ぶと、その工場長は自動的に「保留」になります</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-save" style="flex:1;justify-content:center" id="mg_saveBtn" onclick="saveManager()">💾 追加する</button>
+        <button class="btn-cancel" id="mg_cancelBtn" style="display:none" onclick="cancelEditManager()">キャンセル</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeManagerModal()">閉じる</button>
     </div>
   </div>
 </div>
@@ -1064,6 +1124,7 @@ let masterData = {
   _nextStatusId: 1,
   bayTypes: DEFAULT_BAY_TYPES.map(x=>({...x})),
   _nextBayTypeId: 8,
+  _nextManagerId: 1,
 };
 
 /* ════ MASTER DATA HELPERS ════ */
@@ -1081,6 +1142,20 @@ function storeLabel(s){
   if(!s)return'—';
   const nm=s.name||'（名称未設定）';
   return s.code?`${nm}（${s.code}）`:nm;
+}
+
+/* ════ 工場長 HELPERS ════
+   工場長は店舗の1項目ではなく、販社（company）に紐づく一覧（company.managers）として管理する。
+   配属先はmanager.storeIdで表し、null/未設定なら「保留」。携帯番号は工場長本人の情報として
+   一緒に移動する（店舗には残らない）。1つの店舗に配属できる工場長は常に1名（割り当て時に旧任者は自動的に保留へ）。 */
+function getManager(companyId,managerId){
+  const c=getCompany(companyId);
+  return c&&c.managers?(c.managers.find(m=>m.id===managerId)||null):null;
+}
+function getStoreManager(companyId,storeId){
+  const c=getCompany(companyId);
+  if(!c||!c.managers)return null;
+  return c.managers.find(m=>m.storeId===storeId)||null;
 }
 
 /* ════ ステータス HELPERS ════ */
@@ -1338,15 +1413,18 @@ function renderList(){
   document.getElementById('listCount').textContent=list.length+' 件';
   const el=document.getElementById('equipmentList');
 
-  // 店舗で絞り込み中は、その店舗の情報（住所・工場長・備考）を一覧の先頭に表示
+  // 店舗で絞り込み中は、その店舗の情報（住所・TEL/FAX・工場長・備考）を一覧の先頭に表示
   let bannerHTML='';
   if(filters.storeId){
     const bc=getCompany(filters.companyId);
     const bst=getStore(filters.companyId,filters.storeId);
     if(bst){
+      const bm=getStoreManager(filters.companyId,filters.storeId);
       const metaParts=[];
       if(bst.address)metaParts.push(`📍 ${bst.address}`);
-      if(bst.manager)metaParts.push(`👤 工場長：${bst.manager}${bst.managerSince?`（${bst.managerSince}〜）`:''}`);
+      if(bst.tel)metaParts.push(`☎ ${bst.tel}`);
+      if(bst.fax)metaParts.push(`📠 ${bst.fax}`);
+      if(bm)metaParts.push(`👤 工場長：${bm.name}${bm.mobile?`（📱${bm.mobile}）`:''}${bm.since?`（${bm.since}〜）`:''}`);
       if(bst.note)metaParts.push(`📝 ${bst.note}`);
       bannerHTML=`<div class="store-info-banner">
         <div class="store-info-banner-head">
@@ -1425,6 +1503,7 @@ function renderDetail(){
   const mfgOld=isOld(eq.nextcheck);
   const c=getCompany(eq.companyId);
   const st=getStore(eq.companyId,eq.storeId);
+  const stMgr=st?getStoreManager(eq.companyId,eq.storeId):null;
 
   function detailPhotoSlot(key,icon,ocr){
     const hasP=!!eq.photos[key];
@@ -1527,7 +1606,9 @@ function renderDetail(){
           <div class="info-item-value">${eq.bay||'—'}</div>
         </div>
         ${st&&st.address?`<div class="info-item" style="grid-column:span 2"><div class="info-item-label">店舗住所</div><div class="info-item-value">${st.address}</div></div>`:''}
-        ${st&&st.manager?`<div class="info-item"><div class="info-item-label">工場長</div><div class="info-item-value">${st.manager}${st.managerSince?`<span style="font-size:11px;color:var(--gray-400);margin-left:6px">（${st.managerSince}〜）</span>`:''}</div></div>`:''}
+        ${st&&st.tel?`<div class="info-item"><div class="info-item-label">店舗TEL</div><div class="info-item-value">${st.tel}</div></div>`:''}
+        ${st&&st.fax?`<div class="info-item"><div class="info-item-label">店舗FAX</div><div class="info-item-value">${st.fax}</div></div>`:''}
+        ${stMgr?`<div class="info-item" style="grid-column:span 2"><div class="info-item-label">工場長</div><div class="info-item-value">${stMgr.name}${stMgr.mobile?`<span style="font-size:11px;color:var(--gray-400);margin-left:6px">📱 ${stMgr.mobile}</span>`:''}${stMgr.since?`<span style="font-size:11px;color:var(--gray-400);margin-left:6px">（${stMgr.since}〜）</span>`:''}</div></div>`:''}
         ${st&&st.note?`<div class="info-item" style="grid-column:span 2"><div class="info-item-label">店舗備考</div><div class="info-item-value">${st.note}</div></div>`:''}
       </div>
     </div>
@@ -2722,6 +2803,7 @@ async function saveEquipment(ev){
 
 /* ════ ADD COMPANY MODAL ════ */
 let _editingCompanyId=null,_editingStoreCompanyId=null,_editingStoreId=null;
+let _editingManagerCompanyId=null,_editingManagerId=null;
 function openAddCompanyModal(){
   cancelEditCompany();
   renderCompanyManageList();
@@ -2785,6 +2867,7 @@ function openAddStoreModal(){
   // 現在のフィルタ販社があれば自動選択
   if(filters.companyId)document.getElementById('as_company').value=filters.companyId;
   renderStoreManageList();
+  renderAsManagerInfo();
   document.getElementById('addStoreOverlay').classList.add('show');
 }
 // 一覧上部の店舗情報バナーから「編集」をタップした際に、店舗管理モーダルを開いて該当店舗を編集状態にする
@@ -2807,11 +2890,12 @@ function editStore(companyId,storeId){
   document.getElementById('as_name').value=st.name||'';
   document.getElementById('as_code').value=st.code||'';
   document.getElementById('as_address').value=st.address||'';
-  document.getElementById('as_manager').value=st.manager||'';
-  document.getElementById('as_managerSince').value=st.managerSince||'';
+  document.getElementById('as_tel').value=st.tel||'';
+  document.getElementById('as_fax').value=st.fax||'';
   document.getElementById('as_note').value=st.note||'';
   document.getElementById('as_saveBtn').textContent='💾 更新する';
   document.getElementById('as_cancelBtn').style.display='';
+  renderAsManagerInfo();
 }
 function cancelEditStore(){
   _editingStoreCompanyId=null;
@@ -2819,11 +2903,44 @@ function cancelEditStore(){
   document.getElementById('as_name').value='';
   document.getElementById('as_code').value='';
   document.getElementById('as_address').value='';
-  document.getElementById('as_manager').value='';
-  document.getElementById('as_managerSince').value='';
+  document.getElementById('as_tel').value='';
+  document.getElementById('as_fax').value='';
   document.getElementById('as_note').value='';
   document.getElementById('as_saveBtn').textContent='💾 追加する';
   document.getElementById('as_cancelBtn').style.display='none';
+  renderAsManagerInfo();
+}
+// 店舗編集フォーム内の「工場長」表示を、現在編集中の店舗の配属状況に合わせて更新する
+function renderAsManagerInfo(){
+  const box=document.getElementById('as_managerInfo');
+  const btn=document.getElementById('as_managerBtn');
+  if(!box||!btn)return;
+  if(!_editingStoreId||!_editingStoreCompanyId){
+    box.textContent='店舗を保存すると設定できます';
+    btn.style.display='none';
+    return;
+  }
+  const m=getStoreManager(_editingStoreCompanyId,_editingStoreId);
+  btn.style.display='';
+  if(m){
+    box.innerHTML=`👤 ${m.name}${m.mobile?`　📱 ${m.mobile}`:''}${m.since?`　（${m.since}〜）`:''}`;
+  }else{
+    box.textContent='未配属（保留）';
+  }
+}
+// 店舗編集フォームの「🧑‍💼 工場長を異動・追加」ボタンから、工場長管理モーダルをこの店舗の文脈で開く
+function manageStoreManagerFromForm(){
+  if(!_editingStoreId||!_editingStoreCompanyId)return;
+  const companyId=_editingStoreCompanyId,storeId=_editingStoreId;
+  closeAddStoreModal();
+  openManagerModal(companyId);
+  const m=getStoreManager(companyId,storeId);
+  if(m){
+    editManager(companyId,m.id);
+  }else{
+    cancelEditManager();
+    document.getElementById('mg_assign').value=storeId;
+  }
 }
 function onAddStoreRegionChange(){
   rebuildAddStoreCompanySelect();
@@ -2855,8 +2972,8 @@ function saveStore(){
   const name=document.getElementById('as_name').value.trim();
   const code=document.getElementById('as_code').value.trim();
   const address=document.getElementById('as_address').value.trim();
-  const manager=document.getElementById('as_manager').value.trim();
-  const managerSince=document.getElementById('as_managerSince').value;
+  const tel=document.getElementById('as_tel').value.trim();
+  const fax=document.getElementById('as_fax').value.trim();
   const note=document.getElementById('as_note').value.trim();
   if(!companyId){showToast('⚠ 対象販社を選択してください','error');return;}
   const c=getCompany(companyId);
@@ -2869,10 +2986,20 @@ function saveStore(){
     if(!st){showToast('⚠ 店舗が見つかりません','error');return;}
     if(oldC.id!==companyId){
       oldC.stores=oldC.stores.filter(s=>s.id!==_editingStoreId);
-      st={id:st.id,name,code,address,manager,managerSince,note};
+      st={id:st.id,name,code,address,tel,fax,note};
       c.stores.push(st);
+      // 工場長情報（もしあれば）も新しい販社の工場長一覧へ引き継ぐ
+      if(oldC.managers){
+        const mIdx=oldC.managers.findIndex(m=>m.storeId===_editingStoreId);
+        if(mIdx!==-1){
+          const mv=oldC.managers.splice(mIdx,1)[0];
+          if(!c.managers)c.managers=[];
+          c.managers.forEach(m=>{ if(m.storeId===st.id)m.storeId=null; });
+          c.managers.push(mv);
+        }
+      }
     }else{
-      st.name=name;st.code=code;st.address=address;st.manager=manager;st.managerSince=managerSince;st.note=note;
+      st.name=name;st.code=code;st.address=address;st.tel=tel;st.fax=fax;st.note=note;
     }
     _saveMd();
     equipments.forEach(e=>{
@@ -2887,7 +3014,7 @@ function saveStore(){
     cancelEditStore();
   }else{
     const id='s'+masterData._nextStoreId++;
-    c.stores.push({id,name,code,address,manager,managerSince,note});
+    c.stores.push({id,name,code,address,tel,fax,note});
     _saveMd();
     // フィルタ販社が一致する場合は店舗セレクトを再構築
     if(filters.companyId===companyId)rebuildStoreSelect();
@@ -2899,10 +3026,10 @@ function saveStore(){
 
 /* ════ 将来拡張：店舗情報の一括更新 ════
    店舗の識別コード(code)をキーに、CSV/Excel等から読み込んだ一覧で
-   住所・工場長・登録年月・備考をまとめて更新するための土台。
+   住所・TEL・FAX・備考をまとめて更新するための土台。
    現時点ではUI（ファイル読み込み・確認画面）は未実装で、この関数はどこからも呼ばれていない。
    将来、識別コードを含むCSV等を読み込む機能を追加する際はここから呼び出す想定。
-   rows: [{code, name?, address?, manager?, managerSince?, note?}, ...] */
+   rows: [{code, name?, address?, tel?, fax?, note?}, ...] */
 function bulkUpdateStoresByCode(rows){
   let updated=0;
   (rows||[]).forEach(r=>{
@@ -2912,11 +3039,33 @@ function bulkUpdateStoresByCode(rows){
       if(!s)return;
       if(r.name!==undefined)s.name=r.name;
       if(r.address!==undefined)s.address=r.address;
-      if(r.manager!==undefined)s.manager=r.manager;
-      if(r.managerSince!==undefined)s.managerSince=r.managerSince;
+      if(r.tel!==undefined)s.tel=r.tel;
+      if(r.fax!==undefined)s.fax=r.fax;
       if(r.note!==undefined)s.note=r.note;
       updated++;
     });
+  });
+  if(updated)_saveMd();
+  return updated;
+}
+
+/* ════ 将来拡張：工場長一覧の一括更新 ════
+   販社(companyId)＋店舗の識別コード(storeCode)をキーに、CSV/Excel等から読み込んだ工場長一覧で
+   氏名・携帯番号・登録年月をまとめて反映するための土台（今回はUI未実装、どこからも呼ばれていない）。
+   rows: [{companyId, storeCode, name, mobile?, since?}, ...]
+   storeCodeが空、または一致する店舗が無い場合はそのエントリは保留(storeId:null)として追加する。 */
+function bulkUpdateManagersByStoreCode(rows){
+  let updated=0;
+  (rows||[]).forEach(r=>{
+    if(!r||!r.companyId||!r.name)return;
+    const c=getCompany(r.companyId);if(!c)return;
+    if(!c.managers)c.managers=[];
+    const st=r.storeCode?c.stores.find(s=>s.code===r.storeCode):null;
+    const storeId=st?st.id:null;
+    if(storeId)c.managers.forEach(m=>{ if(m.storeId===storeId)m.storeId=null; });
+    const id='mg'+masterData._nextManagerId++;
+    c.managers.push({id,name:r.name,mobile:r.mobile||'',since:r.since||'',storeId});
+    updated++;
   });
   if(updated)_saveMd();
   return updated;
@@ -2994,6 +3143,8 @@ function confirmDeleteStore(companyId,storeId){
 function executeDeleteStore(companyId,storeId){
   const c=getCompany(companyId);if(!c)return;
   c.stores=c.stores.filter(s=>s.id!==storeId);
+  // この店舗に配属されていた工場長は保留に戻す（削除はしない）
+  if(c.managers)c.managers.forEach(m=>{ if(m.storeId===storeId)m.storeId=null; });
   equipments.forEach(e=>{
     if(e.companyId===companyId&&e.storeId===storeId){e.storeId='';_saveEq(e);}
   });
@@ -3031,14 +3182,135 @@ function renderStoreManageList(){
   if(!rows.length){
     el.innerHTML='<div class="manage-empty">店舗が登録されていません</div>';return;
   }
-  el.innerHTML=rows.map(({c,s})=>
-    `<div class="manage-item">
+  el.innerHTML=rows.map(({c,s})=>{
+    const m=getStoreManager(c.id,s.id);
+    return `<div class="manage-item">
       <div class="manage-item-name">${storeLabel(s)}</div>
-      <div class="manage-item-meta">${companyLabel(c)}${s.manager?` ／ 工場長：${s.manager}${s.managerSince?`（${s.managerSince}〜）`:''}`:''}</div>
+      <div class="manage-item-meta">${companyLabel(c)}${m?` ／ 工場長：${m.name}${m.since?`（${m.since}〜）`:''}`:''}</div>
       <button class="btn-edit-item" onclick="editStore('${c.id}','${s.id}')" title="編集">✏️</button>
       <button class="btn-del-item" onclick="confirmDeleteStore('${c.id}','${s.id}')" title="削除">🗑</button>
-    </div>`
-  ).join('');
+    </div>`;
+  }).join('');
+}
+
+/* ════ 工場長管理モーダル ════ */
+function openManagerModal(preselectCompanyId){
+  const sel=document.getElementById('mg_company');
+  sel.innerHTML='<option value="">選択してください</option>';
+  masterData.companies.forEach(c=>{
+    const o=document.createElement('option');o.value=c.id;o.textContent=companyLabel(c);sel.appendChild(o);
+  });
+  if(preselectCompanyId)sel.value=preselectCompanyId;
+  rebuildManagerAssignSelect();
+  cancelEditManager();
+  renderManagerList();
+  document.getElementById('managerOverlay').classList.add('show');
+}
+function closeManagerModal(){document.getElementById('managerOverlay').classList.remove('show')}
+function handleManagerOverlayClick(e){if(e.target===document.getElementById('managerOverlay'))closeManagerModal()}
+function onManagerCompanyChange(){
+  rebuildManagerAssignSelect();
+  cancelEditManager();
+  renderManagerList();
+}
+function rebuildManagerAssignSelect(){
+  const companyId=document.getElementById('mg_company').value;
+  const sel=document.getElementById('mg_assign');
+  const prev=sel.value;
+  sel.innerHTML='<option value="">保留（配属先未定）</option>';
+  const c=getCompany(companyId);
+  if(c)c.stores.forEach(s=>{
+    const opt=document.createElement('option');opt.value=s.id;opt.textContent=storeLabel(s);sel.appendChild(opt);
+  });
+  if(prev)sel.value=prev;
+}
+function renderManagerList(){
+  const el=document.getElementById('managerManageList');if(!el)return;
+  const companyId=document.getElementById('mg_company').value;
+  if(!companyId){el.innerHTML='<div class="manage-empty">販社を選択してください</div>';return;}
+  const c=getCompany(companyId);
+  const managers=(c&&c.managers)||[];
+  if(!managers.length){el.innerHTML='<div class="manage-empty">工場長が登録されていません</div>';return;}
+  el.innerHTML=managers.map(m=>{
+    const st=m.storeId?getStore(companyId,m.storeId):null;
+    const statusHTML=st?`<span class="manager-status-tag assigned">🏬 ${storeLabel(st)}</span>`:`<span class="manager-status-tag hold">⏸ 保留</span>`;
+    return `<div class="manage-item">
+      <div style="flex:1;min-width:0">
+        <div class="manage-item-name">${m.name}${m.mobile?` <span style="font-weight:400;color:var(--gray-400);font-size:11px">📱${m.mobile}</span>`:''}</div>
+        <div class="manage-item-meta">${statusHTML}${m.since?` （${m.since}〜）`:''}</div>
+      </div>
+      <button class="btn-edit-item" onclick="editManager('${companyId}','${m.id}')" title="編集・異動">✏️</button>
+      <button class="btn-del-item" onclick="confirmDeleteManager('${companyId}','${m.id}')" title="削除">🗑</button>
+    </div>`;
+  }).join('');
+}
+function editManager(companyId,managerId){
+  const m=getManager(companyId,managerId);if(!m)return;
+  document.getElementById('mg_company').value=companyId;
+  rebuildManagerAssignSelect();
+  _editingManagerCompanyId=companyId;
+  _editingManagerId=managerId;
+  document.getElementById('mg_name').value=m.name||'';
+  document.getElementById('mg_mobile').value=m.mobile||'';
+  document.getElementById('mg_since').value=m.since||'';
+  document.getElementById('mg_assign').value=m.storeId||'';
+  document.getElementById('mg_saveBtn').textContent='💾 更新する';
+  document.getElementById('mg_cancelBtn').style.display='';
+  renderManagerList();
+}
+function cancelEditManager(){
+  _editingManagerCompanyId=null;
+  _editingManagerId=null;
+  document.getElementById('mg_name').value='';
+  document.getElementById('mg_mobile').value='';
+  document.getElementById('mg_since').value='';
+  document.getElementById('mg_assign').value='';
+  document.getElementById('mg_saveBtn').textContent='💾 追加する';
+  document.getElementById('mg_cancelBtn').style.display='none';
+}
+function saveManager(){
+  const companyId=document.getElementById('mg_company').value;
+  const name=document.getElementById('mg_name').value.trim();
+  const mobile=document.getElementById('mg_mobile').value.trim();
+  const since=document.getElementById('mg_since').value;
+  const storeId=document.getElementById('mg_assign').value||null;
+  if(!companyId){showToast('⚠ 対象販社を選択してください','error');return;}
+  if(!name){showToast('⚠ 氏名を入力してください','error');return;}
+  const c=getCompany(companyId);
+  if(!c){showToast('⚠ 販社が見つかりません','error');return;}
+  if(!c.managers)c.managers=[];
+  // 配属先が既に埋まっていれば、その工場長を自動的に保留へ
+  if(storeId)c.managers.forEach(m=>{ if(m.id!==_editingManagerId&&m.storeId===storeId)m.storeId=null; });
+  if(_editingManagerId){
+    const m=c.managers.find(x=>x.id===_editingManagerId);
+    if(!m){showToast('⚠ 工場長が見つかりません','error');return;}
+    m.name=name;m.mobile=mobile;m.since=since;m.storeId=storeId;
+    _saveMd();
+    showToast(`✅ 工場長「${name}」を更新しました`,'success');
+  }else{
+    const id='mg'+masterData._nextManagerId++;
+    c.managers.push({id,name,mobile,since,storeId});
+    _saveMd();
+    showToast(`✅ 工場長「${name}」を追加しました`,'success');
+  }
+  cancelEditManager();
+  renderManagerList();renderList();if(currentEq)renderDetail();renderAsManagerInfo();
+}
+function confirmDeleteManager(companyId,managerId){
+  const m=getManager(companyId,managerId);if(!m)return;
+  showDeleteConfirm(
+    '🗑 工場長を削除しますか？',
+    `<strong>${m.name}</strong> を工場長一覧から削除します。<br>この操作は元に戻せません。`,
+    ()=>executeDeleteManager(companyId,managerId)
+  );
+}
+function executeDeleteManager(companyId,managerId){
+  const c=getCompany(companyId);if(!c||!c.managers)return;
+  c.managers=c.managers.filter(m=>m.id!==managerId);
+  _saveMd();
+  if(_editingManagerId===managerId)cancelEditManager();
+  renderManagerList();renderList();if(currentEq)renderDetail();renderAsManagerInfo();
+  showToast('🗑 工場長を削除しました','');
 }
 
 /* ════ 項目管理（機器名称・ステータス・ベイ種別） ════ */
@@ -3563,6 +3835,28 @@ function doLogout(){
   if(confirm('ログアウトしますか？'))auth.signOut();
 }
 
+/* 旧バージョン（店舗に直接 manager/managerSince を持たせていた形式）からの一括移行。
+   店舗側にその項目が残っていれば、company.managers に工場長エントリを作成して置き換える。
+   既に移行済み（該当storeIdの工場長が存在する）場合は何もしない。冪等なので毎回呼んでも安全。
+   戻り値：何か変更を行った場合はtrue（呼び出し側でその時だけ_saveMd()する） */
+function _migrateStoreManagers(){
+  let changed=false;
+  masterData.companies.forEach(c=>{
+    if(!c.managers){c.managers=[];changed=true;}
+    c.stores.forEach(s=>{
+      if(s.manager&&!c.managers.some(m=>m.storeId===s.id)){
+        const id='mg'+masterData._nextManagerId++;
+        c.managers.push({id,name:s.manager,mobile:s.mobile||'',since:s.managerSince||'',storeId:s.id});
+        changed=true;
+      }
+      if(s.manager!==undefined){delete s.manager;changed=true;}
+      if(s.managerSince!==undefined){delete s.managerSince;changed=true;}
+      if(s.mobile!==undefined){delete s.mobile;changed=true;}
+    });
+  });
+  return changed;
+}
+
 /* ── Firestore リスナー初期化 ── */
 function _initFirestore(){
   // masterData をリアルタイム同期
@@ -3578,6 +3872,7 @@ function _initFirestore(){
       masterData._nextStatusId=d._nextStatusId||1;
       masterData.bayTypes=d.bayTypes||DEFAULT_BAY_TYPES.map(x=>({...x}));
       masterData._nextBayTypeId=d._nextBayTypeId||8;
+      masterData._nextManagerId=d._nextManagerId||1;
     }else{
       // 初回起動時 — 既定マスターデータをFirestoreに書き込む
       db.doc('masterData/config').set({
@@ -3589,9 +3884,11 @@ function _initFirestore(){
         statuses:masterData.statuses,
         _nextStatusId:masterData._nextStatusId,
         bayTypes:masterData.bayTypes,
-        _nextBayTypeId:masterData._nextBayTypeId
+        _nextBayTypeId:masterData._nextBayTypeId,
+        _nextManagerId:masterData._nextManagerId
       });
     }
+    if(_migrateStoreManagers())_saveMd();
     rebuildCompanySelect();rebuildEquipmentNameSelect();rebuildStatusSelect();rebuildBayTypeSelect();
     renderItemManageLists();renderList();
     if(currentEq)renderDetail();
@@ -3807,7 +4104,8 @@ async function _saveMd(){
     statuses:masterData.statuses,
     _nextStatusId:masterData._nextStatusId,
     bayTypes:masterData.bayTypes,
-    _nextBayTypeId:masterData._nextBayTypeId
+    _nextBayTypeId:masterData._nextBayTypeId,
+    _nextManagerId:masterData._nextManagerId
   });}
   catch(e){console.error(e);}
 }
