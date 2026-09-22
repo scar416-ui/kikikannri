@@ -1809,7 +1809,7 @@ function renderModalExtraGrid(){
 }
 function openModalExtraLightbox(i){
   const p=modalPhotos.extra[i];if(!p)return;
-  document.getElementById('lightboxImg').src=p.data;
+  document.getElementById('lightboxImg').src=_hiresLightboxUrl(p.data);
   document.getElementById('lightboxLabel').textContent=p.name;
   document.getElementById('lightbox').classList.add('show');
 }
@@ -2056,7 +2056,7 @@ function updateModalPhotoSlot(key){
 function openModalLightbox(key,e){
   e.stopPropagation();
   if(!modalPhotos[key])return;
-  document.getElementById('lightboxImg').src=modalPhotos[key];
+  document.getElementById('lightboxImg').src=_hiresLightboxUrl(modalPhotos[key]);
   document.getElementById('lightboxLabel').textContent=key+'写真';
   document.getElementById('lightbox').classList.add('show');
 }
@@ -2065,13 +2065,13 @@ function openModalLightbox(key,e){
 function openLightbox(key,e){
   if(e)e.stopPropagation();
   const eq=currentEq;if(!eq||!eq.photos[key])return;
-  document.getElementById('lightboxImg').src=eq.photos[key];
+  document.getElementById('lightboxImg').src=_hiresLightboxUrl(eq.photos[key]);
   document.getElementById('lightboxLabel').textContent=key+'写真';
   document.getElementById('lightbox').classList.add('show');
 }
 function openLightboxExtra(i){
   const eq=currentEq;if(!eq||!eq.photos.extra[i])return;
-  document.getElementById('lightboxImg').src=eq.photos.extra[i].data;
+  document.getElementById('lightboxImg').src=_hiresLightboxUrl(eq.photos.extra[i].data);
   document.getElementById('lightboxLabel').textContent=eq.photos.extra[i].name;
   document.getElementById('lightbox').classList.add('show');
 }
@@ -2239,18 +2239,28 @@ function deleteHistoryPhoto(i){
 }
 function openHistoryPhotoLightbox(i){
   const p=historyPhotos[i];if(!p)return;
-  document.getElementById('lightboxImg').src=p.data;
+  document.getElementById('lightboxImg').src=_hiresLightboxUrl(p.data);
   document.getElementById('lightboxLabel').textContent=p.name;
   document.getElementById('lightbox').classList.add('show');
 }
 function openSavedHistoryPhotoLightbox(hi,pi){
   const eq=currentEq;if(!eq||!eq.maintenance||!eq.maintenance[hi])return;
   const p=(eq.maintenance[hi].photos||[])[pi];if(!p)return;
-  document.getElementById('lightboxImg').src=p.data;
+  document.getElementById('lightboxImg').src=_hiresLightboxUrl(p.data);
   document.getElementById('lightboxLabel').textContent=p.name;
   document.getElementById('lightbox').classList.add('show');
 }
 
+// ライトボックス（拡大表示）用に、一覧サムネイル用の低解像度URL（sz=w800）を
+// 高解像度URL（sz=w2000）に差し替える。Drive以外（base64のdata URIなど）はそのまま返す。
+function _hiresLightboxUrl(url){
+  if(!url||typeof url!=='string')return url;
+  if(!url.includes('drive.google.com'))return url;
+  const m=url.match(/[?&]id=([^&]+)/)||url.match(/\/d\/([^/?]+)/);
+  const fileId=m?decodeURIComponent(m[1]):null;
+  if(!fileId)return url;
+  return `https://drive.google.com/thumbnail?id=${fileId}&sz=w2000`;
+}
 /* ════ 代替提案書（Excel）出力 ════ */
 function _extractDriveFileId(url){
   if(!url)return null;
