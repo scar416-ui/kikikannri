@@ -1506,20 +1506,16 @@ function renderDetail(){
   function detailPhotoSlot(key,icon,ocr){
     const hasP=!!eq.photos[key];
     const id=`detail_slot_${key.replace(/\s/g,'_')}`;
-    return`<div class="photo-slot${hasP?' has-photo':''}" id="${id}" onclick="triggerDetailPhoto('${key}')" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onDetailPhotoDrop(event,'${key}')" onmouseenter="_setHoverSlot('detail','${key}')" onmouseleave="_clearHoverSlot('detail','${key}')">
+    return`<div class="photo-slot${hasP?' has-photo':''}" id="${id}">
       ${hasP
         ?`<img src="${eq.photos[key]}" alt="${key}" onclick="openLightbox('${key}',event)" onerror="_photoRetry(this)">
           <div class="photo-overlay">
             <button onclick="openLightbox('${key}',event)">🔍 拡大</button>
-            <button onclick="triggerDetailPhoto('${key}')">📷 変更</button>
-            <button onclick="event.stopPropagation();pasteImageFromClipboard('detail','${key}')">📋 貼り付け</button>
           </div>`
         :`<div class="photo-placeholder">
             <span class="photo-placeholder-icon">${icon}</span>
             <span class="photo-placeholder-label">${key}写真</span>
-            <span class="optional-tag">任意</span>
-            <span class="photo-placeholder-sub">タップまたはドラッグで追加</span>
-            <button type="button" class="paste-photo-btn" onclick="event.stopPropagation();pasteImageFromClipboard('detail','${key}')">📋 貼り付け</button>
+            <span class="photo-placeholder-sub">未登録（編集画面から追加できます）</span>
           </div>`
       }
     </div>`;
@@ -1528,7 +1524,6 @@ function renderDetail(){
   const extraPhotos=(eq.photos.extra||[]).map((p,i)=>
     `<div class="photo-extra-item" onclick="openLightboxExtra(${i})">
       <img src="${p.data}" alt="${p.name}" onerror="_photoRetry(this)">
-      <button class="photo-extra-del" onclick="deleteExtraPhoto(${i},event)">✕</button>
     </div>`).join('');
 
   const maintenanceHTML=(eq.maintenance||[]).length===0
@@ -1617,16 +1612,10 @@ function renderDetail(){
         ${detailPhotoSlot('全体','📷',false)}
         ${detailPhotoSlot('銘板','🏷️',true)}
       </div>
-      <div style="margin-top:12px;font-size:12px;font-weight:700;color:var(--gray-500);margin-bottom:6px">追加写真</div>
-      <div class="photo-extra-grid" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onDetailExtraDrop(event)" onmouseenter="_setHoverSlot('detailExtra')" onmouseleave="_clearHoverSlot('detailExtra')">
+      ${extraPhotos?`<div style="margin-top:12px;font-size:12px;font-weight:700;color:var(--gray-500);margin-bottom:6px">追加写真</div>
+      <div class="photo-extra-grid">
         ${extraPhotos}
-        <button class="btn-add-photo" onclick="triggerDetailExtraPhoto()">
-          <span style="font-size:20px">＋</span><span>写真を追加</span>
-        </button>
-        <button class="btn-add-photo" onclick="pasteImageFromClipboard('detailExtra')">
-          <span style="font-size:20px">📋</span><span>貼り付け</span>
-        </button>
-      </div>
+      </div>`:''}
     </div>
 
     <div class="section">
