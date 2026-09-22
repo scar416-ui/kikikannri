@@ -237,7 +237,8 @@ textarea.form-input{resize:vertical;min-height:72px}
 .toast-success{background:#065f46}
 .toast-error{background:var(--primary)}
 /* 写真アップロード中インジケーター：完了するまで消えない常駐表示（toastは自動で消えるため別要素にする） */
-.photo-upload-indicator{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:var(--gray-900);color:#fff;padding:10px 18px;border-radius:20px;font-size:12px;font-weight:700;z-index:1000;display:flex;align-items:center;gap:8px;white-space:nowrap;box-shadow:var(--shadow-md)}
+.photo-upload-indicator{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:var(--gray-900);color:#fff;padding:10px 18px;border-radius:20px;font-size:12px;font-weight:700;z-index:1000;display:flex;align-items:center;gap:8px;white-space:nowrap;max-width:92vw;overflow:hidden;text-overflow:ellipsis;box-shadow:var(--shadow-md)}
+.photo-upload-indicator.has-error{background:#b91c1c;cursor:pointer}
 .photo-upload-indicator .spinner{width:13px;height:13px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:photoUploadSpin .7s linear infinite;flex-shrink:0}
 @keyframes photoUploadSpin{to{transform:rotate(360deg)}}
 .empty-state{text-align:center;padding:48px 24px;color:var(--gray-400)}
@@ -1916,13 +1917,18 @@ function _withTimeout(promise,ms,label){
 }
 let _processingQueue=false;
 let _lastQueueErrorToast=0;
+// トースト（数秒で消える）は見逃されやすいため、最後に発生したエラー内容は
+// ここにも保持しておき、画面下部のインジケーターに常時表示できるようにする。
+let _lastQueueErrorMsg=null;
 // 送信待ちキューを順番に処理する。同時に複数呼ばれても多重実行しないようにする。
 async function _processPendingQueue(){
   if(_processingQueue)return;
   _processingQueue=true;
+  console.log('[写真送信キュー] 処理を開始します',new Date().toLocaleTimeString());
   try{
     let items;
     try{items=await _getAllPendingPhotos();}catch(e){console.warn('保留中の写真の取得に失敗しました:',e);return;}
+    console.log(`[写真送信キュー] 対象件数：${items.length}`,items.map(it=>({id:it.id,status:it.status,failCount:it.failCount||0,lastAttempt:it.lastAttempt})));
     for(const item of items){
       if(item.status==='pending'){
         if(Date.now()-(item.lastAttempt||0)<15000)continue; // 直近失敗した分は少し間隔を空けてリトライ
@@ -1932,17 +1938,21 @@ async function _processPendingQueue(){
           // 応答が返らなくなった場合に備え、全体にも上限（3分）を設けてキューが
           // 永久に止まらないようにする。
           const url=await _withTimeout(_uploadToDrive(item.blob,item.eqSnapshot,item.category),180000,'写真のアップロード');
-          await _updatePendingPhoto(item.id,{status:'uploaded',driveUrl:url});
+          await _updatePendingPhoto(item.id,{status:'uploaded',driveUrl:url,lastError:null});
           item.status='uploaded';item.driveUrl=url;
+          _lastQueueErrorMsg=null;
         }catch(e){
           console.warn('写真のバックグラウンドアップロードに失敗しました（後で再試行します）:',e);
           const failCount=(item.failCount||0)+1;
-          await _updatePendingPhoto(item.id,{failCount});
+          const msg=(e&&e.message)||String(e)||'不明なエラー';
+          await _updatePendingPhoto(item.id,{failCount,lastError:msg});
+          _lastQueueErrorMsg=msg;
           // 何度も失敗が続く場合は、原因が分かるようトースト（ただし連投を防ぐため
           // 直近2分以内に表示済みならスキップ）でユーザーに知らせる。
+          // トーストは数秒で消えてしまうため、常時表示のインジケーターにも
+          // 同じ内容を残す（_updatePhotoUploadIndicatorで表示）。
           if(failCount>=3&&Date.now()-_lastQueueErrorToast>120000){
             _lastQueueErrorToast=Date.now();
-            const msg=(e&&e.message)||'不明なエラー';
             showToast(`⚠ 写真のDrive送信が繰り返し失敗しています：${msg}`,'error');
           }
           continue;
@@ -2004,7 +2014,18 @@ function _updatePhotoUploadIndicator(){
   const n=_pendingPhotoKeys.size;
   el.style.display=n>0?'flex':'none';
   const textEl=document.getElementById('photoUploadIndicatorText');
-  if(textEl)textEl.textContent=n>1?`写真をDriveへ送信中…（${n}件）`:'写真をDriveへ送信中…';
+  if(!textEl)return;
+  if(n>0&&_lastQueueErrorMsg){
+    // トースト（数秒で消える）は見逃しやすいため、失敗が続いている間は
+    // 常時表示のインジケーター自体にエラー内容を出し続ける。タップで詳細を再表示。
+    el.classList.add('has-error');
+    textEl.textContent=`⚠ 送信エラー（${n}件）：${_lastQueueErrorMsg}`;
+    el.onclick=()=>showToast(`⚠ ${_lastQueueErrorMsg}`,'error');
+  }else{
+    el.classList.remove('has-error');
+    el.onclick=null;
+    textEl.textContent=n>1?`写真をDriveへ送信中…（${n}件）`:'写真をDriveへ送信中…';
+  }
 }
 
 /* ════ MODAL PHOTOS ════ */
@@ -4675,7 +4696,12 @@ renderList();
 // （実際のアップロード再開は、ログイン後equipmentsが揃ってから自動的に行われる）
 _getAllPendingPhotos().then(items=>{
   items.forEach(it=>_pendingPhotoKeys.add(_pendingKeyOf(it.eqId,it.slotType,it.slotKey)));
+  // 前回セッションで既にエラーが記録されていれば、キューが1周する前でも
+  // すぐにその内容をインジケーターへ表示する。
+  const withError=items.filter(it=>it.lastError).sort((a,b)=>(b.lastAttempt||0)-(a.lastAttempt||0))[0];
+  if(withError)_lastQueueErrorMsg=withError.lastError;
   _updatePhotoUploadIndicator();
+  console.log(`[写真送信キュー] 起動時の送信待ち件数：${items.length}`,items);
 }).catch(e=>console.warn('送信待ち写真の読み込みに失敗しました:',e));
 // 機器データの更新やオンライン復帰などのタイミングだけに頼らず、30秒ごとに
 // 送信待ちキューの再試行を行う（何らかの理由でイベントが発火しないまま
