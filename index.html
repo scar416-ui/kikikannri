@@ -207,7 +207,7 @@ textarea.form-input{resize:vertical;min-height:72px}
 
 /* Bay number input */
 .bay-num-wrap{display:flex;gap:8px;align-items:center}
-.bay-num-wrap input{width:80px;flex-shrink:0}
+.bay-num-wrap input{width:100px;flex-shrink:0}
 .bay-num-label{font-size:14px;color:var(--gray-600);font-weight:500}
 
 /* ── MISC ── */
@@ -542,8 +542,7 @@ optgroup{font-weight:700}
         <div class="form-group" id="f_bay_num_group" style="display:none">
           <label class="form-label">ベイ番号</label>
           <div class="bay-num-wrap">
-            <input type="number" class="form-input" id="f_bay_num" min="1" max="99" placeholder="例：3">
-            <span class="bay-num-label">番</span>
+            <input type="text" class="form-input" id="f_bay_num" maxlength="10" placeholder="例：3、A など">
           </div>
         </div>
       </div>
@@ -1169,7 +1168,9 @@ function parseBay(bay){
   if(!bay)return{type:'',num:''};
   for(const bt of masterData.bayTypes){
     if(bt.hasNumber){
-      const m=bay.match(new RegExp('^'+_escRe(bt.name)+'\\s+(\\d+)番?$'));
+      // ベイ番号は数字（3→「3番」）だけでなく、A・Bなどの文字も入力できる。
+      // 数字の場合のみ末尾に自動で付く「番」を取り除いて元の入力値を復元する。
+      const m=bay.match(new RegExp('^'+_escRe(bt.name)+'\\s+(.+?)番?$'));
       if(m)return{type:bt.name,num:m[1]};
     }
   }
@@ -1181,7 +1182,10 @@ function buildBay(){
   const bt=getBayTypeByName(type);
   if(bt&&bt.hasNumber){
     const n=document.getElementById('f_bay_num').value.trim();
-    return n?`${type} ${n}番`:type;
+    if(!n)return type;
+    // 数字のみの場合は従来通り「3番」のように「番」を付け、
+    // A・Bなど数字以外が含まれる場合はそのまま表示する（例：「A」）。
+    return /^\d+$/.test(n)?`${type} ${n}番`:`${type} ${n}`;
   }
   return type;
 }
@@ -1372,20 +1376,25 @@ function onFilterShowRetiredChange(){
 function applyFilters(){renderList();}
 
 // ベイの種類ごとの表示順：masterData.bayTypes の並び順に従う（番号ありの種別は番号順）。未設定・未登録の種別は最後にまとめる。
+// ベイ番号は数字（3番）だけでなくA・Bなどの文字も入力できるため、数字は数値順、
+// 文字は数字より後ろに五十音・アルファベット順で並べる。
 function bayCategorySortKey(bay){
   const types=masterData.bayTypes||[];
-  if(!bay)return[types.length,0];
+  if(!bay)return[types.length,1,0,''];
   for(let i=0;i<types.length;i++){
     const bt=types[i];
     if(bt.hasNumber){
-      const m=bay.match(new RegExp('^'+_escRe(bt.name)+'\\s+(\\d+)番?$'));
-      if(m)return[i,Number(m[1])];
-      if(bay===bt.name)return[i,0];
+      const m=bay.match(new RegExp('^'+_escRe(bt.name)+'\\s+(.+?)番?$'));
+      if(m){
+        const raw=m[1];
+        return /^\d+$/.test(raw)?[i,0,Number(raw),'']:[i,1,0,raw];
+      }
+      if(bay===bt.name)return[i,0,0,''];
     }else{
-      if(bay===bt.name)return[i,0];
+      if(bay===bt.name)return[i,0,0,''];
     }
   }
-  return[types.length,0];
+  return[types.length,1,0,bay];
 }
 function bayGroupLabel(idx){
   const types=masterData.bayTypes||[];
@@ -1402,7 +1411,9 @@ function getFiltered(){
     return true;
   }).sort((a,b)=>{
     const ka=bayCategorySortKey(a.bay),kb=bayCategorySortKey(b.bay);
-    return ka[0]!==kb[0]?ka[0]-kb[0]:ka[1]-kb[1];
+    if(ka[0]!==kb[0])return ka[0]-kb[0];
+    if(ka[1]!==kb[1])return ka[1]-kb[1];
+    return ka[1]===0?ka[2]-kb[2]:ka[3].localeCompare(kb[3],'ja');
   });
 }
 
@@ -2793,11 +2804,9 @@ async function saveEquipment(ev){
   const bay=buildBay();
   {
     const bayNumRaw=document.getElementById('f_bay_num').value.trim();
-    if(bayNumRaw){
-      const bayNum=Number(bayNumRaw);
-      if(!Number.isInteger(bayNum)||bayNum<1||bayNum>99){
-        showToast('⚠ ベイ番号は1〜99の整数で入力してください','error');return;
-      }
+    // ベイ番号は数字（例：3）だけでなく、A・Bなどの文字も入力できる。
+    if(bayNumRaw&&bayNumRaw.length>10){
+      showToast('⚠ ベイ番号は10文字以内で入力してください','error');return;
     }
   }
   if(!navigator.onLine){
@@ -3589,8 +3598,12 @@ function saveBayTypeItem(){
         equipments.forEach(eq=>{
           if(eq.bay===oldName){eq.bay=name;_saveEq(eq);}
           else if(b.hasNumber){
-            const m=eq.bay&&eq.bay.match(new RegExp('^'+_escRe(oldName)+'\\s+(\\d+)番?$'));
-            if(m){eq.bay=`${name} ${m[1]}番`;_saveEq(eq);}
+            const m=eq.bay&&eq.bay.match(new RegExp('^'+_escRe(oldName)+'\\s+(.+?)番?$'));
+            if(m){
+              const raw=m[1];
+              eq.bay=/^\d+$/.test(raw)?`${name} ${raw}番`:`${name} ${raw}`;
+              _saveEq(eq);
+            }
           }
         });
       }
