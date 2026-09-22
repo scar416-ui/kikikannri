@@ -234,6 +234,10 @@ textarea.form-input{resize:vertical;min-height:72px}
 .toast.show{transform:translateX(-50%) translateY(0)}
 .toast-success{background:#065f46}
 .toast-error{background:var(--primary)}
+/* 写真アップロード中インジケーター：完了するまで消えない常駐表示（toastは自動で消えるため別要素にする） */
+.photo-upload-indicator{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:var(--gray-900);color:#fff;padding:10px 18px;border-radius:20px;font-size:12px;font-weight:700;z-index:1000;display:flex;align-items:center;gap:8px;white-space:nowrap;box-shadow:var(--shadow-md)}
+.photo-upload-indicator .spinner{width:13px;height:13px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:photoUploadSpin .7s linear infinite;flex-shrink:0}
+@keyframes photoUploadSpin{to{transform:rotate(360deg)}}
 .empty-state{text-align:center;padding:48px 24px;color:var(--gray-400)}
 .empty-icon{font-size:48px;margin-bottom:12px}
 optgroup{font-weight:700}
@@ -1024,6 +1028,7 @@ optgroup{font-weight:700}
 <input type="file" id="fi_history" accept="image/*" style="display:none" onchange="handleHistoryPhoto(event)">
 
 <div class="toast" id="toast"></div>
+<div class="photo-upload-indicator" id="photoUploadIndicator" style="display:none"><span class="spinner"></span><span id="photoUploadIndicatorText">写真を保存中…</span></div>
 
 <!-- ════ ログイン画面 ════ -->
 <div class="login-overlay" id="loginOverlay">
@@ -1737,12 +1742,20 @@ async function pasteImageFromClipboard(scope,key){
 
 function triggerDetailPhoto(key){document.getElementById(`fi_detail_${key}`).click();}
 async function processDetailPhoto(file,key){
-  showToast('📤 Google Driveにアップロード中...','info');
-  const upFile=await _prepareForDriveUpload(file);
-  const url=await _uploadWithFallback(upFile,currentEq,`${key}写真`);
-  currentEq.photos[key]=url;
-  await _saveEq(currentEq);
-  renderDetail();showToast(`✅ ${key}写真を追加しました`,'success');
+  // アップロード開始時点の機器を固定しておく（他の機器に切り替わっても正しい保存先に反映するため）
+  const eq=currentEq;
+  _beginPhotoUpload(eq.id);
+  try{
+    showToast('📤 Google Driveにアップロード中...','info');
+    const upFile=await _prepareForDriveUpload(file);
+    const url=await _uploadWithFallback(upFile,eq,`${key}写真`);
+    eq.photos[key]=url;
+    await _saveEq(eq);
+    if(currentEq===eq){renderDetail();showToast(`✅ ${key}写真を追加しました`,'success');}
+    else{renderList();showToast(`✅ ${eq.name}の${key}写真を保存しました`,'success');}
+  }finally{
+    _endPhotoUpload(eq.id);
+  }
 }
 async function handleDetailPhoto(e,key){
   const file=e.target.files[0];if(!file)return;
@@ -1751,12 +1764,19 @@ async function handleDetailPhoto(e,key){
 }
 function triggerDetailExtraPhoto(){document.getElementById('fi_detail_extra').click();}
 async function processDetailExtraPhoto(file){
-  showToast('📤 Google Driveにアップロード中...','info');
-  const upFile=await _prepareForDriveUpload(file);
-  const url=await _uploadWithFallback(upFile,currentEq,'追加写真');
-  currentEq.photos.extra.push({name:file.name,data:url});
-  await _saveEq(currentEq);
-  renderDetail();showToast('✅ 写真を追加しました','success');
+  const eq=currentEq;
+  _beginPhotoUpload(eq.id);
+  try{
+    showToast('📤 Google Driveにアップロード中...','info');
+    const upFile=await _prepareForDriveUpload(file);
+    const url=await _uploadWithFallback(upFile,eq,'追加写真');
+    eq.photos.extra.push({name:file.name,data:url});
+    await _saveEq(eq);
+    if(currentEq===eq){renderDetail();showToast('✅ 写真を追加しました','success');}
+    else{renderList();showToast(`✅ ${eq.name}に追加写真を保存しました`,'success');}
+  }finally{
+    _endPhotoUpload(eq.id);
+  }
 }
 async function handleDetailExtraPhoto(e){
   const file=e.target.files[0];if(!file)return;
@@ -1769,17 +1789,75 @@ function deleteExtraPhoto(i,e){
   renderDetail();
 }
 
+/* ════ 写真アップロード進捗管理 ════ */
+// 機器（新規登録中は仮ID）ごとに、進行中の写真アップロード件数を保持する。
+// ・完了するまで画面下部に「写真を保存中…」を表示し続ける（完了が分からず
+// 　保存を終えてしまう不具合の対策）。
+// ・アップロード中に保存→別の機器の登録・編集に進んでしまった場合でも、
+// 　開始時点で対象だった機器（targetId）を各処理関数側で覚えておくことで、
+// 　完了後に正しい保存先へ反映できるようにする。
+const _photoUploadCounts=new Map();
+let _photoUploadTotal=0;
+function _beginPhotoUpload(targetId){
+  _photoUploadCounts.set(targetId,(_photoUploadCounts.get(targetId)||0)+1);
+  _photoUploadTotal++;
+  _updatePhotoUploadIndicator();
+}
+function _endPhotoUpload(targetId){
+  const n=(_photoUploadCounts.get(targetId)||1)-1;
+  if(n<=0)_photoUploadCounts.delete(targetId);else _photoUploadCounts.set(targetId,n);
+  _photoUploadTotal=Math.max(0,_photoUploadTotal-1);
+  _updatePhotoUploadIndicator();
+}
+function _isPhotoUploading(targetId){
+  return(_photoUploadCounts.get(targetId)||0)>0;
+}
+function _updatePhotoUploadIndicator(){
+  const el=document.getElementById('photoUploadIndicator');
+  if(!el)return;
+  el.style.display=_photoUploadTotal>0?'flex':'none';
+  const textEl=document.getElementById('photoUploadIndicatorText');
+  if(textEl)textEl.textContent=_photoUploadTotal>1?`写真を保存中…（${_photoUploadTotal}件）`:'写真を保存中…';
+}
+
 /* ════ MODAL PHOTOS ════ */
 function triggerModalPhoto(key){document.getElementById(`fi_modal_${key}`).click();}
 function triggerModalExtraPhoto(){document.getElementById('fi_modal_extra').click();}
 async function processModalExtraPhoto(file){
-  showToast('📤 Google Driveにアップロード中...','info');
-  const refEq=currentEq||{id:pendingNewEqId||_genEquipmentId(),name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
-  const upFile=await _prepareForDriveUpload(file);
-  const url=await _uploadWithFallback(upFile,refEq,'追加写真');
-  modalPhotos.extra.push({name:file.name,data:url});
-  renderModalExtraGrid();
-  showToast('✅ 写真を追加しました','success');
+  // アップロード開始時点で編集対象だった機器を固定しておく（詳細は_photoUploadCounts欄のコメント参照）
+  const targetId=currentEq?currentEq.id:pendingNewEqId;
+  _beginPhotoUpload(targetId);
+  try{
+    showToast('📤 Google Driveにアップロード中...','info');
+    const refEq=currentEq||{id:targetId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
+    const upFile=await _prepareForDriveUpload(file);
+    const url=await _uploadWithFallback(upFile,refEq,'追加写真');
+    const stillSameTarget=document.getElementById('modalOverlay').classList.contains('show')&&
+      (currentEq?currentEq.id:pendingNewEqId)===targetId;
+    if(stillSameTarget){
+      modalPhotos.extra.push({name:file.name,data:url});
+      renderModalExtraGrid();
+      showToast('✅ 写真を追加しました','success');
+    }else{
+      // 既にこの機器の登録・編集を保存し終えて別の機器に進んでいた場合は、
+      // 保存済みの機器データ側に直接追記する（写真が別の機器に紐付いてしまう不具合の対策）
+      const savedEq=equipments.find(e=>e.id===targetId);
+      if(savedEq){
+        savedEq.photos=savedEq.photos||{};
+        savedEq.photos.extra=savedEq.photos.extra||[];
+        savedEq.photos.extra.push({name:file.name,data:url});
+        _saveEq(savedEq);
+        if(currentEq&&currentEq.id===savedEq.id)renderDetail();
+        renderList();
+        showToast(`✅ ${savedEq.name}の追加写真を保存しました`,'success');
+      }else{
+        console.warn('写真の保存先の機器が見つかりませんでした（保存前に画面を離れた可能性があります）:',targetId);
+        showToast('⚠ 保存先の機器が見つからず、写真を反映できませんでした','error');
+      }
+    }
+  }finally{
+    _endPhotoUpload(targetId);
+  }
 }
 async function handleModalExtraPhoto(e){
   const file=e.target.files[0];if(!file)return;
@@ -1894,27 +1972,58 @@ async function _prepareForDriveUpload(file){
     return src;
   }
 }
-async function processModalPhoto(file,key){
-  // 銘板は端末内で圧縮してbase64保存、それ以外はDrive
-  if(key==='銘板'){
-    try{
-      modalPhotos[key]=await _compressImageToDataURL(file,1400,0.8);
-    }catch(e){
-      console.error(e);
-      showToast('⚠ 画像の処理に失敗しました','error');
-      return;
-    }
+// アップロード（または銘板の圧縮）完了時点で、まだ同じ機器の登録・編集画面を
+// 開いていればモーダルの表示（modalPhotos）に反映し、既に保存を終えて別の
+// 機器の登録・編集に進んでいた場合は保存済みの機器データ側に直接反映する
+// （写真が別の機器に紐付いてしまう不具合の対策）。
+function _applyModalPhotoResult(targetId,key,value,successMsg){
+  const stillSameTarget=document.getElementById('modalOverlay').classList.contains('show')&&
+    (currentEq?currentEq.id:pendingNewEqId)===targetId;
+  if(stillSameTarget){
+    modalPhotos[key]=value;
     updateModalPhotoSlot(key);
-    showToast('✅ 銘板写真を追加しました','success');
-    autoFillFromNameplate(modalPhotos[key]);
+    showToast(`✅ ${successMsg}`,'success');
+    return;
+  }
+  const savedEq=equipments.find(e=>e.id===targetId);
+  if(savedEq){
+    savedEq.photos=savedEq.photos||{};
+    savedEq.photos[key]=value;
+    _saveEq(savedEq);
+    if(currentEq&&currentEq.id===savedEq.id)renderDetail();
+    renderList();
+    showToast(`✅ ${savedEq.name}の${successMsg}`,'success');
   }else{
-    showToast('📤 Google Driveにアップロード中...','info');
-    const refEq=currentEq||{id:pendingNewEqId||_genEquipmentId(),name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
-    const upFile=await _prepareForDriveUpload(file);
-    const url=await _uploadWithFallback(upFile,refEq,`${key}写真`);
-    modalPhotos[key]=url;
-    updateModalPhotoSlot(key);
-    showToast('✅ 全体写真を追加しました','success');
+    console.warn('写真の保存先の機器が見つかりませんでした（保存前に画面を離れた可能性があります）:',targetId);
+    showToast('⚠ 保存先の機器が見つからず、写真を反映できませんでした','error');
+  }
+}
+async function processModalPhoto(file,key){
+  // アップロード開始時点で編集対象だった機器を固定しておく（詳細は_photoUploadCounts欄のコメント参照）
+  const targetId=currentEq?currentEq.id:pendingNewEqId;
+  _beginPhotoUpload(targetId);
+  try{
+    // 銘板は端末内で圧縮してbase64保存、それ以外はDrive
+    if(key==='銘板'){
+      let dataUrl;
+      try{
+        dataUrl=await _compressImageToDataURL(file,1400,0.8);
+      }catch(e){
+        console.error(e);
+        showToast('⚠ 画像の処理に失敗しました','error');
+        return;
+      }
+      _applyModalPhotoResult(targetId,key,dataUrl,'銘板写真を追加しました');
+      autoFillFromNameplate(dataUrl);
+    }else{
+      showToast('📤 Google Driveにアップロード中...','info');
+      const refEq=currentEq||{id:targetId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
+      const upFile=await _prepareForDriveUpload(file);
+      const url=await _uploadWithFallback(upFile,refEq,`${key}写真`);
+      _applyModalPhotoResult(targetId,key,url,`${key}写真を追加しました`);
+    }
+  }finally{
+    _endPhotoUpload(targetId);
   }
 }
 async function handleModalPhoto(e,key){
@@ -2195,6 +2304,12 @@ function saveHistory(){
   const date=document.getElementById('h_date').value;
   const note=document.getElementById('h_note').value.trim();
   if(!content||!nss||!date){showToast('⚠ 修理内容・対応NSS・修理年月日は必須です','error');return;}
+  // 写真のアップロードが完了する前に保存してしまうと、写真が保守履歴に
+  // 反映されない原因になるため、完了するまで保存をブロックする。
+  if(currentEq&&_isPhotoUploading(currentEq.id)){
+    showToast('📤 写真を保存中です。完了してから保存してください','error');
+    return;
+  }
   if(!currentEq.maintenance)currentEq.maintenance=[];
   currentEq.maintenance.push({content,nss,date,note,photos:historyPhotos.slice()});
   _saveEq(currentEq);
@@ -2223,12 +2338,32 @@ function renderHistoryPhotoGrid(){
 }
 function triggerHistoryPhoto(){document.getElementById('fi_history').click();}
 async function processHistoryPhoto(file){
-  showToast('📤 Google Driveにアップロード中...','info');
-  const upFile=await _prepareForDriveUpload(file);
-  const url=await _uploadWithFallback(upFile,currentEq,'保守履歴写真');
-  historyPhotos.push({name:file.name,data:url});
-  renderHistoryPhotoGrid();
-  showToast('✅ 写真を追加しました','success');
+  const eq=currentEq;
+  _beginPhotoUpload(eq.id);
+  try{
+    showToast('📤 Google Driveにアップロード中...','info');
+    const upFile=await _prepareForDriveUpload(file);
+    const url=await _uploadWithFallback(upFile,eq,'保守履歴写真');
+    const stillSameHistoryTarget=document.getElementById('historyModalOverlay').classList.contains('show')&&currentEq===eq;
+    if(stillSameHistoryTarget){
+      historyPhotos.push({name:file.name,data:url});
+      renderHistoryPhotoGrid();
+      showToast('✅ 写真を追加しました','success');
+    }else if(eq.maintenance&&eq.maintenance.length){
+      // 既に保守履歴の保存を終えて画面を離れていた場合は、直近の保守履歴に追記する
+      const last=eq.maintenance[eq.maintenance.length-1];
+      last.photos=last.photos||[];
+      last.photos.push({name:file.name,data:url});
+      _saveEq(eq);
+      if(currentEq===eq)renderDetail();
+      showToast(`✅ ${eq.name}の保守履歴に写真を追加しました`,'success');
+    }else{
+      console.warn('写真の追加先の保守履歴が見つかりませんでした:',eq.id);
+      showToast('⚠ 追加先の保守履歴が見つからず、写真を反映できませんでした','error');
+    }
+  }finally{
+    _endPhotoUpload(eq.id);
+  }
 }
 async function handleHistoryPhoto(e){
   const file=e.target.files[0];if(!file)return;
@@ -2807,6 +2942,16 @@ async function saveEquipment(ev){
   if(!navigator.onLine){
     showToast('⚠ 通信がオフラインです。電波の良い場所で再度お試しください','error');
     return;
+  }
+  // 写真のアップロード・保存が完了する前に機器を保存してしまうと、写真が
+  // 反映されない、または後から別の機器に紐付いてしまう原因になるため、
+  // 完了するまで保存をブロックする。
+  {
+    const targetId=isEditMode&&currentEq?currentEq.id:pendingNewEqId;
+    if(_isPhotoUploading(targetId)){
+      showToast('📤 写真を保存中です。完了してから保存してください','error');
+      return;
+    }
   }
   // 二重送信防止（通信が遅い環境で連打されると重複登録・競合の原因になる）
   if(btn){
