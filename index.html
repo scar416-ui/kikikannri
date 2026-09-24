@@ -1482,7 +1482,7 @@ function renderList(){
         ${thumbUrl?`<img class="card-thumb" src="${thumbUrl}" alt="${eq.name}" loading="lazy" onerror="_photoRetry(this)">`:`<div class="card-thumb-placeholder">📷</div>`}
         <div class="card-main">
           <div class="card-top"><div class="card-name">${eq.name}${eq.bay?`<span class="card-bay-inline">🔧 ${eq.bay}</span>`:''}</div>${eq.retired?`<span class="badge badge-gray">🗑 撤去済み</span>`:''}<span class="badge ${s.cls}">${s.label}</span></div>
-          <div class="card-meta"><span>🏭 ${eq.maker}</span><span>📋 ${eq.model}</span></div>
+          <div class="card-meta"><span>🏭 ${eq.maker}</span><span>📋 ${eq.model}${eq.serial?`（${eq.serial}）`:''}</span></div>
           <div class="card-location">
             ${c?`<span class="location-tag">🏢 ${companyLabel(c)}</span>`:''}
             ${st?`<span class="location-tag">🏬 ${storeLabel(st)}</span>`:''}
@@ -1581,6 +1581,18 @@ function renderDetail(){
 
   document.getElementById('detailBody').innerHTML=`
     <div class="section">
+      <div class="section-title"><span class="section-title-label">📷 写真</span></div>
+      <div class="photo-section-grid">
+        ${detailPhotoSlot('全体','📷',false)}
+        ${detailPhotoSlot('銘板','🏷️',true)}
+      </div>
+      ${extraPhotos?`<div style="margin-top:12px;font-size:12px;font-weight:700;color:var(--gray-500);margin-bottom:6px">追加写真</div>
+      <div class="photo-extra-grid">
+        ${extraPhotos}
+      </div>`:''}
+    </div>
+
+    <div class="section">
       <div class="section-title"><span class="section-title-label">📊 ステータス</span></div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         ${eq.retired?`<span class="badge badge-gray" style="font-size:13px;padding:4px 12px">🗑 撤去済み${eq.retiredAt?`（${eq.retiredAt}）`:''}</span>`:''}
@@ -1631,18 +1643,6 @@ function renderDetail(){
         ${stMgr?`<div class="info-item" style="grid-column:span 2"><div class="info-item-label">工場長</div><div class="info-item-value">${stMgr.name}${stMgr.mobile?`<span style="font-size:11px;color:var(--gray-400);margin-left:6px">📱 ${stMgr.mobile}</span>`:''}${stMgr.email?`<span style="font-size:11px;color:var(--gray-400);margin-left:6px">✉️ ${stMgr.email}</span>`:''}${stMgr.since?`<span style="font-size:11px;color:var(--gray-400);margin-left:6px">（${stMgr.since}〜）</span>`:''}</div></div>`:''}
         ${st&&st.note?`<div class="info-item" style="grid-column:span 2"><div class="info-item-label">店舗備考</div><div class="info-item-value">${st.note}</div></div>`:''}
       </div>
-    </div>
-
-    <div class="section">
-      <div class="section-title"><span class="section-title-label">📷 写真</span></div>
-      <div class="photo-section-grid">
-        ${detailPhotoSlot('全体','📷',false)}
-        ${detailPhotoSlot('銘板','🏷️',true)}
-      </div>
-      ${extraPhotos?`<div style="margin-top:12px;font-size:12px;font-weight:700;color:var(--gray-500);margin-bottom:6px">追加写真</div>
-      <div class="photo-extra-grid">
-        ${extraPhotos}
-      </div>`:''}
     </div>
 
     <div class="section">
