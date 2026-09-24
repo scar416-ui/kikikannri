@@ -45,7 +45,7 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 /* ── LIST ── */
 .list-panel{width:100%;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;transition:width .3s}
 .list-panel.split{width:40%;min-width:300px;border-right:2px solid var(--primary-border)}
-.list-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.list-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;position:sticky;top:-14px;background:var(--gray-100);z-index:20;padding:14px 0 8px;margin-top:-14px}
 .list-count{font-size:13px;color:var(--gray-500)}
 .btn-add{background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;box-shadow:0 2px 4px rgba(192,40,42,.3)}
 .btn-add:hover{background:var(--primary-dark)}
@@ -278,7 +278,7 @@ optgroup{font-weight:700}
   .list-panel.split{display:none}
   .detail-panel{width:100%}
   .list-panel{padding:10px}
-  .list-header{flex-wrap:wrap;gap:8px}
+  .list-header{flex-wrap:wrap;gap:8px;top:-10px;margin-top:-10px;padding:10px 0 8px}
   .list-header>div{width:100%;display:flex;gap:8px}
   .btn-export,.btn-add{flex:1;justify-content:center;padding:11px 10px;font-size:13px;min-height:42px}
 
@@ -3098,7 +3098,25 @@ function openEditModal(){
   updateModalPhotoSlot('全体');updateModalPhotoSlot('銘板');
   renderModalExtraGrid();
 }
-function closeModal(){document.getElementById('modalOverlay').classList.remove('show')}
+async function closeModal(){
+  document.getElementById('modalOverlay').classList.remove('show');
+  // 保存せずに閉じた場合、古い状態が次に開くモーダルへ影響しないよう必ずリセットする。
+  // 特に「新規登録」を保存せず閉じたケースでは、その仮IDに撮影済みの写真が
+  // 紐づいたまま残ってしまい、二度と保存されない機器を探し続けて
+  // 「見つからない」エラーが繰り返し表示されたり、写真が消えたように見える
+  // 原因になっていたため、送信待ち／送信中の写真も合わせて取り消す。
+  if(!isEditMode&&pendingNewEqId){
+    const abandonedId=pendingNewEqId;
+    const abandonedExtras=(modalPhotos.extra||[]).slice();
+    _cancelPendingPhotosFor(abandonedId,'main','全体');
+    _cancelPendingPhotosFor(abandonedId,'main','銘板');
+    abandonedExtras.forEach(p=>{if(p&&p.localId)_cancelPendingPhotosFor(abandonedId,'extra',p.localId);});
+    setTimeout(_updatePhotoUploadIndicator,300);
+  }
+  pendingNewEqId=null;
+  isEditMode=false;
+  modalPhotos={'全体':null,'銘板':null,extra:[]};
+}
 function handleOverlayClick(e){if(e.target===document.getElementById('modalOverlay'))closeModal()}
 
 function clearForm(){
