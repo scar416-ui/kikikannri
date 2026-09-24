@@ -1482,7 +1482,7 @@ function renderList(){
         ${thumbUrl?`<img class="card-thumb" src="${thumbUrl}" alt="${eq.name}" loading="lazy" onerror="_photoRetry(this)">`:`<div class="card-thumb-placeholder">📷</div>`}
         <div class="card-main">
           <div class="card-top"><div class="card-name">${eq.name}${eq.bay?`<span class="card-bay-inline">🔧 ${eq.bay}</span>`:''}</div>${eq.retired?`<span class="badge badge-gray">🗑 撤去済み</span>`:''}<span class="badge ${s.cls}">${s.label}</span></div>
-          <div class="card-meta"><span>🏭 ${eq.maker}</span><span>📋 ${eq.model}${eq.serial?`（${eq.serial}）`:''}</span></div>
+          <div class="card-meta"><span>メーカー: ${eq.maker}</span><span>型式: ${eq.model}</span>${eq.serial?`<span>製造番号: ${eq.serial}</span>`:''}</div>
           <div class="card-location">
             ${c?`<span class="location-tag">🏢 ${companyLabel(c)}</span>`:''}
             ${st?`<span class="location-tag">🏬 ${storeLabel(st)}</span>`:''}
