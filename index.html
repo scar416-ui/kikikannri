@@ -240,6 +240,8 @@ textarea.form-input{resize:vertical;min-height:72px}
 .photo-upload-indicator{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:var(--gray-900);color:#fff;padding:10px 18px;border-radius:20px;font-size:12px;font-weight:700;z-index:1000;display:flex;align-items:center;gap:8px;white-space:nowrap;max-width:92vw;overflow:hidden;text-overflow:ellipsis;box-shadow:var(--shadow-md)}
 .photo-upload-indicator.has-error{background:#b91c1c;cursor:pointer}
 .photo-upload-indicator .spinner{width:13px;height:13px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:photoUploadSpin .7s linear infinite;flex-shrink:0}
+.photo-upload-indicator-close{flex-shrink:0;width:18px;height:18px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(255,255,255,.18);font-size:11px;line-height:1;cursor:pointer}
+.photo-upload-indicator-close:hover{background:rgba(255,255,255,.32)}
 @keyframes photoUploadSpin{to{transform:rotate(360deg)}}
 .empty-state{text-align:center;padding:48px 24px;color:var(--gray-400)}
 .empty-icon{font-size:48px;margin-bottom:12px}
@@ -1031,7 +1033,7 @@ optgroup{font-weight:700}
 <input type="file" id="fi_history" accept="image/*" style="display:none" onchange="handleHistoryPhoto(event)">
 
 <div class="toast" id="toast"></div>
-<div class="photo-upload-indicator" id="photoUploadIndicator" style="display:none"><span class="spinner"></span><span id="photoUploadIndicatorText">写真を保存中…</span></div>
+<div class="photo-upload-indicator" id="photoUploadIndicator" style="display:none"><span class="spinner" id="photoUploadIndicatorSpinner"></span><span id="photoUploadIndicatorText">写真を保存中…</span><span class="photo-upload-indicator-close" id="photoUploadIndicatorClose" style="display:none" onclick="_dismissPhotoUploadIndicator(event)">✕</span></div>
 
 <!-- ════ ログイン画面 ════ -->
 <div class="login-overlay" id="loginOverlay">
@@ -1920,6 +1922,7 @@ let _lastQueueErrorToast=0;
 // トースト（数秒で消える）は見逃されやすいため、最後に発生したエラー内容は
 // ここにも保持しておき、画面下部のインジケーターに常時表示できるようにする。
 let _lastQueueErrorMsg=null;
+let _dismissedQueueErrorMsg=null; // ユーザーが✕で閉じたエラー内容。同じ内容の間は常駐インジケーターを再表示しない
 // 送信待ちキューを順番に処理する。同時に複数呼ばれても多重実行しないようにする。
 async function _processPendingQueue(){
   if(_processingQueue)return;
@@ -2035,20 +2038,37 @@ function _updatePhotoUploadIndicator(){
   const el=document.getElementById('photoUploadIndicator');
   if(!el)return;
   const n=_pendingPhotoKeys.size;
-  el.style.display=n>0?'flex':'none';
+  const closeEl=document.getElementById('photoUploadIndicatorClose');
   const textEl=document.getElementById('photoUploadIndicatorText');
   if(!textEl)return;
+  if(n>0&&_lastQueueErrorMsg&&_lastQueueErrorMsg===_dismissedQueueErrorMsg){
+    // 同じ内容のエラーをユーザーが✕で閉じた直後は再表示しない（内容が変われば自動的にまた出す）
+    el.style.display='none';
+    return;
+  }
+  el.style.display=n>0?'flex':'none';
   if(n>0&&_lastQueueErrorMsg){
     // トースト（数秒で消える）は見逃しやすいため、失敗が続いている間は
-    // 常時表示のインジケーター自体にエラー内容を出し続ける。タップで詳細を再表示。
+    // 常時表示のインジケーター自体にエラー内容を出し続ける。タップで詳細を再表示、✕で一旦閉じられる。
     el.classList.add('has-error');
     textEl.textContent=`⚠ 送信エラー（${n}件）：${_lastQueueErrorMsg}`;
     el.onclick=()=>showToast(`⚠ ${_lastQueueErrorMsg}`,'error');
+    if(closeEl)closeEl.style.display='flex';
   }else{
     el.classList.remove('has-error');
     el.onclick=null;
+    if(closeEl)closeEl.style.display='none';
     textEl.textContent=n>1?`写真をDriveへ送信中…（${n}件）`:'写真をDriveへ送信中…';
   }
+}
+// エラー表示の✕タップ：今表示中の内容を「閉じた」として記録し、インジケーターを隠す。
+// 裏側の再送信キューは止めない（写真は消えず、機器が保存されれば次回のキュー処理で自動的に反映される）。
+// エラー内容が変わる（＝新しい問題が発生する）と自動的にまた表示される。
+function _dismissPhotoUploadIndicator(ev){
+  if(ev){ev.stopPropagation();}
+  _dismissedQueueErrorMsg=_lastQueueErrorMsg;
+  const el=document.getElementById('photoUploadIndicator');
+  if(el)el.style.display='none';
 }
 
 /* ════ MODAL PHOTOS ════ */
