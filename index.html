@@ -4962,6 +4962,11 @@ _getAllPendingPhotos().then(items=>{
   const withError=items.filter(it=>it.lastError).sort((a,b)=>(b.lastAttempt||0)-(a.lastAttempt||0))[0];
   if(withError)_lastQueueErrorMsg=withError.lastError;
   _updatePhotoUploadIndicator();
+  // 送信待ち件数の判定（送信中バッジの表示）は一覧・詳細画面の描画時点で
+  // 参照されるため、この読み込みが完了する前に既に画面が描画されていた場合、
+  // 実際には送信待ちの写真があるのに「未登録」のまま表示され続けてしまう。
+  // 読み込み完了後に再描画して、正しい状態に更新する。
+  if(items.length>0){renderList();if(currentEq)renderDetail();}
   console.log(`[写真送信キュー] 起動時の送信待ち件数：${items.length}`,items);
 }).catch(e=>console.warn('送信待ち写真の読み込みに失敗しました:',e));
 // 機器データの更新やオンライン復帰などのタイミングだけに頼らず、30秒ごとに
