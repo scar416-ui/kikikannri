@@ -4600,25 +4600,85 @@ async function _uploadToDrive(file,eq,category){
   const eqFId=await _findOrCreateFolder(eqFolderName,storeFId);
   // ファイルをアップロード（写真の種類が分かるファイル名にする）
   const fileName=category?_driveFileLabel(eq,category):file.name;
-  const metadata=JSON.stringify({name:fileName,parents:[eqFId]});
-  const form=new FormData();
-  form.append('metadata',new Blob([metadata],{type:'application/json'}));
-  form.append('file',file);
-  // 元画質に近い設定でファイルサイズが大きいため、通常の通信より長めの
-  // タイムアウト（90秒）を設定。それでも応答が無い場合は通信不良とみなし、
-  // base64保存へのフォールバックに切り替える。
-  const uploadResp=await _fetchWithTimeout('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',{
-    method:'POST',headers:{'Authorization':`Bearer ${token}`},body:form
-  },90000);
-  const uploaded=await uploadResp.json();
-  if(!uploaded.id)throw new Error('Upload failed:'+JSON.stringify(uploaded));
+  // 店舗のWi-Fiなど不安定な回線でも成功しやすいよう、ファイル全体を1回で
+  // 送信するmultipart方式ではなく、チャンクに分けて送信し途中で切れても
+  // 続きから再送できる「レジューム可能アップロード」方式を使う。
+  const uploadedId=await _resumableUploadToDrive(file,fileName,eqFId,token);
+  if(!uploadedId)throw new Error('Upload failed: no file id returned');
   // 公開設定（URLで閲覧可能）
-  await _fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${uploaded.id}/permissions`,{
+  await _fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${uploadedId}/permissions`,{
     method:'POST',
     headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
     body:JSON.stringify({role:'reader',type:'anyone'})
   },20000);
-  return `https://drive.google.com/thumbnail?id=${uploaded.id}&sz=w800`;
+  return `https://drive.google.com/thumbnail?id=${uploadedId}&sz=w800`;
+}
+
+// レジューム可能アップロード（Google Drive APIのresumable upload）。
+// 1) アップロード用セッションURLを取得
+// 2) ファイルをチャンク（1MBずつ）に分けて順番に送信
+// 3) チャンクの送信が通信エラーで失敗した場合は、サーバーに「どこまで
+//    受信済みか」を問い合わせ、続きのバイトから再送する（最初からやり直さない）
+// 通信が不安定な環境（店舗内Wi-Fiなど）でも、1回の通信あたりのデータ量が
+// 小さくなることと、失敗時に再送する範囲が最小限で済むことの両方で、
+// 従来の一括送信（multipart）方式より成功率が上がる。
+async function _resumableUploadToDrive(file,fileName,parentId,token){
+  const CHUNK_SIZE=1024*1024; // 1MB（Google Drive APIの仕様上、256KBの倍数にする必要がある）
+  const total=file.size;
+  const initResp=await _fetchWithTimeout('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id',{
+    method:'POST',
+    headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
+    body:JSON.stringify({name:fileName,parents:[parentId]})
+  },20000);
+  const sessionUrl=initResp.headers.get('Location');
+  if(!sessionUrl)throw new Error('アップロードセッションの開始に失敗しました');
+  let offset=0;
+  let lastErr=null;
+  const MAX_ATTEMPTS=8; // チャンク送信・状況確認あわせての試行回数上限
+  for(let attempt=0;attempt<MAX_ATTEMPTS&&offset<total;attempt++){
+    try{
+      const chunk=file.slice(offset,Math.min(offset+CHUNK_SIZE,total));
+      const rangeEnd=offset+chunk.size-1;
+      const putResp=await _fetchWithTimeout(sessionUrl,{
+        method:'PUT',
+        headers:{
+          'Content-Length':String(chunk.size),
+          'Content-Range':`bytes ${offset}-${rangeEnd}/${total}`
+        },
+        body:chunk
+      },60000);
+      if(putResp.status===200||putResp.status===201){
+        const done=await putResp.json();
+        return done.id;
+      }else if(putResp.status===308){
+        // 途中まで受信済み：Rangeヘッダーの値から続きの送信位置を求める
+        const range=putResp.headers.get('Range'); // 例："bytes=0-1048575"
+        offset=range?parseInt(range.split('-')[1],10)+1:offset+chunk.size;
+      }else{
+        throw new Error(`アップロード失敗（status:${putResp.status}）`);
+      }
+    }catch(e){
+      lastErr=e;
+      // 通信エラーの場合、サーバー側の受信状況を問い合わせてから続きを再送する
+      try{
+        const statusResp=await _fetchWithTimeout(sessionUrl,{
+          method:'PUT',
+          headers:{'Content-Range':`bytes */${total}`}
+        },20000);
+        if(statusResp.status===200||statusResp.status===201){
+          const done=await statusResp.json();
+          return done.id;
+        }else if(statusResp.status===308){
+          const range=statusResp.headers.get('Range');
+          if(range)offset=parseInt(range.split('-')[1],10)+1;
+        }
+      }catch(e2){
+        // 状況確認自体も失敗した場合は少し待って同じ位置から再送する
+        await new Promise(r=>setTimeout(r,2000));
+      }
+    }
+  }
+  throw lastErr||new Error('アップロードが完了しませんでした（再試行上限に達しました）');
 }
 
 // 戻り値は{url, isFallback}。isFallbackがtrueの場合、Driveへの保存に失敗し、
