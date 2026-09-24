@@ -1938,9 +1938,13 @@ async function _processPendingQueue(){
         try{
           await _updatePendingPhoto(item.id,{lastAttempt:Date.now()});
           // _uploadToDrive内部のfetchには個々にタイムアウトがあるが、想定外の要因で
-          // 応答が返らなくなった場合に備え、全体にも上限（3分）を設けてキューが
-          // 永久に止まらないようにする。
-          const url=await _withTimeout(_uploadToDrive(item.blob,item.eqSnapshot,item.category),180000,'写真のアップロード');
+          // 応答が返らなくなった場合に備え、全体にも上限を設けてキューが永久に
+          // 止まらないようにする。レジューム可能アップロードは通信が不安定な場合、
+          // 内部で複数回チャンク送信を再試行するため、その所要時間より短い上限だと
+          // 実際には継続中の送信を「タイムアウト」と誤って中断してしまう。
+          // 内部の再試行が現実的にかかりうる時間（チャンク再試行×フォルダ検索等）
+          // より余裕を持たせ、上限は5分とする。
+          const url=await _withTimeout(_uploadToDrive(item.blob,item.eqSnapshot,item.category),300000,'写真のアップロード');
           await _updatePendingPhoto(item.id,{status:'uploaded',driveUrl:url,lastError:null});
           item.status='uploaded';item.driveUrl=url;
           // ここではDriveへのアップロード自体は成功しただけで、機器データへの反映
@@ -4634,7 +4638,7 @@ async function _resumableUploadToDrive(file,fileName,parentId,token){
   if(!sessionUrl)throw new Error('アップロードセッションの開始に失敗しました');
   let offset=0;
   let lastErr=null;
-  const MAX_ATTEMPTS=8; // チャンク送信・状況確認あわせての試行回数上限
+  const MAX_ATTEMPTS=5; // チャンク送信・状況確認あわせての試行回数上限（_processPendingQueue側の外側タイムアウトと矛盾しないよう抑える）
   for(let attempt=0;attempt<MAX_ATTEMPTS&&offset<total;attempt++){
     try{
       const chunk=file.slice(offset,Math.min(offset+CHUNK_SIZE,total));
@@ -4646,7 +4650,7 @@ async function _resumableUploadToDrive(file,fileName,parentId,token){
           'Content-Range':`bytes ${offset}-${rangeEnd}/${total}`
         },
         body:chunk
-      },60000);
+      },30000);
       if(putResp.status===200||putResp.status===201){
         const done=await putResp.json();
         return done.id;
