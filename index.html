@@ -3087,6 +3087,15 @@ function onFormCompanyChange(){
 
 /* ════ EQUIPMENT MODAL ════ */
 function openAddModal(){
+  // 直前に詳細画面である機器を開いたままだと currentEq が残っており、
+  // 新規登録モーダルで撮影した写真が processModalPhoto 内の
+  // 「currentEq?currentEq.id:pendingNewEqId」の判定により、
+  // 新規に登録する機器ではなく直前に見ていた別の機器へ誤って紐づいてしまう
+  // （連続で複数機器を登録すると写真が反映されない・機器と写真が入れ替わる不具合の原因）。
+  // そのため新規登録モーダルを開く際は必ず詳細選択状態を解除しておく。
+  currentEq=null;
+  document.getElementById('detailPanel').classList.remove('visible');
+  document.getElementById('listPanel').classList.remove('split');
   isEditMode=false;
   pendingNewEqId=_genEquipmentId(); // 写真アップロード先フォルダと保存時のIDを一致させるため先に確定
   modalPhotos={'全体':null,'銘板':null,extra:[]};
