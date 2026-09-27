@@ -1954,9 +1954,9 @@ async function _processPendingQueue(){
           // 止まらないようにする。レジューム可能アップロードは通信が不安定な場合、
           // 内部で複数回チャンク送信を再試行するため、その所要時間より短い上限だと
           // 実際には継続中の送信を「タイムアウト」と誤って中断してしまう。
-          // 内部の再試行が現実的にかかりうる時間（チャンク再試行×フォルダ検索等）
-          // より余裕を持たせ、上限は5分とする。
-          const url=await _withTimeout(_uploadToDrive(item.blob,item.eqSnapshot,item.category),300000,'写真のアップロード');
+          // 低速回線対応でチャンクを256KB・1チャンクあたり最大60秒許容に変更した分、
+          // 内部の再試行にかかりうる時間も伸びるため、上限は10分とする。
+          const url=await _withTimeout(_uploadToDrive(item.blob,item.eqSnapshot,item.category),600000,'写真のアップロード');
           await _updatePendingPhoto(item.id,{status:'uploaded',driveUrl:url,lastError:null});
           item.status='uploaded';item.driveUrl=url;
           // ここではDriveへのアップロード自体は成功しただけで、機器データへの反映
@@ -2079,8 +2079,8 @@ function _updatePhotoUploadIndicator(){
     // トースト（数秒で消える）は見逃しやすいため、失敗が続いている間は
     // 常時表示のインジケーター自体にエラー内容を出し続ける。タップで詳細を再表示、✕で一旦閉じられる。
     el.classList.add('has-error');
-    textEl.textContent=`⚠ 送信エラー（${n}件）：${_lastQueueErrorMsg}`;
-    el.onclick=()=>showToast(`⚠ ${_lastQueueErrorMsg}`,'error');
+    textEl.textContent=`⚠ 送信エラー（${n}件）：${_lastQueueErrorMsg}（タップで内訳）`;
+    el.onclick=_showPendingPhotoBreakdown;
     if(closeEl)closeEl.style.display='flex';
   }else{
     el.classList.remove('has-error');
@@ -2110,7 +2110,9 @@ async function _showPendingPhotoBreakdown(){
     const eqName=eq?eq.name:(it.eqSnapshot&&it.eqSnapshot.name?`${it.eqSnapshot.name}（見つかりません）`:`機器ID:${it.eqId}（見つかりません）`);
     const ageMin=Math.round((Date.now()-(it.createdAt||0))/60000);
     const ageStr=ageMin<60?`${ageMin}分前`:ageMin<1440?`${Math.round(ageMin/60)}時間前`:`${Math.round(ageMin/1440)}日前`;
-    return `・${eqName}／${it.category||it.slotType}／${it.status==='uploaded'?'反映待ち':'送信待ち'}／${ageStr}`;
+    const sizeMB=it.blob&&it.blob.size?(it.blob.size/1024/1024).toFixed(1)+'MB':'?';
+    const failInfo=it.failCount?`失敗${it.failCount}回`:'';
+    return `・${eqName}／${it.category||it.slotType}／${it.status==='uploaded'?'反映待ち':'送信待ち'}／${ageStr}／${sizeMB}${failInfo?'／'+failInfo:''}`;
   });
   const orphanCount=items.filter(it=>!equipments.find(e=>e.id===it.eqId)).length;
   let msg=`送信待ちの写真：全${items.length}件\n\n${lines.join('\n')}`;
@@ -4728,7 +4730,13 @@ async function _uploadToDrive(file,eq,category){
 // 小さくなることと、失敗時に再送する範囲が最小限で済むことの両方で、
 // 従来の一括送信（multipart）方式より成功率が上がる。
 async function _resumableUploadToDrive(file,fileName,parentId,token){
-  const CHUNK_SIZE=1024*1024; // 1MB（Google Drive APIの仕様上、256KBの倍数にする必要がある）
+  // 【店舗Wi-Fi等、低速・不安定な回線への対応】
+  // 以前は1チャンク=1MBを30秒以内に送る必要があったが、これは低速な回線（目安：
+  // 実効34KB/秒未満）では毎回タイムアウトしてしまい、再試行しても状況が変わらず
+  // 永久に失敗し続けていた。チャンクを256KB（Google Drive APIで許される最小単位）
+  // まで小さくし、1チャンクあたりの許容時間も60秒に伸ばすことで、かなり低速な
+  // 回線（目安：実効4.3KB/秒程度）でも1チャンクずつ確実に完了できるようにする。
+  const CHUNK_SIZE=256*1024;
   const total=file.size;
   const initResp=await _fetchWithTimeout('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id',{
     method:'POST',
@@ -4740,14 +4748,14 @@ async function _resumableUploadToDrive(file,fileName,parentId,token){
   let offset=0;
   let lastErr=null;
   // チャンク送信・状況確認あわせての試行回数上限（_processPendingQueue側の外側タイムアウト
-  // ＝300秒と矛盾しないよう抑える）。
+  // と矛盾しないよう抑える）。
   // 【重大な不具合の修正】以前はここが固定値5だったため、1MBチャンク×5回＝5MBを
   // 超えるファイルは、通信が完全に安定していても必ず「再試行上限に達しました」で
   // 失敗していた（=最後の1回がタイムアウトで終わるため「通信がタイムアウトしました」
   // と表示される）。現在の画質設定（6000px・quality0.97）では、スマホカメラの写真は
   // 5MBを超えることが多く、これが「iPhoneからの写真追加が常に失敗する」不具合の
   // 主因だった。ファイルサイズに応じて必要なチャンク数＋再試行分の余裕を確保する。
-  const MAX_ATTEMPTS=Math.max(10,Math.ceil(total/CHUNK_SIZE)+8);
+  const MAX_ATTEMPTS=Math.max(20,Math.ceil(total/CHUNK_SIZE)+15);
   for(let attempt=0;attempt<MAX_ATTEMPTS&&offset<total;attempt++){
     try{
       const chunk=file.slice(offset,Math.min(offset+CHUNK_SIZE,total));
@@ -4759,7 +4767,7 @@ async function _resumableUploadToDrive(file,fileName,parentId,token){
           'Content-Range':`bytes ${offset}-${rangeEnd}/${total}`
         },
         body:chunk
-      },30000);
+      },60000);
       if(putResp.status===200||putResp.status===201){
         const done=await putResp.json();
         return done.id;
