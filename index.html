@@ -1765,7 +1765,14 @@ async function processDetailPhoto(file,key){
 async function handleDetailPhoto(e,key){
   const file=e.target.files[0];if(!file)return;
   e.target.value='';
-  await processDetailPhoto(file,key);
+  try{
+    await processDetailPhoto(file,key);
+  }catch(err){
+    // ここで例外を拾わないと、iPhone等で端末内保存（IndexedDB）に失敗した場合などに
+    // 画面上は何も起こらず写真欄が空のままになり、原因が分からなくなってしまう。
+    console.error('写真の追加に失敗しました:',err);
+    showToast(`⚠ 写真の追加に失敗しました：${(err&&err.message)||err}`,'error');
+  }
 }
 function triggerDetailExtraPhoto(){document.getElementById('fi_detail_extra').click();}
 async function processDetailExtraPhoto(file){
@@ -1779,7 +1786,12 @@ async function processDetailExtraPhoto(file){
 async function handleDetailExtraPhoto(e){
   const file=e.target.files[0];if(!file)return;
   e.target.value='';
-  await processDetailExtraPhoto(file);
+  try{
+    await processDetailExtraPhoto(file);
+  }catch(err){
+    console.error('写真の追加に失敗しました:',err);
+    showToast(`⚠ 写真の追加に失敗しました：${(err&&err.message)||err}`,'error');
+  }
 }
 function deleteExtraPhoto(i,e){
   e.stopPropagation();
@@ -2130,7 +2142,12 @@ async function processModalExtraPhoto(file){
 async function handleModalExtraPhoto(e){
   const file=e.target.files[0];if(!file)return;
   e.target.value='';
-  await processModalExtraPhoto(file);
+  try{
+    await processModalExtraPhoto(file);
+  }catch(err){
+    console.error('写真の追加に失敗しました:',err);
+    showToast(`⚠ 写真の追加に失敗しました：${(err&&err.message)||err}`,'error');
+  }
 }
 function deleteModalExtraPhoto(i){
   const removed=modalPhotos.extra[i];
@@ -2336,7 +2353,12 @@ async function processModalPhoto(file,key){
 async function handleModalPhoto(e,key){
   const file=e.target.files[0];if(!file)return;
   e.target.value='';
-  await processModalPhoto(file,key);
+  try{
+    await processModalPhoto(file,key);
+  }catch(err){
+    console.error('写真の追加に失敗しました:',err);
+    showToast(`⚠ 写真の追加に失敗しました：${(err&&err.message)||err}`,'error');
+  }
 }
 // 銘板の自動読み取りで上書きしてよいかどうかを項目ごとに管理するフラグ。
 // 編集画面を開いた時点で既に値が入っている項目や、ユーザーが手動で入力・選択した項目は
@@ -2689,7 +2711,12 @@ async function processHistoryPhoto(file){
 async function handleHistoryPhoto(e){
   const file=e.target.files[0];if(!file)return;
   e.target.value='';
-  await processHistoryPhoto(file);
+  try{
+    await processHistoryPhoto(file);
+  }catch(err){
+    console.error('写真の追加に失敗しました:',err);
+    showToast(`⚠ 写真の追加に失敗しました：${(err&&err.message)||err}`,'error');
+  }
 }
 function deleteHistoryPhoto(i){
   const removed=historyPhotos[i];
@@ -4712,7 +4739,15 @@ async function _resumableUploadToDrive(file,fileName,parentId,token){
   if(!sessionUrl)throw new Error('アップロードセッションの開始に失敗しました');
   let offset=0;
   let lastErr=null;
-  const MAX_ATTEMPTS=5; // チャンク送信・状況確認あわせての試行回数上限（_processPendingQueue側の外側タイムアウトと矛盾しないよう抑える）
+  // チャンク送信・状況確認あわせての試行回数上限（_processPendingQueue側の外側タイムアウト
+  // ＝300秒と矛盾しないよう抑える）。
+  // 【重大な不具合の修正】以前はここが固定値5だったため、1MBチャンク×5回＝5MBを
+  // 超えるファイルは、通信が完全に安定していても必ず「再試行上限に達しました」で
+  // 失敗していた（=最後の1回がタイムアウトで終わるため「通信がタイムアウトしました」
+  // と表示される）。現在の画質設定（6000px・quality0.97）では、スマホカメラの写真は
+  // 5MBを超えることが多く、これが「iPhoneからの写真追加が常に失敗する」不具合の
+  // 主因だった。ファイルサイズに応じて必要なチャンク数＋再試行分の余裕を確保する。
+  const MAX_ATTEMPTS=Math.max(10,Math.ceil(total/CHUNK_SIZE)+8);
   for(let attempt=0;attempt<MAX_ATTEMPTS&&offset<total;attempt++){
     try{
       const chunk=file.slice(offset,Math.min(offset+CHUNK_SIZE,total));
