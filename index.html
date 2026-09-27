@@ -2120,6 +2120,23 @@ async function _showPendingPhotoBreakdown(){
     msg+=`\n\n※「見つかりません」の${orphanCount}件は対象の機器が見当たらない送信待ちです。3日経過すると自動的に整理されます。`;
   }
   alert(msg);
+  // 送信に繰り返し失敗している、または一定時間以上動きがない項目は「行き詰まっている」とみなし、
+  // ユーザーの明示的な操作でその場から削除できるようにする（この端末に溜まったキューのみが対象）。
+  // 削除するとその写真データ自体が失われるため、必ず確認を挟む。
+  const STUCK_AGE_MS=10*60*1000;
+  const stuckItems=items.filter(it=>(it.failCount||0)>0||(Date.now()-(it.createdAt||0))>STUCK_AGE_MS);
+  if(stuckItems.length===0)return;
+  const doDelete=confirm(`このうち、送信に失敗している／長時間動きのない${stuckItems.length}件を今すぐ削除しますか？\n\n※削除すると、その写真データはこの端末から消え、機器には反映されません。もう一度撮影・追加し直してください。\n※正常に送信中の項目は削除されません。`);
+  if(!doDelete)return;
+  for(const it of stuckItems){
+    try{
+      await _deletePendingPhoto(it.id);
+      _pendingPhotoKeys.delete(_pendingKeyOf(it.eqId,it.slotType,it.slotKey));
+    }catch(e){console.warn('削除に失敗しました:',it,e);}
+  }
+  _lastQueueErrorMsg=null;
+  _updatePhotoUploadIndicator();
+  showToast(`${stuckItems.length}件を削除しました`,'success');
 }
 
 /* ════ MODAL PHOTOS ════ */
