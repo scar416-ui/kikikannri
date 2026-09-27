@@ -1976,19 +1976,31 @@ async function _processPendingQueue(){
           // Driveへの送信自体は成功しているが、反映先の機器データが見つからない状態。
           // 主に「新規登録の保存が完了しないまま画面を離れた」場合に起きるため、
           // 繰り返し発生する場合はユーザーに分かるようにする。
-          const applyFailCount=(item.applyFailCount||0)+1;
-          item.applyFailCount=applyFailCount;
-          if(applyFailCount>=3){
-            const eqName=(item.eqSnapshot&&item.eqSnapshot.name)?item.eqSnapshot.name:`機器ID:${item.eqId}`;
-            const msg=`「${eqName}」が見つからないため、送信済みの写真を反映できていません（新規登録の保存が完了していない可能性があります）`;
-            await _updatePendingPhoto(item.id,{applyFailCount,lastError:msg});
-            _lastQueueErrorMsg=msg;
-            if(Date.now()-_lastQueueErrorToast>120000){
-              _lastQueueErrorToast=Date.now();
-              showToast(`⚠ ${msg}`,'error');
-            }
+          // ただし、対象機器がいつまでも見つからない（登録自体が完了しなかった、
+          // 機器が削除された等）場合、このまま永久にキューへ残り続けて「送信中」件数の
+          // カウントだけが積み上がってしまう（実際には二度と反映されない幽霊データ）。
+          // 一定期間（3日）経っても反映できない場合は、これ以上リトライしても無駄と
+          // 判断し、キューから自動的に削除する。
+          const ageMs=Date.now()-(item.createdAt||0);
+          if(ageMs>3*24*60*60*1000){
+            console.warn('[写真送信キュー] 反映先の機器が長期間見つからないため、送信待ちから自動的に削除します:',item);
+            await _deletePendingPhoto(item.id);
+            _pendingPhotoKeys.delete(_pendingKeyOf(item.eqId,item.slotType,item.slotKey));
           }else{
-            await _updatePendingPhoto(item.id,{applyFailCount});
+            const applyFailCount=(item.applyFailCount||0)+1;
+            item.applyFailCount=applyFailCount;
+            if(applyFailCount>=3){
+              const eqName=(item.eqSnapshot&&item.eqSnapshot.name)?item.eqSnapshot.name:`機器ID:${item.eqId}`;
+              const msg=`「${eqName}」が見つからないため、送信済みの写真を反映できていません（新規登録の保存が完了していない可能性があります）`;
+              await _updatePendingPhoto(item.id,{applyFailCount,lastError:msg});
+              _lastQueueErrorMsg=msg;
+              if(Date.now()-_lastQueueErrorToast>120000){
+                _lastQueueErrorToast=Date.now();
+                showToast(`⚠ ${msg}`,'error');
+              }
+            }else{
+              await _updatePendingPhoto(item.id,{applyFailCount});
+            }
           }
         }
       }
@@ -2060,9 +2072,9 @@ function _updatePhotoUploadIndicator(){
     if(closeEl)closeEl.style.display='flex';
   }else{
     el.classList.remove('has-error');
-    el.onclick=null;
+    el.onclick=n>0?_showPendingPhotoBreakdown:null;
     if(closeEl)closeEl.style.display='none';
-    textEl.textContent=n>1?`写真をDriveへ送信中…（${n}件）`:'写真をDriveへ送信中…';
+    textEl.textContent=n>1?`写真をDriveへ送信中…（${n}件）タップで内訳表示`:'写真をDriveへ送信中…';
   }
 }
 // エラー表示の✕タップ：今表示中の内容を「閉じた」として記録し、インジケーターを隠す。
@@ -2073,6 +2085,27 @@ function _dismissPhotoUploadIndicator(ev){
   _dismissedQueueErrorMsg=_lastQueueErrorMsg;
   const el=document.getElementById('photoUploadIndicator');
   if(el)el.style.display='none';
+}
+// 「送信中」件数が想定より多く見える場合に、実際に何が溜まっているかを
+// その場で確認できるようにするための診断表示（インジケーターをタップすると表示）。
+// 対象機器が見つからない＝古い/孤立した送信待ちである可能性が高い項目も分かるようにする。
+async function _showPendingPhotoBreakdown(){
+  let items;
+  try{items=await _getAllPendingPhotos();}catch(e){showToast('⚠ 送信待ちの一覧を取得できませんでした','error');return;}
+  if(items.length===0){showToast('現在、送信待ちの写真はありません','info');return;}
+  const lines=items.map(it=>{
+    const eq=equipments.find(e=>e.id===it.eqId);
+    const eqName=eq?eq.name:(it.eqSnapshot&&it.eqSnapshot.name?`${it.eqSnapshot.name}（見つかりません）`:`機器ID:${it.eqId}（見つかりません）`);
+    const ageMin=Math.round((Date.now()-(it.createdAt||0))/60000);
+    const ageStr=ageMin<60?`${ageMin}分前`:ageMin<1440?`${Math.round(ageMin/60)}時間前`:`${Math.round(ageMin/1440)}日前`;
+    return `・${eqName}／${it.category||it.slotType}／${it.status==='uploaded'?'反映待ち':'送信待ち'}／${ageStr}`;
+  });
+  const orphanCount=items.filter(it=>!equipments.find(e=>e.id===it.eqId)).length;
+  let msg=`送信待ちの写真：全${items.length}件\n\n${lines.join('\n')}`;
+  if(orphanCount>0){
+    msg+=`\n\n※「見つかりません」の${orphanCount}件は対象の機器が見当たらない送信待ちです。3日経過すると自動的に整理されます。`;
+  }
+  alert(msg);
 }
 
 /* ════ MODAL PHOTOS ════ */
