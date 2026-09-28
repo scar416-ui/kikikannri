@@ -551,7 +551,7 @@ optgroup{font-weight:700}
         <div class="form-group" id="f_bay_num_group" style="display:none">
           <label class="form-label">ベイ番号</label>
           <div class="bay-num-wrap">
-            <input type="text" class="form-input" id="f_bay_num" maxlength="10" placeholder="例：3、A など">
+            <input type="text" class="form-input" id="f_bay_num" maxlength="10" placeholder="例：3、A など" oninput="const p=this.selectionStart;this.value=_toHalfWidthDigits(this.value);this.setSelectionRange(p,p);">
           </div>
         </div>
       </div>
@@ -1173,6 +1173,13 @@ function statusInfo(value){
 
 /* ════ BAY HELPERS ════ */
 function _escRe(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+// ベイ番号：iPhoneの日本語キーボードなどで全角数字（１２３）が入力されると、
+// 「10」「11」のような数字として認識されず文字列扱いになり、表示順が数値順から
+// 崩れてしまう（例：全角「１０」が半角の「2」より前後する）。
+// 入力時に全角数字→半角数字へ自動変換し、常に半角数字だけが保存されるようにする。
+function _toHalfWidthDigits(s){
+  return String(s||'').replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+}
 function getBayTypeByName(name){ return masterData.bayTypes.find(b=>b.name===name)||null; }
 function parseBay(bay){
   if(!bay)return{type:'',num:''};
@@ -1191,7 +1198,7 @@ function buildBay(){
   if(!type)return'';
   const bt=getBayTypeByName(type);
   if(bt&&bt.hasNumber){
-    const n=document.getElementById('f_bay_num').value.trim();
+    const n=_toHalfWidthDigits(document.getElementById('f_bay_num').value.trim());
     if(!n)return type;
     // 数字のみの場合は従来通り「3番」のように「番」を付け、
     // A・Bなど数字以外が含まれる場合はそのまま表示する（例：「A」）。
@@ -1396,7 +1403,9 @@ function bayCategorySortKey(bay){
     if(bt.hasNumber){
       const m=bay.match(new RegExp('^'+_escRe(bt.name)+'\\s+(.+?)番?$'));
       if(m){
-        const raw=m[1];
+        // 過去に全角数字（１０など）で保存されてしまったデータも数値順で正しく並ぶよう、
+        // 比較の際だけ半角に正規化する（保存されている値自体は変更しない）。
+        const raw=_toHalfWidthDigits(m[1]);
         return /^\d+$/.test(raw)?[i,0,Number(raw),'']:[i,1,0,raw];
       }
       if(bay===bt.name)return[i,0,0,''];
