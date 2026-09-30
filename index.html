@@ -638,7 +638,7 @@ optgroup{font-weight:700}
         <div class="manage-section-title">登録済み販社</div>
         <div class="manage-list" id="companyManageList"></div>
       </div>
-      <div class="form-divider">＋ 新規追加</div>
+      <div class="form-divider" id="ac_formDivider">＋ 新規追加</div>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">地域</label>
@@ -700,7 +700,7 @@ optgroup{font-weight:700}
         <div class="manage-section-title">登録済み店舗</div>
         <div class="manage-list" id="storeManageList"></div>
       </div>
-      <div class="form-divider">＋ 新規追加</div>
+      <div class="form-divider" id="as_formDivider">＋ 新規追加</div>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">地域</label>
@@ -797,7 +797,7 @@ optgroup{font-weight:700}
         <div class="manage-section-title">工場長一覧</div>
         <div class="manage-list" id="managerManageList"></div>
       </div>
-      <div class="form-divider">＋ 新規追加 ／ 編集</div>
+      <div class="form-divider" id="mg_formDivider">＋ 新規追加 ／ 編集</div>
       <div class="form-group">
         <label class="form-label">氏名</label>
         <input type="text" class="form-input" id="mg_name" placeholder="例：山田 太郎">
@@ -844,7 +844,7 @@ optgroup{font-weight:700}
         <div class="manage-section-title">機器名称</div>
         <div class="manage-list" id="eqNameManageList"></div>
       </div>
-      <div class="form-divider">＋ 機器名称を追加・編集</div>
+      <div class="form-divider" id="en_formDivider">＋ 機器名称を追加・編集</div>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">カテゴリ <span class="required">*</span></label>
@@ -870,7 +870,7 @@ optgroup{font-weight:700}
         <div class="manage-section-title">ステータス</div>
         <div class="manage-list" id="statusManageList"></div>
       </div>
-      <div class="form-divider">＋ ステータスを追加・編集</div>
+      <div class="form-divider" id="st_formDivider">＋ ステータスを追加・編集</div>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">ラベル <span class="required">*</span></label>
@@ -897,7 +897,7 @@ optgroup{font-weight:700}
         <div class="manage-section-title">ベイ種別</div>
         <div class="manage-list" id="bayTypeManageList"></div>
       </div>
-      <div class="form-divider">＋ ベイ種別を追加・編集</div>
+      <div class="form-divider" id="bt_formDivider">＋ ベイ種別を追加・編集</div>
       <div class="form-group">
         <label class="form-label">種別名 <span class="required">*</span></label>
         <input type="text" class="form-input" id="bt_name" placeholder="例：整備ベイ">
@@ -1182,6 +1182,15 @@ function _escRe(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
 // 入力時に全角数字→半角数字へ自動変換し、常に半角数字だけが保存されるようにする。
 function _toHalfWidthDigits(s){
   return String(s||'').replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+}
+// 各種「管理」モーダル（工場長・店舗・販社・機器名称など）は、上部に一覧、その下に
+// 新規追加／編集フォームが続く構成になっている。一覧が長くスクロールされていると、
+// 編集ボタンを押してフォームに値が入っても、フォーム自体が画面外（スクロール先）に
+// あるため何も起きていないように見えてしまう（実際は正しく編集状態になっている）。
+// 編集開始時にフォーム先頭までスムーズスクロールし、反映されたことが見えるようにする。
+function _scrollEditFormIntoView(id){
+  const el=document.getElementById(id);
+  if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'start'});
 }
 function getBayTypeByName(name){ return masterData.bayTypes.find(b=>b.name===name)||null; }
 function parseBay(bay){
@@ -3434,6 +3443,7 @@ function editCompany(id){
   document.getElementById('ac_code').value=c.code||'';
   document.getElementById('ac_saveBtn').textContent='💾 更新する';
   document.getElementById('ac_cancelBtn').style.display='';
+  _scrollEditFormIntoView('ac_formDivider');
 }
 function cancelEditCompany(){
   _editingCompanyId=null;
@@ -3510,6 +3520,7 @@ function editStore(companyId,storeId){
   document.getElementById('as_saveBtn').textContent='💾 更新する';
   document.getElementById('as_cancelBtn').style.display='';
   renderAsManagerInfo();
+  _scrollEditFormIntoView('as_formDivider');
 }
 function cancelEditStore(){
   _editingStoreCompanyId=null;
@@ -3883,6 +3894,7 @@ function editManager(companyId,managerId){
   document.getElementById('mg_saveBtn').textContent='💾 更新する';
   document.getElementById('mg_cancelBtn').style.display='';
   renderManagerList();
+  _scrollEditFormIntoView('mg_formDivider');
 }
 function cancelEditManager(){
   _editingManagerCompanyId=null;
@@ -3987,6 +3999,7 @@ function editEquipmentName(id){
   document.getElementById('en_name').value=e.name;
   document.getElementById('en_saveBtn').textContent='💾 更新する';
   document.getElementById('en_cancelBtn').style.display='';
+  _scrollEditFormIntoView('en_formDivider');
 }
 function cancelEditEquipmentName(){
   _editingEqNameId=null;
@@ -4056,6 +4069,7 @@ function editStatusItem(id){
   document.getElementById('st_color').value=s.cls;
   document.getElementById('st_saveBtn').textContent='💾 更新する';
   document.getElementById('st_cancelBtn').style.display='';
+  _scrollEditFormIntoView('st_formDivider');
 }
 function cancelEditStatus(){
   _editingStatusId=null;
@@ -4127,6 +4141,7 @@ function editBayTypeItem(id){
   document.getElementById('bt_hasNumber').checked=!!b.hasNumber;
   document.getElementById('bt_saveBtn').textContent='💾 更新する';
   document.getElementById('bt_cancelBtn').style.display='';
+  _scrollEditFormIntoView('bt_formDivider');
 }
 function cancelEditBayType(){
   _editingBayTypeId=null;
