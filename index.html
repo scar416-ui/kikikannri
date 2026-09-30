@@ -38,6 +38,14 @@ select{border:1px solid var(--gray-300);border-radius:6px;padding:6px 28px 6px 1
 select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(192,40,42,.12)}
 .filter-arrow{color:var(--primary);font-size:16px;font-weight:700;flex-shrink:0}
 .filter-group{display:flex;align-items:center;gap:4px}
+/* 型式・製造番号・年式・店舗名などを横断して探すための検索欄 */
+.filter-search{position:relative;flex:1;min-width:200px;max-width:340px}
+.filter-search-icon{position:absolute;left:8px;font-size:12px;pointer-events:none;opacity:.6}
+.filter-search input{width:100%;border:1px solid var(--gray-300);border-radius:6px;padding:6px 26px 6px 26px;font-size:13px;color:var(--gray-700);background:#fff;-webkit-appearance:none;appearance:none}
+.filter-search input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(192,40,42,.12)}
+.filter-search input::-webkit-search-cancel-button{display:none}
+.btn-search-clear{position:absolute;right:4px;background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:12px;padding:6px;line-height:1;border-radius:4px}
+.btn-search-clear:hover{color:var(--primary);background:var(--primary-light)}
 .btn-filter-add{background:var(--primary);color:#fff;border:none;width:26px;height:26px;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;line-height:1}
 .btn-filter-add:hover{background:var(--primary-dark)}
 .main{flex:1;overflow:hidden;display:flex}
@@ -409,6 +417,13 @@ optgroup{font-weight:700}
         <input type="checkbox" id="filterShowRetired" onchange="onFilterShowRetiredChange()">
         🗑 撤去済みも表示
       </label>
+    </div>
+
+    <div class="filter-group filter-search">
+      <span class="filter-search-icon">🔍</span>
+      <input type="search" id="filterSearch" placeholder="型式・製造番号・年式・店舗名などで検索"
+             oninput="onFilterSearchChange()" autocomplete="off">
+      <button class="btn-search-clear" id="filterSearchClear" style="display:none" onclick="clearFilterSearch()" title="検索を消す">✕</button>
     </div>
   </div>
 
@@ -1338,13 +1353,43 @@ let equipments=[
 let nextId=7;
 let currentEq=null;
 let isEditMode=false;
-let filters={region:'',category:'',companyId:'',storeId:'',showRetired:false};
+let filters={region:'',category:'',companyId:'',storeId:'',showRetired:false,q:''};
 // 店舗の絞り込みで使う特別な値。店舗が削除された等の理由で、販社に登録されている
 // どの店舗にも該当しない機器（＝店舗が未設定の機器）だけを表示するために使う。
 const STORE_UNSET='__unset__';
 function isStoreUnset(eq){
   const c=getCompany(eq.companyId);
   return !c||!c.stores.some(s=>s.id===eq.storeId);
+}
+
+/* ════ 機器の検索 ════
+   型式・製造番号・年式・店舗名などをまとめて探せるようにする。
+   全角／半角、大文字／小文字、型式のハイフンや空白の有無で取りこぼさないよう、
+   検索する文字列と検索される文字列の両方を同じルールで整えてから比較する。 */
+function _normSearch(s){
+  return _toHalfWidthDigits(String(s||''))
+    .replace(/[Ａ-Ｚａ-ｚ]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0))
+    .replace(/[\s　\-‐‑–—−ｰ_/／、,．.]/g,'')
+    .toUpperCase();
+}
+// 1台の機器について、検索対象になる文字列をまとめて作る
+function _eqSearchText(eq){
+  const c=getCompany(eq.companyId),st=getStore(eq.companyId,eq.storeId);
+  const ym=String(eq.nextcheck||'');
+  return _normSearch([
+    eq.name,eq.maker,eq.model,eq.serial,eq.bay,eq.note,
+    ym,_ymJa(ym),ym.slice(0,4),_seizoKigo(ym),
+    eq.date,String(eq.date||'').slice(0,4),
+    st?st.name:'',st?st.code:'',
+    c?c.name:'',c?c.code:'',
+    (statusInfo(eq.status)||{}).label
+  ].join('\u0001'));
+}
+// 空白区切りで複数語を指定した場合は、すべてを含む機器だけを表示する（絞り込み）
+function matchesSearch(eq,terms){
+  if(!terms.length)return true;
+  const hay=_eqSearchText(eq);
+  return terms.every(t=>hay.indexOf(t)>=0);
 }
 let modalPhotos={'全体':null,'銘板':null,extra:[]};
 let historyPhotos=[];
@@ -1428,6 +1473,21 @@ function onFilterShowRetiredChange(){
   filters.showRetired=document.getElementById('filterShowRetired').checked;
   applyFilters();
 }
+function onFilterSearchChange(){
+  const el=document.getElementById('filterSearch');
+  filters.q=el.value;
+  const clr=document.getElementById('filterSearchClear');
+  if(clr)clr.style.display=el.value?'flex':'none';
+  applyFilters();
+}
+function clearFilterSearch(){
+  const el=document.getElementById('filterSearch');
+  el.value='';filters.q='';
+  const clr=document.getElementById('filterSearchClear');
+  if(clr)clr.style.display='none';
+  applyFilters();
+  el.focus();
+}
 function applyFilters(){renderList();}
 
 // ベイの種類ごとの表示順：masterData.bayTypes の並び順に従う（番号ありの種別は番号順）。未設定・未登録の種別は最後にまとめる。
@@ -1484,6 +1544,9 @@ function compareEquipment(a,b){
   return (a.id||0)-(b.id||0);
 }
 function getFiltered(){
+  const terms=_normSearch(filters.q).length
+    ? String(filters.q).trim().split(/[\s　]+/).map(_normSearch).filter(Boolean)
+    : [];
   return equipments.filter(eq=>{
     const c=getCompany(eq.companyId);
     if(filters.region&&(!c||c.region!==filters.region))return false;
@@ -1493,6 +1556,7 @@ function getFiltered(){
       if(!isStoreUnset(eq))return false;
     }else if(filters.storeId&&eq.storeId!==filters.storeId)return false;
     if(!filters.showRetired&&eq.retired)return false;
+    if(!matchesSearch(eq,terms))return false;
     return true;
   }).sort(compareEquipment);
 }
@@ -1527,7 +1591,9 @@ function renderList(){
   }
 
   if(!list.length){
-    el.innerHTML=bannerHTML+'<div class="empty-state"><div class="empty-icon">🔍</div><div>該当する機器が見つかりません</div></div>';
+    el.innerHTML=bannerHTML+'<div class="empty-state"><div class="empty-icon">🔍</div><div>該当する機器が見つかりません</div>'
+      +(filters.q?`<div style="font-size:12px;margin-top:8px">検索：「${filters.q}」<br><button class="btn-cancel" style="margin-top:8px" onclick="clearFilterSearch()">検索を解除する</button></div>`:'')
+      +'</div>';
     return;
   }
   let lastGroup=null;
