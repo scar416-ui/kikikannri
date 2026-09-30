@@ -4512,6 +4512,14 @@ function _migrateStoreManagers(){
         changed=true;
       }
       if(m.storeId!==undefined){delete m.storeId;changed=true;}
+      // Firestoreへ直接書き込む形で工場長データが一括投入された際、id（識別用の連番）が
+      // 付与されないまま登録されてしまったレコードが多数見つかった。id が無いと、
+      // 一覧の編集ボタン（editManager('会社ID','undefined')）が対象を見つけられず、
+      // 「鉛筆マークを押しても何も起きない」状態になる。ここで欠けているidを補完する。
+      if(!m.id){
+        m.id='mg'+masterData._nextManagerId++;
+        changed=true;
+      }
     });
   });
   return changed;
