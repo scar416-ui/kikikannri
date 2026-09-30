@@ -4432,9 +4432,9 @@ function _ymJa(ym){
   return m?`${m[1]}年${Number(m[2])}月`:'';
 }
 
-/* 岐阜日産の「機器管理リスト」書式で使う機器分類コードと分類名。
-   先方の書式は機器名称ごとにコードが決まっているため、アプリの機器名称から変換する。
-   （このアプリの「ベイ」は設置場所を表すもので、先方のコードとは別物なので使わない）
+/* 岐阜日産の「機器管理リスト」書式で使う分類名（と、先方の機器分類コード）。
+   現在の出力で使っているのは分類名のみ。コードは先方書式の列が復活したときのために残してある。
+   先方の書式は機器名称ごとに分類が決まっているため、アプリの機器名称から変換する。
    新しい機器名称を追加したときは、この表にも1行足せば出力に反映される。 */
 const NISSAN_EQ_CODE={
   'パンタリフト':['1-5','リフト'],
@@ -4469,20 +4469,28 @@ function _nissanCode(eq){
 
 /* ─ 書式ごとの行データ（1行1機器） ─ */
 function buildNissanAoa(d){
-  const aoa=[['店舗名','機器コード','分類','型式','機器名称','年月','メーカー','製造番号','製造記号']];
-  d.list.forEach(eq=>{
+  const aoa=[['店舗名','分類','型式','機器名称','年月','メーカー','製造番号','製造記号','ステータス']];
+  // 先方の元データが店舗ごとにまとまっているため、店舗単位で固めて出力する。
+  // 店舗の並びは販社に登録されている店舗の順、店舗内の並びはアプリの表示順（ベイ順）と同じ。
+  const storeOrder=new Map();
+  (d.companies||[]).forEach(c=>(c.stores||[]).forEach(s=>storeOrder.set(c.id+'/'+s.id,storeOrder.size)));
+  const idx=eq=>{
+    const k=eq.companyId+'/'+eq.storeId;
+    return storeOrder.has(k)?storeOrder.get(k):999999;
+  };
+  const rows=d.list.slice().sort((a,b)=>(idx(a)-idx(b))||compareEquipment(a,b));
+  rows.forEach(eq=>{
     const st=getStore(eq.companyId,eq.storeId);
-    const n=_nissanCode(eq);
     aoa.push([
       st?st.name:'',
-      n.code,
-      n.cat,
+      _nissanCode(eq).cat,
       eq.model||'',
       eq.name||'',
       _ymJa(eq.nextcheck),
       eq.maker||'',
       eq.serial||'―',
-      _seizoKigo(eq.nextcheck)||'―'
+      _seizoKigo(eq.nextcheck)||'―',
+      statusInfo(eq.status).label||''
     ]);
   });
   return aoa;
