@@ -418,7 +418,7 @@ optgroup{font-weight:700}
       <div class="list-header">
         <span class="list-count" id="listCount">読み込み中...</span>
         <div style="display:flex;gap:8px">
-          <button class="btn-export" onclick="openExportModal()">📥 Excel出力</button>
+          <button class="btn-export" onclick="openExportModal()">📥 データ出力</button>
           <button class="btn-add" onclick="openAddModal()">＋ 機器追加</button>
         </div>
       </div>
@@ -921,10 +921,19 @@ optgroup{font-weight:700}
 <div class="modal-overlay" id="exportOverlay" onclick="handleExportOverlayClick(event)">
   <div class="modal">
     <div class="modal-header">
-      <div class="modal-title">📥 Excel出力</div>
+      <div class="modal-title">📥 データ出力</div>
       <button class="btn-close" onclick="closeExportModal()">✕</button>
     </div>
     <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">出力形式</label>
+        <select class="form-input" id="ex_format" onchange="updateExportPreview()">
+          <option value="standard">標準（社内用・販社／店舗ごとのシート）</option>
+          <option value="gifu_nissan">岐阜日産形式（提出用）</option>
+          <option value="raw">元データ（全項目・1行1機器）</option>
+        </select>
+        <div style="font-size:11px;color:var(--gray-400);margin-top:4px">撤去済みの機器はどの形式でも出力されません。</div>
+      </div>
       <div class="form-group">
         <label class="form-label">出力単位</label>
         <div class="scope-options">
@@ -960,7 +969,8 @@ optgroup{font-weight:700}
     </div>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeExportModal()">キャンセル</button>
-      <button class="btn-save" onclick="runExport()">📥 Excelを出力する</button>
+      <button class="btn-cancel" onclick="runExport('csv')">📄 CSVで出力</button>
+      <button class="btn-save" onclick="runExport('xlsx')">📥 Excelで出力</button>
     </div>
   </div>
 </div>
@@ -1431,6 +1441,32 @@ function bayGroupLabel(idx){
   const types=masterData.bayTypes||[];
   return idx<types.length?types[idx].name:'その他';
 }
+// 車検ライン内など、同じベイに複数の機器がある場合の表示順。
+// この一覧に載っている機器はこの順、載っていない機器はその後ろ（機器名称マスタの登録順）。
+const EQ_DISPLAY_ORDER=['コンビテスター','サイドスリップテスター','ヘッドライトテスター','排気ガステスター','オパシメーター','音量計'];
+function eqNameSortKey(name){
+  const i=EQ_DISPLAY_ORDER.indexOf(name);
+  if(i>=0)return i;
+  const mi=(masterData.equipmentNames||[]).findIndex(x=>x.name===name);
+  return EQ_DISPLAY_ORDER.length+(mi<0?9999:mi);
+}
+// アプリの一覧表示・Excel出力・CSV出力すべてで共通して使う並び順。
+// ①ベイ種別（車検ライン→整備ベイ→洗車ベイ→板金ベイ→コンプレッサー室→中二階→その他）
+// ②整備ベイなどの番号順 ③同じベイ内では上記の機器順 ④最後は登録順（毎回同じ並びになるように）
+function compareEquipment(a,b){
+  const ka=bayCategorySortKey(a.bay),kb=bayCategorySortKey(b.bay);
+  if(ka[0]!==kb[0])return ka[0]-kb[0];
+  if(ka[1]!==kb[1])return ka[1]-kb[1];
+  if(ka[1]===0){
+    if(ka[2]!==kb[2])return ka[2]-kb[2];
+  }else{
+    const t=ka[3].localeCompare(kb[3],'ja');
+    if(t!==0)return t;
+  }
+  const na=eqNameSortKey(a.name),nb=eqNameSortKey(b.name);
+  if(na!==nb)return na-nb;
+  return (a.id||0)-(b.id||0);
+}
 function getFiltered(){
   return equipments.filter(eq=>{
     const c=getCompany(eq.companyId);
@@ -1440,12 +1476,7 @@ function getFiltered(){
     if(filters.storeId&&eq.storeId!==filters.storeId)return false;
     if(!filters.showRetired&&eq.retired)return false;
     return true;
-  }).sort((a,b)=>{
-    const ka=bayCategorySortKey(a.bay),kb=bayCategorySortKey(b.bay);
-    if(ka[0]!==kb[0])return ka[0]-kb[0];
-    if(ka[1]!==kb[1])return ka[1]-kb[1];
-    return ka[1]===0?ka[2]-kb[2]:ka[3].localeCompare(kb[3],'ja');
-  });
+  }).sort(compareEquipment);
 }
 
 /* ════ RENDER LIST ════ */
@@ -4285,39 +4316,6 @@ function onExportCompanyChange(){
   updateExportPreview();
 }
 
-function updateExportPreview(){
-  const scope=document.querySelector('input[name="exportScope"]:checked').value;
-  const el=document.getElementById('exportPreview');
-  const today=new Date().toLocaleDateString('ja-JP');
-  if(scope==='all'){
-    const total=equipments.length;
-    const sheets=masterData.companies.filter(c=>equipments.some(e=>e.companyId===c.id));
-    el.innerHTML=`<strong>📄 出力内容：</strong>サマリーシート ＋ 販社別シート（${sheets.length}社）<br>
-      <strong>📊 総機器数：</strong>${total} 件<br>
-      <strong>📅 出力日：</strong>${today}<br>
-      <strong>📁 ファイル名：</strong>設備機器一覧_全社_${today.replace(/\//g,'')}.xlsx`;
-  } else if(scope==='company'){
-    const cId=document.getElementById('ex_company').value;
-    const c=getCompany(cId);
-    if(!c){el.innerHTML='販社を選択してください';return;}
-    const cnt=equipments.filter(e=>e.companyId===cId).length;
-    el.innerHTML=`<strong>📄 出力内容：</strong>サマリーシート ＋ 店舗別シート（${c.stores.length}店舗）<br>
-      <strong>📊 機器数：</strong>${cnt} 件<br>
-      <strong>📅 出力日：</strong>${today}<br>
-      <strong>📁 ファイル名：</strong>${c.name}_設備機器一覧_${today.replace(/\//g,'')}.xlsx`;
-  } else {
-    const cId=document.getElementById('ex_company').value;
-    const sId=document.getElementById('ex_store').value;
-    const c=getCompany(cId);const st=getStore(cId,sId);
-    if(!c||!st){el.innerHTML='販社・店舗を選択してください';return;}
-    const cnt=equipments.filter(e=>e.companyId===cId&&e.storeId===sId).length;
-    el.innerHTML=`<strong>📄 出力内容：</strong>店舗詳細シート（1枚）<br>
-      <strong>📊 機器数：</strong>${cnt} 件<br>
-      <strong>📅 出力日：</strong>${today}<br>
-      <strong>📁 ファイル名：</strong>${c.name}_${st.name}_設備機器一覧_${today.replace(/\//g,'')}.xlsx`;
-  }
-}
-
 /* ─ シート構築ヘルパー ─ */
 function todayStr(){return new Date().toLocaleDateString('ja-JP');}
 
@@ -4359,15 +4357,17 @@ function buildSummarySheet(companies, titleLabel){
   ];
   const countByStatus=(data)=>statuses.map(s=>data.filter(e=>e.status===s.id).length);
   let tot=0;const tcounts=statuses.map(()=>0);
+  // 撤去済みは出力対象外なので、サマリーの件数からも除外する
+  const alive=equipments.filter(e=>!e.retired);
   companies.forEach(c=>{
     c.stores.forEach(st=>{
-      const data=equipments.filter(e=>e.companyId===c.id&&e.storeId===st.id);
+      const data=alive.filter(e=>e.companyId===c.id&&e.storeId===st.id);
       const counts=countByStatus(data);
       aoa.push([storeLabel(st),companyLabel(c),data.length,...counts]);
       tot+=data.length;counts.forEach((n,i)=>tcounts[i]+=n);
     });
     // 店舗未設定の機器
-    const orphan=equipments.filter(e=>e.companyId===c.id&&!c.stores.find(s=>s.id===e.storeId));
+    const orphan=alive.filter(e=>e.companyId===c.id&&!c.stores.find(s=>s.id===e.storeId));
     if(orphan.length){
       const counts=countByStatus(orphan);
       aoa.push(['（店舗未設定）',companyLabel(c),orphan.length,...counts]);
@@ -4385,49 +4385,233 @@ function safeSheetName(name){
   return name.replace(/[:\\/?*[\]]/g,'_').slice(0,31);
 }
 
-function runExport(){
+/* ════ 出力（Excel／CSV）共通処理 ════
+   出力形式は「標準（社内用）」「岐阜日産形式（提出用）」「元データ（全項目）」の3種類。
+   先方ごとの書式は今後ここに追加していく想定で、書式ごとの列定義を関数に分けてある。 */
+
+// 出力対象の機器を集める。撤去済みは提出物に載せないため、どの形式でも除外する。
+// 並び順はアプリの一覧表示と同じ compareEquipment を使い、画面と出力を常に一致させる。
+function _exportScopeData(){
   const scope=document.querySelector('input[name="exportScope"]:checked').value;
-  const wb=XLSX.utils.book_new();
-  const today=todayStr().replace(/\//g,'');
-
+  const alive=equipments.filter(e=>!e.retired);
   if(scope==='all'){
-    const activeCos=masterData.companies.filter(c=>equipments.some(e=>e.companyId===c.id));
-    if(!activeCos.length){showToast('⚠ 出力対象の機器がありません','error');return;}
-    const sumWs=buildSummarySheet(activeCos,'設備機器サマリー　全社');
-    XLSX.utils.book_append_sheet(wb,sumWs,'サマリー');
-    activeCos.forEach(c=>{
-      const data=equipments.filter(e=>e.companyId===c.id);
-      const ws=buildEquipmentSheet(data,`設備機器一覧　${companyLabel(c)}`);
-      XLSX.utils.book_append_sheet(wb,ws,safeSheetName(c.name));
-    });
-    XLSX.writeFile(wb,`設備機器一覧_全社_${today}.xlsx`);
-    showToast('✅ Excel出力が完了しました','success');
-
-  } else if(scope==='company'){
-    const cId=document.getElementById('ex_company').value;
-    const c=getCompany(cId);
-    if(!c){showToast('⚠ 販社を選択してください','error');return;}
-    const sumWs=buildSummarySheet([c],`設備機器サマリー　${companyLabel(c)}`);
-    XLSX.utils.book_append_sheet(wb,sumWs,'サマリー');
-    c.stores.forEach(st=>{
-      const data=equipments.filter(e=>e.companyId===cId&&e.storeId===st.id);
-      const ws=buildEquipmentSheet(data,`設備機器一覧　${companyLabel(c)}　${storeLabel(st)}`);
-      XLSX.utils.book_append_sheet(wb,ws,safeSheetName(st.name));
-    });
-    XLSX.writeFile(wb,`${c.name}_設備機器一覧_${today}.xlsx`);
-    showToast('✅ Excel出力が完了しました','success');
-
-  } else {
-    const cId=document.getElementById('ex_company').value;
-    const sId=document.getElementById('ex_store').value;
-    const c=getCompany(cId);const st=getStore(cId,sId);
-    if(!c||!st){showToast('⚠ 販社・店舗を選択してください','error');return;}
-    const data=equipments.filter(e=>e.companyId===cId&&e.storeId===sId);
-    const ws=buildEquipmentSheet(data,`設備機器一覧　${companyLabel(c)}　${storeLabel(st)}`);
-    XLSX.utils.book_append_sheet(wb,ws,safeSheetName(st.name));
-    XLSX.writeFile(wb,`${c.name}_${st.name}_設備機器一覧_${today}.xlsx`);
-    showToast('✅ Excel出力が完了しました','success');
+    const cos=masterData.companies.filter(c=>alive.some(e=>e.companyId===c.id));
+    return {scope,companies:cos,company:null,store:null,
+      list:alive.filter(e=>cos.some(c=>c.id===e.companyId)).sort(compareEquipment)};
   }
+  if(scope==='company'){
+    const c=getCompany(document.getElementById('ex_company').value);
+    if(!c)return null;
+    return {scope,companies:[c],company:c,store:null,
+      list:alive.filter(e=>e.companyId===c.id).sort(compareEquipment)};
+  }
+  const c=getCompany(document.getElementById('ex_company').value);
+  const st=c?getStore(c.id,document.getElementById('ex_store').value):null;
+  if(!c||!st)return null;
+  return {scope,companies:[c],company:c,store:st,
+    list:alive.filter(e=>e.companyId===c.id&&e.storeId===st.id).sort(compareEquipment)};
+}
+
+function _exportFileBase(d,fmt){
+  const today=todayStr().replace(/\//g,'');
+  const who=d.store?`${d.company.name}_${d.store.name}`:(d.company?d.company.name:'全社');
+  const kind={standard:'設備機器一覧',gifu_nissan:'機器管理リスト',raw:'設備機器データ'}[fmt]||'設備機器一覧';
+  return `${who}_${kind}_${today}`;
+}
+
+// 製造年月（例 2014-04）から先方書式の製造記号（例 14-D）を作る。A=1月〜L=12月。
+function _seizoKigo(ym){
+  const m=/^(\d{4})-(\d{1,2})/.exec(String(ym||''));
+  if(!m)return '';
+  const mo=Number(m[2]);
+  if(mo<1||mo>12)return '';
+  return m[1].slice(2)+'-'+'ABCDEFGHIJKL'[mo-1];
+}
+function _ymJa(ym){
+  const m=/^(\d{4})-(\d{1,2})/.exec(String(ym||''));
+  return m?`${m[1]}年${Number(m[2])}月`:'';
+}
+
+/* 岐阜日産の「機器管理リスト」書式で使う機器分類コードと分類名。
+   先方の書式は機器名称ごとにコードが決まっているため、アプリの機器名称から変換する。
+   （このアプリの「ベイ」は設置場所を表すもので、先方のコードとは別物なので使わない）
+   新しい機器名称を追加したときは、この表にも1行足せば出力に反映される。 */
+const NISSAN_EQ_CODE={
+  'パンタリフト':['1-5','リフト'],
+  '２柱リフト':['1-3','リフト'],
+  '門型リフト':['1-3','リフト'],
+  '４柱リフト':['1-4','リフト'],
+  '埋設リフト':['1-2','リフト'],
+  'サイドスリップテスター':['5','車検機器'],
+  'コンビテスター':['6','車検機器'],
+  'ヘッドライトテスター':['7','車検機器'],
+  '排気ガステスター':['3','車検機器'],
+  'オパシメーター':['8','車検機器'],
+  'アライメントテスター':['9','その他'],
+  'タイヤチェンジャー':['11','その他'],
+  'ホイールバランサー':['4','その他'],
+  'ATFチェンジャー':['12-1','その他'],
+  'レシプロ式コンプレッサー':['2-1','その他'],
+  'パッケージコンプレッサー':['2-1','その他'],
+  'パッケージコンプレッサー（DR付）':['2-1','その他'],
+  'ドライヤー':['2-2','その他'],
+  '門型洗車機':['15-1','洗車'],
+  'スチーム洗車機':['16','洗車']
+};
+// 上の表に無い機器は、アプリのカテゴリから先方の分類名だけを埋める（コードは空欄で出力）
+const NISSAN_CAT={'リフト':'リフト','車検機器':'車検機器','洗車機器':'洗車','コンプレッサー':'その他','その他':'その他'};
+function _nissanCode(eq){
+  const hit=NISSAN_EQ_CODE[eq.name];
+  if(hit)return{code:hit[0],cat:hit[1]};
+  const def=(masterData.equipmentNames||[]).find(x=>x.name===eq.name);
+  return{code:'',cat:(def&&NISSAN_CAT[def.category])||'その他'};
+}
+
+/* ─ 書式ごとの行データ（1行1機器） ─ */
+function buildNissanAoa(d){
+  const aoa=[['店舗名','機器コード','分類','型式','機器名称','年月','メーカー','製造番号','製造記号']];
+  d.list.forEach(eq=>{
+    const st=getStore(eq.companyId,eq.storeId);
+    const n=_nissanCode(eq);
+    aoa.push([
+      st?st.name:'',
+      n.code,
+      n.cat,
+      eq.model||'',
+      eq.name||'',
+      _ymJa(eq.nextcheck),
+      eq.maker||'',
+      eq.serial||'―',
+      _seizoKigo(eq.nextcheck)||'―'
+    ]);
+  });
+  return aoa;
+}
+
+// 元データ：1行1機器・全項目・加工なし。他の書式に組み替えるときの元として使う。
+function buildRawAoa(d){
+  const aoa=[['販社名','販社コード','店舗名','店舗コード','ベイ','分類','機器名称','メーカー','型式','製造番号','製造年月','製造記号','設置日','経過年数','ステータス','備考','写真枚数','機器ID']];
+  d.list.forEach(eq=>{
+    const c=getCompany(eq.companyId),st=getStore(eq.companyId,eq.storeId);
+    const def=(masterData.equipmentNames||[]).find(x=>x.name===eq.name);
+    let ph=0;
+    if(eq.photos)ph=Array.isArray(eq.photos)?eq.photos.length:Object.keys(eq.photos).length;
+    aoa.push([
+      c?c.name:'', c?(c.code||''):'',
+      st?st.name:'', st?(st.code||''):'',
+      eq.bay||'',
+      def?def.category:'',
+      eq.name||'', eq.maker||'', eq.model||'', eq.serial||'',
+      eq.nextcheck||'', _seizoKigo(eq.nextcheck),
+      eq.date||'', calcElapsed(eq.date)||'',
+      statusInfo(eq.status).label||'',
+      eq.note||'', ph, eq.id
+    ]);
+  });
+  return aoa;
+}
+
+// 標準形式をCSVで出す場合の列。CSVはシートを分けられないため1枚にまとめる。
+function buildStandardFlatAoa(d){
+  const aoa=[['販社','店舗','機器名称','メーカー','型式','製造番号','製造年月','設置日','経過年数','ステータス','ベイ','備考']];
+  d.list.forEach(eq=>{
+    const c=getCompany(eq.companyId),st=getStore(eq.companyId,eq.storeId);
+    aoa.push([
+      c?companyLabel(c):'', st?storeLabel(st):'',
+      eq.name||'', eq.maker||'', eq.model||'', eq.serial||'',
+      eq.nextcheck||'', eq.date||'', calcElapsed(eq.date)||'',
+      statusInfo(eq.status).label||'', eq.bay||'', eq.note||''
+    ]);
+  });
+  return aoa;
+}
+
+/* ─ CSV出力 ─ */
+function _csvEscape(v){
+  const s=(v===null||v===undefined)?'':String(v);
+  return /[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;
+}
+function _downloadCsv(aoa,filename){
+  // Excelでそのまま開けるようUTF-8のBOM付きで出力する（BOMが無いと日本語が文字化けする）
+  const csv=aoa.map(r=>r.map(_csvEscape).join(',')).join('\r\n');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=filename;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+function updateExportPreview(){
+  const el=document.getElementById('exportPreview');
+  if(!el)return;
+  const fmt=document.getElementById('ex_format').value;
+  const d=_exportScopeData();
+  if(!d){el.innerHTML='販社・店舗を選択してください';return;}
+  const fmtLabel={standard:'標準（社内用）',gifu_nissan:'岐阜日産形式',raw:'元データ（全項目）'}[fmt];
+  let naiyo;
+  if(fmt==='standard'){
+    naiyo=d.scope==='all'?`サマリーシート ＋ 販社別シート（${d.companies.length}社）`
+      :d.scope==='company'?`サマリーシート ＋ 店舗別シート`
+      :'店舗詳細シート（1枚）';
+  }else{
+    naiyo='1シート（1行1機器）';
+  }
+  const base=_exportFileBase(d,fmt);
+  el.innerHTML=`<strong>📄 出力形式：</strong>${fmtLabel}<br>
+    <strong>📄 出力内容：</strong>${naiyo}<br>
+    <strong>📊 機器数：</strong>${d.list.length} 件（撤去済みを除く）<br>
+    <strong>📅 出力日：</strong>${todayStr()}<br>
+    <strong>📁 ファイル名：</strong>${base}.xlsx ／ ${base}.csv`;
+}
+
+function runExport(kind){
+  kind=kind||'xlsx';
+  const fmt=document.getElementById('ex_format').value;
+  const d=_exportScopeData();
+  if(!d){showToast('⚠ 販社・店舗を選択してください','error');return;}
+  if(!d.list.length){showToast('⚠ 出力対象の機器がありません','error');return;}
+  const base=_exportFileBase(d,fmt);
+
+  if(kind==='csv'){
+    const aoa=fmt==='gifu_nissan'?buildNissanAoa(d):fmt==='raw'?buildRawAoa(d):buildStandardFlatAoa(d);
+    _downloadCsv(aoa,base+'.csv');
+    showToast('✅ CSV出力が完了しました','success');
+    closeExportModal();return;
+  }
+
+  const wb=XLSX.utils.book_new();
+
+  if(fmt==='gifu_nissan'||fmt==='raw'){
+    const aoa=fmt==='gifu_nissan'?buildNissanAoa(d):buildRawAoa(d);
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols']=aoa[0].map(h=>({wch:String(h).length<=4?10:18}));
+    XLSX.utils.book_append_sheet(wb,ws,fmt==='gifu_nissan'?'機器管理リスト':'元データ');
+    XLSX.writeFile(wb,base+'.xlsx');
+    showToast('✅ Excel出力が完了しました','success');
+    closeExportModal();return;
+  }
+
+  // 標準形式（従来どおり：サマリー ＋ 販社別／店舗別シート）
+  if(d.scope==='all'){
+    XLSX.utils.book_append_sheet(wb,buildSummarySheet(d.companies,'設備機器サマリー　全社'),'サマリー');
+    d.companies.forEach(c=>{
+      const data=d.list.filter(e=>e.companyId===c.id);
+      if(!data.length)return;
+      XLSX.utils.book_append_sheet(wb,buildEquipmentSheet(data,`設備機器一覧　${companyLabel(c)}`),safeSheetName(c.name));
+    });
+  }else if(d.scope==='company'){
+    XLSX.utils.book_append_sheet(wb,buildSummarySheet([d.company],`設備機器サマリー　${companyLabel(d.company)}`),'サマリー');
+    d.company.stores.forEach(st=>{
+      const data=d.list.filter(e=>e.storeId===st.id);
+      if(!data.length)return;
+      XLSX.utils.book_append_sheet(wb,buildEquipmentSheet(data,`設備機器一覧　${companyLabel(d.company)}　${storeLabel(st)}`),safeSheetName(st.name));
+    });
+  }else{
+    XLSX.utils.book_append_sheet(wb,buildEquipmentSheet(d.list,`設備機器一覧　${companyLabel(d.company)}　${storeLabel(d.store)}`),safeSheetName(d.store.name));
+  }
+  XLSX.writeFile(wb,base+'.xlsx');
+  showToast('✅ Excel出力が完了しました','success');
   closeExportModal();
 }
 
