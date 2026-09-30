@@ -77,6 +77,17 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .store-info-banner-company{font-weight:500;font-size:12px;color:var(--gray-500);margin-left:4px}
 .store-info-banner-meta{margin-top:6px;font-size:12px;color:var(--gray-600);line-height:1.6}
 .store-info-banner-empty{color:var(--gray-400)}
+.store-info-banner-btn{background:#fff;border:1px solid var(--primary-border);color:var(--primary);font-size:12px;font-weight:600;padding:6px 10px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.dup-item{display:flex;gap:10px;align-items:flex-start;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:10px 12px}
+.dup-item input[type=checkbox]{margin-top:3px;width:16px;height:16px;flex-shrink:0}
+.dup-item-body{flex:1;min-width:0;font-size:12px;line-height:1.6}
+.dup-item-name{font-size:13px;font-weight:700;color:var(--gray-800)}
+.dup-conf{display:inline-flex;align-items:center;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:700;margin-left:6px}
+.dup-conf.high{background:var(--primary-light);color:var(--primary)}
+.dup-conf.low{background:var(--gray-200);color:var(--gray-600)}
+.dup-item-row{color:var(--gray-500)}
+.dup-item-arrow{color:var(--gray-400);margin:0 4px}
+.dup-empty{padding:20px;text-align:center;color:var(--gray-400);font-size:13px}
 .manager-info-box{background:var(--gray-50);border:1px solid var(--gray-200);border-radius:6px;padding:8px 10px;font-size:13px;color:var(--gray-700);line-height:1.6}
 .manager-status-tag{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;border:1px solid}
 .manager-status-tag.assigned{background:var(--primary-light);color:var(--primary);border-color:var(--primary-border)}
@@ -990,6 +1001,28 @@ optgroup{font-weight:700}
   </div>
 </div>
 
+<!-- ════ 店舗未設定：重複整理 ════ -->
+<div class="modal-overlay" id="dupCleanupOverlay" onclick="handleDupCleanupOverlayClick(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">🧹 重複整理（店舗 未設定）</div>
+      <button class="btn-close" onclick="closeDupCleanup()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">
+        店舗が未設定の機器のうち、<strong style="color:var(--gray-700)">メーカー・型式・製造番号</strong>が、既に店舗が設定されている機器と一致（またはほぼ一致）するものです。<br>
+        <span class="dup-conf high" style="margin-left:0">確実</span> は型式まで一致、<span class="dup-conf low" style="margin-left:0">要確認</span> は製造番号のみ一致（型式が異なる／記載なし）です。内容を確認のうえチェックしてください。<br>
+        チェックした機器は<strong style="color:var(--primary)">未設定側のみ完全に削除</strong>します（既に店舗が設定されている側は残ります）。この操作は元に戻せません。
+      </div>
+      <div id="dupCleanupList" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeDupCleanup()">キャンセル</button>
+      <button class="btn-danger" id="dupCleanupExecBtn" onclick="executeDupCleanup()">🗑 選択した機器を削除</button>
+    </div>
+  </div>
+</div>
+
 <!-- ════ 廃棄確認 ════ -->
 <div class="confirm-overlay" id="confirmOverlay">
   <div class="confirm-box">
@@ -1362,6 +1395,83 @@ function isStoreUnset(eq){
   return !c||!c.stores.some(s=>s.id===eq.storeId);
 }
 
+/* ════ 店舗未設定：重複整理 ════
+   店舗未設定の機器の中に、既に店舗が設定されている機器と同一（製造番号が一致）の
+   ものが紛れていることがある（例：店舗割当前に仮登録→後で正しく登録し直した等）。
+   製造番号が一致し、かつ型式も矛盾しないものを「確実」、製造番号だけ一致し型式が
+   食い違う／記載がないものを「要確認」として、ユーザーが選んで削除できるようにする。 */
+function _modelCompatible(a,b){
+  a=String(a||'').trim();b=String(b||'').trim();
+  if(!a||!b)return true; // 片方未記入なら矛盾とはしない
+  return a.startsWith(b)||b.startsWith(a);
+}
+function findDupCandidates(companyId){
+  const unset=equipments.filter(e=>e.companyId===companyId&&!e.retired&&isStoreUnset(e));
+  if(!unset.length)return [];
+  const withStore=equipments.filter(e=>e.companyId===companyId&&!e.retired&&!isStoreUnset(e));
+  const bySerial=new Map();
+  withStore.forEach(e=>{
+    const sr=String(e.serial||'').trim();
+    if(!sr)return;
+    if(!bySerial.has(sr))bySerial.set(sr,[]);
+    bySerial.get(sr).push(e);
+  });
+  const out=[];
+  unset.forEach(e=>{
+    const sr=String(e.serial||'').trim();
+    if(!sr)return;
+    const cands=bySerial.get(sr);
+    if(!cands||!cands.length)return;
+    const sameMaker=cands.filter(c=>String(c.maker||'')===String(e.maker||''));
+    const pool=sameMaker.length?sameMaker:cands;
+    const match=pool[0];
+    const highConfidence=cands.length===1&&sameMaker.length===1&&_modelCompatible(e.model,match.model);
+    out.push({eq:e,match,highConfidence});
+  });
+  return out;
+}
+let _dupCleanupCandidates=[];
+function openDupCleanup(){
+  if(!filters.companyId)return;
+  _dupCleanupCandidates=findDupCandidates(filters.companyId);
+  renderDupCleanupList();
+  document.getElementById('dupCleanupOverlay').classList.add('show');
+}
+function closeDupCleanup(){document.getElementById('dupCleanupOverlay').classList.remove('show')}
+function handleDupCleanupOverlayClick(e){if(e.target===document.getElementById('dupCleanupOverlay'))closeDupCleanup()}
+function renderDupCleanupList(){
+  const el=document.getElementById('dupCleanupList');
+  if(!_dupCleanupCandidates.length){el.innerHTML='<div class="dup-empty">重複の疑いがある機器はありません</div>';return;}
+  el.innerHTML=_dupCleanupCandidates.map((d,i)=>{
+    const e=d.eq,m=d.match,mst=getStore(m.companyId,m.storeId);
+    return `<label class="dup-item">
+      <input type="checkbox" data-dup-idx="${i}" ${d.highConfidence?'checked':''}>
+      <div class="dup-item-body">
+        <div class="dup-item-name">${e.name||'（名称未設定）'}<span class="dup-conf ${d.highConfidence?'high':'low'}">${d.highConfidence?'確実':'要確認'}</span></div>
+        <div class="dup-item-row">未設定側：${e.maker||''} ${e.model||'（型式なし）'} ／ 製造番号 ${e.serial||''}</div>
+        <div class="dup-item-row">一致した機器：${m.name||''}（${m.maker||''} ${m.model||'（型式なし）'}）<span class="dup-item-arrow">@</span>${mst?storeLabel(mst):'（店舗不明）'}</div>
+      </div>
+    </label>`;
+  }).join('');
+}
+async function executeDupCleanup(){
+  const checks=[...document.querySelectorAll('#dupCleanupList input[type=checkbox]:checked')];
+  if(!checks.length){showToast('⚠ 削除する機器を選択してください','error');return;}
+  const targets=checks.map(cb=>_dupCleanupCandidates[Number(cb.dataset.dupIdx)].eq);
+  const btn=document.getElementById('dupCleanupExecBtn');
+  btn.disabled=true;btn.textContent='削除中…';
+  for(const eq of targets){
+    const idx=equipments.findIndex(x=>x.id===eq.id);
+    if(idx!==-1)equipments.splice(idx,1);
+    await _delEq(eq.id);
+  }
+  btn.disabled=false;btn.textContent='🗑 選択した機器を削除';
+  showToast(`🗑 ${targets.length}件の重複機器を削除しました`,'');
+  closeDupCleanup();
+  rebuildStoreSelect();
+  applyFilters();
+}
+
 /* ════ 機器の検索 ════
    型式・製造番号・年式・店舗名などをまとめて探せるようにする。
    全角／半角、大文字／小文字、型式のハイフンや空白の有無で取りこぼさないよう、
@@ -1569,7 +1679,16 @@ function renderList(){
 
   // 店舗で絞り込み中は、その店舗の情報（住所・TEL/FAX・工場長・備考）を一覧の先頭に表示
   let bannerHTML='';
-  if(filters.storeId&&filters.storeId!==STORE_UNSET){
+  if(filters.storeId===STORE_UNSET&&filters.companyId){
+    const dupCount=findDupCandidates(filters.companyId).length;
+    bannerHTML=`<div class="store-info-banner">
+      <div class="store-info-banner-head">
+        <div class="store-info-banner-title">📦 店舗 未設定の機器</div>
+        ${dupCount?`<button class="store-info-banner-btn" onclick="openDupCleanup()">🧹 重複整理（${dupCount}件）</button>`:''}
+      </div>
+      <div class="store-info-banner-meta">登録されている店舗に該当しない機器です。${dupCount?`このうち ${dupCount} 件は、既に店舗が設定されている機器とメーカー・製造番号が一致しています。`:'既存の店舗データと一致する重複は見つかりませんでした。'}</div>
+    </div>`;
+  }else if(filters.storeId&&filters.storeId!==STORE_UNSET){
     const bc=getCompany(filters.companyId);
     const bst=getStore(filters.companyId,filters.storeId);
     if(bst){
