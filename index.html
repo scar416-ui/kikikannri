@@ -1339,6 +1339,13 @@ let nextId=7;
 let currentEq=null;
 let isEditMode=false;
 let filters={region:'',category:'',companyId:'',storeId:'',showRetired:false};
+// 店舗の絞り込みで使う特別な値。店舗が削除された等の理由で、販社に登録されている
+// どの店舗にも該当しない機器（＝店舗が未設定の機器）だけを表示するために使う。
+const STORE_UNSET='__unset__';
+function isStoreUnset(eq){
+  const c=getCompany(eq.companyId);
+  return !c||!c.stores.some(s=>s.id===eq.storeId);
+}
 let modalPhotos={'全体':null,'銘板':null,extra:[]};
 let historyPhotos=[];
 let pendingNewEqId=null; // 新規登録モーダルで確定させる仮ID（写真アップロード先と保存時で一致させる）
@@ -1375,11 +1382,20 @@ function rebuildStoreSelect(){
   sel.innerHTML='<option value="">店舗 (全て)</option>';
   if(filters.companyId){
     const c=getCompany(filters.companyId);
-    if(c)c.stores.forEach(s=>{
-      const opt=document.createElement('option');
-      opt.value=s.id;opt.textContent=storeLabel(s);
-      sel.appendChild(opt);
-    });
+    if(c){
+      c.stores.forEach(s=>{
+        const opt=document.createElement('option');
+        opt.value=s.id;opt.textContent=storeLabel(s);
+        sel.appendChild(opt);
+      });
+      // 登録されているどの店舗にも該当しない機器がある場合だけ「未設定」を選べるようにする
+      const orphan=equipments.filter(e=>e.companyId===c.id&&isStoreUnset(e));
+      if(orphan.length){
+        const opt=document.createElement('option');
+        opt.value=STORE_UNSET;opt.textContent=`（店舗 未設定）${orphan.length}件`;
+        sel.appendChild(opt);
+      }
+    }
   }
   sel.value='';filters.storeId='';
 }
@@ -1473,7 +1489,9 @@ function getFiltered(){
     if(filters.region&&(!c||c.region!==filters.region))return false;
     if(filters.category&&(!c||c.category!==filters.category))return false;
     if(filters.companyId&&eq.companyId!==filters.companyId)return false;
-    if(filters.storeId&&eq.storeId!==filters.storeId)return false;
+    if(filters.storeId===STORE_UNSET){
+      if(!isStoreUnset(eq))return false;
+    }else if(filters.storeId&&eq.storeId!==filters.storeId)return false;
     if(!filters.showRetired&&eq.retired)return false;
     return true;
   }).sort(compareEquipment);
@@ -1487,7 +1505,7 @@ function renderList(){
 
   // 店舗で絞り込み中は、その店舗の情報（住所・TEL/FAX・工場長・備考）を一覧の先頭に表示
   let bannerHTML='';
-  if(filters.storeId){
+  if(filters.storeId&&filters.storeId!==STORE_UNSET){
     const bc=getCompany(filters.companyId);
     const bst=getStore(filters.companyId,filters.storeId);
     if(bst){
@@ -3238,7 +3256,7 @@ function openAddModal(){
   if(filters.companyId){
     document.getElementById('f_company').value=filters.companyId;
     onFormCompanyChange();
-    if(filters.storeId){
+    if(filters.storeId&&filters.storeId!==STORE_UNSET){
       document.getElementById('f_store').value=filters.storeId;
     }
   }
@@ -4285,7 +4303,7 @@ function openExportModal(){
     cSel.value=filters.companyId;
     onExportCompanyChange(); // 店舗セレクトを構築（値をJSで直接セットしただけではonchangeが発火しないため必須）
     onExportScopeChange();
-    if(filters.storeId){
+    if(filters.storeId&&filters.storeId!==STORE_UNSET){
       document.getElementById('sc_store').checked=true;
       document.getElementById('ex_store').value=filters.storeId;
       onExportScopeChange();
