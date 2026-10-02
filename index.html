@@ -48,6 +48,15 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .btn-search-clear{position:absolute;right:4px;background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:12px;padding:6px;line-height:1;border-radius:4px}
 .btn-search-clear:hover{color:var(--primary);background:var(--primary-light)}
 .btn-filter-add{background:var(--primary);color:#fff;border:none;width:26px;height:26px;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;line-height:1}
+/* 型式・機器名称・経過年数など複数条件をまとめて絞り込める詳細条件パネル */
+.btn-adv-toggle{background:#fff;border:1px solid var(--gray-300);color:var(--gray-600);font-size:13px;padding:6px 10px;border-radius:6px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:4px}
+.btn-adv-toggle.active{background:var(--primary-light);border-color:var(--primary-border);color:var(--primary);font-weight:700}
+.adv-filter-bar{display:none;background:var(--gray-50);padding:10px 16px;border-bottom:1px solid var(--gray-200);gap:14px;flex-wrap:wrap;align-items:center}
+.adv-filter-bar.show{display:flex}
+.adv-filter-label{font-size:11px;color:var(--gray-500);white-space:nowrap}
+.adv-filter-bar input[type=text],.adv-filter-bar input[type=number]{border:1px solid var(--gray-300);border-radius:6px;padding:5px 8px;font-size:13px;color:var(--gray-700);background:#fff}
+.adv-filter-bar input[type=number]{width:60px}
+.adv-filter-bar select{padding:5px 24px 5px 8px;font-size:13px}
 .btn-filter-add:hover{background:var(--primary-dark)}
 .main{flex:1;overflow:hidden;display:flex}
 
@@ -437,6 +446,37 @@ optgroup{font-weight:700}
              oninput="onFilterSearchChange()" autocomplete="off">
       <button class="btn-search-clear" id="filterSearchClear" style="display:none" onclick="clearFilterSearch()" title="検索を消す">✕</button>
     </div>
+
+    <div class="filter-group">
+      <button class="btn-adv-toggle" id="advFilterToggleBtn" onclick="toggleAdvFilter()">🔧 詳細条件</button>
+    </div>
+  </div>
+
+  <!-- 型式・機器名称・経過年数の組み合わせで絞り込む詳細条件パネル -->
+  <div class="adv-filter-bar" id="advFilterBar">
+    <div class="filter-group">
+      <span class="adv-filter-label">型式</span>
+      <input type="text" id="filterModel" placeholder="型式で絞り込み" oninput="onAdvFilterChange()" autocomplete="off">
+    </div>
+    <div class="filter-group">
+      <span class="adv-filter-label">機器名称</span>
+      <select id="filterEqName" onchange="onAdvFilterChange()">
+        <option value="">機器名称 (全て)</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <span class="adv-filter-label">経過年数</span>
+      <select id="filterElapsedBasis" onchange="onAdvFilterChange()">
+        <option value="date">設置から</option>
+        <option value="nextcheck">製造から</option>
+      </select>
+      <input type="number" id="filterElapsedYears" min="0" step="1" placeholder="年数" oninput="onAdvFilterChange()">
+      <select id="filterElapsedOp" onchange="onAdvFilterChange()">
+        <option value="gte">年以上</option>
+        <option value="lte">年以下</option>
+      </select>
+    </div>
+    <button class="btn-cancel" onclick="clearAdvFilter()">条件をクリア</button>
   </div>
 
   <div class="main">
@@ -1365,6 +1405,15 @@ function isOld(d){
   const now=new Date();
   return(now.getFullYear()-y)*12+(now.getMonth()+1-m)>=120;
 }
+// 「経過年数」での絞り込みに使う、経過月数（整数）。日付が未記入／不正な場合はnull。
+function _elapsedMonths(d){
+  if(!d)return null;
+  const[y,m]=String(d).split('-').map(Number);
+  if(!y||!m)return null;
+  const now=new Date();
+  const months=(now.getFullYear()-y)*12+(now.getMonth()+1-m);
+  return months<0?null:months;
+}
 
 /* ════ DATA ════ */
 let equipments=[
@@ -1399,7 +1448,8 @@ let equipments=[
 let nextId=7;
 let currentEq=null;
 let isEditMode=false;
-let filters={region:'',category:'',companyId:'',storeId:'',showRetired:false,q:''};
+let filters={region:'',category:'',companyId:'',storeId:'',showRetired:false,q:'',
+  model:'',eqName:'',elapsedBasis:'date',elapsedYears:'',elapsedOp:'gte'};
 // 店舗の絞り込みで使う特別な値。店舗が削除された等の理由で、販社に登録されている
 // どの店舗にも該当しない機器（＝店舗が未設定の機器）だけを表示するために使う。
 const STORE_UNSET='__unset__';
@@ -1613,6 +1663,51 @@ function clearFilterSearch(){
 }
 function applyFilters(){renderList();}
 
+/* ════ 詳細条件（型式・機器名称・経過年数） ════ */
+function rebuildEqNameFilterSelect(){
+  const sel=document.getElementById('filterEqName');if(!sel)return;
+  const prev=sel.value;
+  const categories=[...new Set(masterData.equipmentNames.map(e=>e.category))];
+  let html='<option value="">機器名称 (全て)</option>';
+  categories.forEach(cat=>{
+    html+=`<optgroup label="${cat}">`;
+    masterData.equipmentNames.filter(e=>e.category===cat).forEach(e=>{
+      html+=`<option>${e.name}</option>`;
+    });
+    html+='</optgroup>';
+  });
+  sel.innerHTML=html;
+  if(prev&&masterData.equipmentNames.some(e=>e.name===prev))sel.value=prev;
+}
+function _updateAdvFilterToggleLabel(){
+  const n=(filters.model?1:0)+(filters.eqName?1:0)+(filters.elapsedYears!==''?1:0);
+  const btn=document.getElementById('advFilterToggleBtn');
+  btn.textContent=n?`🔧 詳細条件（${n}）`:'🔧 詳細条件';
+  btn.classList.toggle('active',n>0);
+}
+function toggleAdvFilter(){
+  document.getElementById('advFilterBar').classList.toggle('show');
+}
+function onAdvFilterChange(){
+  filters.model=document.getElementById('filterModel').value;
+  filters.eqName=document.getElementById('filterEqName').value;
+  filters.elapsedBasis=document.getElementById('filterElapsedBasis').value;
+  filters.elapsedYears=document.getElementById('filterElapsedYears').value;
+  filters.elapsedOp=document.getElementById('filterElapsedOp').value;
+  _updateAdvFilterToggleLabel();
+  applyFilters();
+}
+function clearAdvFilter(){
+  document.getElementById('filterModel').value='';
+  document.getElementById('filterEqName').value='';
+  document.getElementById('filterElapsedBasis').value='date';
+  document.getElementById('filterElapsedYears').value='';
+  document.getElementById('filterElapsedOp').value='gte';
+  filters.model='';filters.eqName='';filters.elapsedBasis='date';filters.elapsedYears='';filters.elapsedOp='gte';
+  _updateAdvFilterToggleLabel();
+  applyFilters();
+}
+
 // ベイの種類ごとの表示順：masterData.bayTypes の並び順に従う（番号ありの種別は番号順）。未設定・未登録の種別は最後にまとめる。
 // ベイ番号は数字（3番）だけでなくA・Bなどの文字も入力できるため、数字は数値順、
 // 文字は数字より後ろに五十音・アルファベット順で並べる。
@@ -1680,6 +1775,15 @@ function getFiltered(){
     }else if(filters.storeId&&eq.storeId!==filters.storeId)return false;
     if(!filters.showRetired&&eq.retired)return false;
     if(!matchesSearch(eq,terms))return false;
+    if(filters.model&&_normSearch(eq.model).indexOf(_normSearch(filters.model))<0)return false;
+    if(filters.eqName&&eq.name!==filters.eqName)return false;
+    if(filters.elapsedYears!==''&&filters.elapsedYears!==null){
+      const months=_elapsedMonths(filters.elapsedBasis==='nextcheck'?eq.nextcheck:eq.date);
+      if(months===null)return false; // 日付未記入の機器は年数条件を満たせないので除外
+      const threshold=Number(filters.elapsedYears)*12;
+      if(filters.elapsedOp==='lte'){ if(months>threshold)return false; }
+      else{ if(months<threshold)return false; }
+    }
     return true;
   }).sort(compareEquipment);
 }
@@ -4269,7 +4373,7 @@ function saveEquipmentName(){
     masterData.equipmentNames.push({id:'en'+masterData._nextEqNameId++,category,name});
   }
   _saveMd();
-  rebuildEquipmentNameSelect();
+  rebuildEquipmentNameSelect();rebuildEqNameFilterSelect();
   renderEqNameManageList();
   showToast(`✅ 機器名称「${name}」を保存しました`,'success');
   cancelEditEquipmentName();
@@ -4288,7 +4392,7 @@ function executeDeleteEquipmentName(id){
   const idx=masterData.equipmentNames.findIndex(x=>x.id===id);
   if(idx!==-1)masterData.equipmentNames.splice(idx,1);
   _saveMd();
-  rebuildEquipmentNameSelect();
+  rebuildEquipmentNameSelect();rebuildEqNameFilterSelect();
   if(_editingEqNameId===id)cancelEditEquipmentName();
   renderEqNameManageList();
   showToast('🗑 機器名称を削除しました','');
@@ -4973,7 +5077,7 @@ function _initFirestore(){
     // サーバーで確認された（キャッシュのみではない）データに対してのみ、
     // 移行処理からの自動保存を行う。古いキャッシュデータでの誤った自動保存を防ぐため。
     if(!snap.metadata.fromCache&&_migrateStoreManagers())_saveMd();
-    rebuildCompanySelect();rebuildEquipmentNameSelect();rebuildStatusSelect();rebuildBayTypeSelect();
+    rebuildCompanySelect();rebuildEquipmentNameSelect();rebuildEqNameFilterSelect();rebuildStatusSelect();rebuildBayTypeSelect();
     renderItemManageLists();renderList();
     if(currentEq)renderDetail();
   },err=>console.error('masterData snapshot error:',err));
@@ -5530,7 +5634,7 @@ window.addEventListener('online',()=>{
 
 /* ════ INIT ════ */
 rebuildCompanySelect();
-rebuildEquipmentNameSelect();
+rebuildEquipmentNameSelect();rebuildEqNameFilterSelect();
 rebuildStatusSelect();
 rebuildBayTypeSelect();
 renderList();
