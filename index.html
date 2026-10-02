@@ -115,6 +115,13 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .badge-danger{background:var(--danger-bg);color:var(--danger);border-color:var(--danger-border)}
 .badge-info{background:var(--info-bg);color:var(--info);border-color:var(--info-border)}
 .badge-gray{background:var(--neutral-bg);color:var(--neutral);border-color:var(--neutral-border)}
+/* 一覧のステータスバッジをクリックしてその場で変更できるようにする */
+.badge-status-click{cursor:pointer}
+.badge-status-click:hover{filter:brightness(0.95);box-shadow:0 0 0 2px rgba(0,0,0,.06)}
+.status-quick-menu{display:none;position:fixed;z-index:300;background:#fff;border:1px solid var(--gray-300);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.18);padding:5px;min-width:170px}
+.status-quick-menu-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px;border-radius:6px;cursor:pointer}
+.status-quick-menu-item:hover{background:var(--gray-100)}
+.status-quick-menu-check{color:var(--primary);font-weight:700;font-size:12px}
 
 /* ── DETAIL ── */
 .detail-panel{display:none;flex:1;overflow-y:auto;background:#fff}
@@ -1130,6 +1137,9 @@ optgroup{font-weight:700}
 <!-- 非表示ファイル入力 (保守履歴写真用) -->
 <input type="file" id="fi_history" accept="image/*" style="display:none" onchange="handleHistoryPhoto(event)">
 
+<!-- 一覧のステータスバッジをクリックしたときに出す、その場で変更できる小さなメニュー -->
+<div class="status-quick-menu" id="statusQuickMenu"></div>
+
 <div class="toast" id="toast"></div>
 <div class="photo-upload-indicator" id="photoUploadIndicator" style="display:none"><span class="spinner" id="photoUploadIndicatorSpinner"></span><span id="photoUploadIndicatorText">写真を保存中…</span><span class="photo-upload-indicator-close" id="photoUploadIndicatorClose" style="display:none" onclick="_dismissPhotoUploadIndicator(event)">✕</span></div>
 
@@ -1859,7 +1869,7 @@ function renderList(){
       <div class="card-body-wrap">
         ${thumbUrl?`<img class="card-thumb" src="${thumbUrl}" alt="${eq.name}" loading="lazy" onerror="_photoRetry(this)">`:`<div class="card-thumb-placeholder">📷</div>`}
         <div class="card-main">
-          <div class="card-top"><div class="card-name">${eq.name}${eq.bay?`<span class="card-bay-inline">🔧 ${eq.bay}</span>`:''}</div>${eq.retired?`<span class="badge badge-gray">🗑 撤去済み</span>`:''}<span class="badge ${s.cls}">${s.label}</span><button class="btn-edit-item" onclick="editEquipmentFromList(${eq.id},event)" title="編集">✏️</button></div>
+          <div class="card-top"><div class="card-name">${eq.name}${eq.bay?`<span class="card-bay-inline">🔧 ${eq.bay}</span>`:''}</div>${eq.retired?`<span class="badge badge-gray">🗑 撤去済み</span>`:''}<span class="badge ${s.cls}${eq.retired?'':' badge-status-click'}" ${eq.retired?'':`onclick="openStatusQuickChange(${eq.id},event)"`} title="${eq.retired?'':'クリックでステータスを変更'}">${s.label}</span><button class="btn-edit-item" onclick="editEquipmentFromList(${eq.id},event)" title="編集">✏️</button></div>
           <div class="card-meta"><span>メーカー: ${eq.maker}</span><span>型式: ${eq.model}</span>${eq.serial?`<span>製造番号: ${eq.serial}</span>`:''}</div>
           <div class="card-location">
             ${c?`<span class="location-tag">🏢 ${companyLabel(c)}</span>`:''}
@@ -3581,6 +3591,53 @@ function editEquipmentFromList(id,ev){
   if(ev)ev.stopPropagation();
   showDetail(id);
   openEditModal();
+}
+
+/* ════ 一覧でのステータスのその場変更 ════
+   一覧のステータスバッジをクリックすると、編集画面を開かずにその場でステータスだけ変更できる。
+   撤去済みの機器はここでは変更できない（編集画面から行う）。 */
+let _statusQuickEqId=null;
+function openStatusQuickChange(id,ev){
+  if(ev){ev.stopPropagation();ev.preventDefault();}
+  const eq=equipments.find(e=>e.id===id);
+  if(!eq||eq.retired)return;
+  _statusQuickEqId=id;
+  const menu=document.getElementById('statusQuickMenu');
+  menu.innerHTML=masterData.statuses.map(s=>
+    `<div class="status-quick-menu-item" onclick="applyStatusQuickChange('${s.id}')">
+      <span class="badge ${s.cls}">${s.label}</span>
+      ${s.id===eq.status?'<span class="status-quick-menu-check">✓</span>':''}
+    </div>`
+  ).join('')||'<div class="dup-empty">ステータスが登録されていません</div>';
+  const rect=(ev&&ev.currentTarget?ev.currentTarget:document.body).getBoundingClientRect();
+  const menuWidth=180;
+  menu.style.left=Math.max(4,Math.min(rect.left,window.innerWidth-menuWidth-4))+'px';
+  menu.style.top=(rect.bottom+4+window.scrollY>window.innerHeight+window.scrollY-160?rect.top-4-160:rect.bottom+4)+'px';
+  menu.style.display='block';
+  setTimeout(()=>document.addEventListener('click',closeStatusQuickMenu,{once:true}),0);
+}
+function closeStatusQuickMenu(){
+  const menu=document.getElementById('statusQuickMenu');
+  if(menu)menu.style.display='none';
+  _statusQuickEqId=null;
+}
+async function applyStatusQuickChange(statusId){
+  const id=_statusQuickEqId;
+  closeStatusQuickMenu();
+  const eq=equipments.find(e=>e.id===id);
+  if(!eq||eq.status===statusId)return;
+  const prevStatus=eq.status;
+  eq.status=statusId;
+  renderList();
+  if(currentEq&&currentEq.id===id)renderDetail();
+  const ok=await _saveEq(eq);
+  if(ok){
+    showToast(`✅ ステータスを「${statusInfo(statusId).label}」に変更しました`,'success');
+  }else{
+    eq.status=prevStatus;
+    renderList();
+    if(currentEq&&currentEq.id===id)renderDetail();
+  }
 }
 function openEditModal(){
   if(!currentEq)return;
