@@ -1211,6 +1211,18 @@ function storeLabel(s){
   const nm=s.name||'（名称未設定）';
   return s.code?`${nm}（${s.code}）`:nm;
 }
+// 店舗の表示順は得意先コード（店舗の識別コード）順にする。コード未設定の店舗は末尾に回す。
+// 元の配列は並び替えない（登録順のまま保持し、表示・出力のときだけこの順を使う）。
+function sortedStores(c){
+  if(!c||!c.stores)return [];
+  return c.stores.slice().sort((a,b)=>{
+    const ac=String(a.code||'').trim(),bc=String(b.code||'').trim();
+    if(!ac&&!bc)return 0;
+    if(!ac)return 1;
+    if(!bc)return -1;
+    return ac.localeCompare(bc,'ja',{numeric:true,sensitivity:'base'});
+  });
+}
 
 /* ════ 工場長 HELPERS ════
    工場長は店舗の1項目ではなく、販社（company）に紐づく一覧（company.managers）として管理する。
@@ -1538,7 +1550,7 @@ function rebuildStoreSelect(){
   if(filters.companyId){
     const c=getCompany(filters.companyId);
     if(c){
-      c.stores.forEach(s=>{
+      sortedStores(c).forEach(s=>{
         const opt=document.createElement('option');
         opt.value=s.id;opt.textContent=storeLabel(s);
         sel.appendChild(opt);
@@ -3411,7 +3423,7 @@ function onFormCompanyChange(){
   sel.innerHTML='<option value="">選択してください</option>';
   if(companyId){
     const c=getCompany(companyId);
-    if(c)c.stores.forEach(s=>{
+    if(c)sortedStores(c).forEach(s=>{
       const opt=document.createElement('option');
       opt.value=s.id;opt.textContent=storeLabel(s);
       sel.appendChild(opt);
@@ -4031,7 +4043,7 @@ function renderStoreManageList(){
   const rows=[];
   masterData.companies
     .filter(c=>(!region||c.region===region)&&(!category||c.category===category))
-    .forEach(c=>c.stores.forEach(s=>rows.push({c,s})));
+    .forEach(c=>sortedStores(c).forEach(s=>rows.push({c,s})));
   if(!rows.length){
     el.innerHTML='<div class="manage-empty">店舗が登録されていません</div>';return;
   }
@@ -4082,7 +4094,7 @@ function renderManagerAssignCheckboxes(){
   const c=getCompany(companyId);
   if(!c||!c.stores.length){el.innerHTML='<div class="manage-empty">店舗が登録されていません</div>';return;}
   const currentIds=_editingManagerId?((getManager(companyId,_editingManagerId)||{}).storeIds||[]):[];
-  el.innerHTML=c.stores.map(s=>{
+  el.innerHTML=sortedStores(c).map(s=>{
     const holder=getStoreManager(companyId,s.id);
     const heldByOther=holder&&holder.id!==_editingManagerId?holder:null;
     const checked=currentIds.includes(s.id)?'checked':'';
@@ -4514,7 +4526,7 @@ function onExportCompanyChange(){
   sSel.innerHTML='<option value="">選択してください</option>';
   if(companyId){
     const c=getCompany(companyId);
-    if(c)c.stores.forEach(s=>{const o=document.createElement('option');o.value=s.id;o.textContent=storeLabel(s);sSel.appendChild(o);});
+    if(c)sortedStores(c).forEach(s=>{const o=document.createElement('option');o.value=s.id;o.textContent=storeLabel(s);sSel.appendChild(o);});
   }
   updateExportPreview();
 }
@@ -4563,7 +4575,7 @@ function buildSummarySheet(companies, titleLabel){
   // 撤去済みは出力対象外なので、サマリーの件数からも除外する
   const alive=equipments.filter(e=>!e.retired);
   companies.forEach(c=>{
-    c.stores.forEach(st=>{
+    sortedStores(c).forEach(st=>{
       const data=alive.filter(e=>e.companyId===c.id&&e.storeId===st.id);
       const counts=countByStatus(data);
       aoa.push([storeLabel(st),companyLabel(c),data.length,...counts]);
@@ -4676,7 +4688,7 @@ function buildNissanAoa(d){
   // 先方の元データが店舗ごとにまとまっているため、店舗単位で固めて出力する。
   // 店舗の並びは販社に登録されている店舗の順、店舗内の並びはアプリの表示順（ベイ順）と同じ。
   const storeOrder=new Map();
-  (d.companies||[]).forEach(c=>(c.stores||[]).forEach(s=>storeOrder.set(c.id+'/'+s.id,storeOrder.size)));
+  (d.companies||[]).forEach(c=>sortedStores(c).forEach(s=>storeOrder.set(c.id+'/'+s.id,storeOrder.size)));
   const idx=eq=>{
     const k=eq.companyId+'/'+eq.storeId;
     return storeOrder.has(k)?storeOrder.get(k):999999;
@@ -4813,7 +4825,7 @@ function runExport(kind){
     });
   }else if(d.scope==='company'){
     XLSX.utils.book_append_sheet(wb,buildSummarySheet([d.company],`設備機器サマリー　${companyLabel(d.company)}`),'サマリー');
-    d.company.stores.forEach(st=>{
+    sortedStores(d.company).forEach(st=>{
       const data=d.list.filter(e=>e.storeId===st.id);
       if(!data.length)return;
       XLSX.utils.book_append_sheet(wb,buildEquipmentSheet(data,`設備機器一覧　${companyLabel(d.company)}　${storeLabel(st)}`),safeSheetName(st.name));
