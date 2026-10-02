@@ -465,11 +465,7 @@ optgroup{font-weight:700}
       </select>
     </div>
     <div class="filter-group">
-      <span class="adv-filter-label">経過年数</span>
-      <select id="filterElapsedBasis" onchange="onAdvFilterChange()">
-        <option value="date">設置から</option>
-        <option value="nextcheck">製造から</option>
-      </select>
+      <span class="adv-filter-label">経過年数（製造から）</span>
       <input type="number" id="filterElapsedYears" min="0" step="1" placeholder="年数" oninput="onAdvFilterChange()">
       <select id="filterElapsedOp" onchange="onAdvFilterChange()">
         <option value="gte">年以上</option>
@@ -1449,7 +1445,7 @@ let nextId=7;
 let currentEq=null;
 let isEditMode=false;
 let filters={region:'',category:'',companyId:'',storeId:'',showRetired:false,q:'',
-  model:'',eqName:'',elapsedBasis:'date',elapsedYears:'',elapsedOp:'gte'};
+  model:'',eqName:'',elapsedYears:'',elapsedOp:'gte'};
 // 店舗の絞り込みで使う特別な値。店舗が削除された等の理由で、販社に登録されている
 // どの店舗にも該当しない機器（＝店舗が未設定の機器）だけを表示するために使う。
 const STORE_UNSET='__unset__';
@@ -1694,7 +1690,6 @@ function toggleAdvFilter(){
 function onAdvFilterChange(){
   filters.model=document.getElementById('filterModel').value;
   filters.eqName=document.getElementById('filterEqName').value;
-  filters.elapsedBasis=document.getElementById('filterElapsedBasis').value;
   filters.elapsedYears=document.getElementById('filterElapsedYears').value;
   filters.elapsedOp=document.getElementById('filterElapsedOp').value;
   _updateAdvFilterToggleLabel();
@@ -1703,10 +1698,9 @@ function onAdvFilterChange(){
 function clearAdvFilter(){
   document.getElementById('filterModel').value='';
   document.getElementById('filterEqName').value='';
-  document.getElementById('filterElapsedBasis').value='date';
   document.getElementById('filterElapsedYears').value='';
   document.getElementById('filterElapsedOp').value='gte';
-  filters.model='';filters.eqName='';filters.elapsedBasis='date';filters.elapsedYears='';filters.elapsedOp='gte';
+  filters.model='';filters.eqName='';filters.elapsedYears='';filters.elapsedOp='gte';
   _updateAdvFilterToggleLabel();
   applyFilters();
 }
@@ -1790,8 +1784,8 @@ function getFiltered(){
       }
     }
     if(filters.elapsedYears!==''&&filters.elapsedYears!==null){
-      const months=_elapsedMonths(filters.elapsedBasis==='nextcheck'?eq.nextcheck:eq.date);
-      if(months===null)return false; // 日付未記入の機器は年数条件を満たせないので除外
+      const months=_elapsedMonths(eq.nextcheck); // 設置日は項目として存在しないため、製造年月を基準に経過年数を見る
+      if(months===null)return false; // 製造年月が未記入の機器は年数条件を満たせないので除外
       const threshold=Number(filters.elapsedYears)*12;
       if(filters.elapsedOp==='lte'){ if(months>threshold)return false; }
       else{ if(months<threshold)return false; }
