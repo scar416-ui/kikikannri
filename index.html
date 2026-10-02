@@ -1664,6 +1664,8 @@ function clearFilterSearch(){
 function applyFilters(){renderList();}
 
 /* ════ 詳細条件（型式・機器名称・経過年数） ════ */
+// 機器名称の絞り込みは「個別の機器名称」と「リフト／車検機器などの大分類」の
+// どちらでも選べるようにする。value は name:個別名称 / cat:分類名 のいずれか。
 function rebuildEqNameFilterSelect(){
   const sel=document.getElementById('filterEqName');if(!sel)return;
   const prev=sel.value;
@@ -1671,13 +1673,14 @@ function rebuildEqNameFilterSelect(){
   let html='<option value="">機器名称 (全て)</option>';
   categories.forEach(cat=>{
     html+=`<optgroup label="${cat}">`;
+    html+=`<option value="cat:${cat}">${cat}（すべて）</option>`;
     masterData.equipmentNames.filter(e=>e.category===cat).forEach(e=>{
-      html+=`<option>${e.name}</option>`;
+      html+=`<option value="name:${e.name}">　${e.name}</option>`;
     });
     html+='</optgroup>';
   });
   sel.innerHTML=html;
-  if(prev&&masterData.equipmentNames.some(e=>e.name===prev))sel.value=prev;
+  if(prev&&[...sel.options].some(o=>o.value===prev))sel.value=prev;
 }
 function _updateAdvFilterToggleLabel(){
   const n=(filters.model?1:0)+(filters.eqName?1:0)+(filters.elapsedYears!==''?1:0);
@@ -1776,7 +1779,16 @@ function getFiltered(){
     if(!filters.showRetired&&eq.retired)return false;
     if(!matchesSearch(eq,terms))return false;
     if(filters.model&&_normSearch(eq.model).indexOf(_normSearch(filters.model))<0)return false;
-    if(filters.eqName&&eq.name!==filters.eqName)return false;
+    if(filters.eqName){
+      if(filters.eqName.startsWith('cat:')){
+        const cat=filters.eqName.slice(4);
+        const def=(masterData.equipmentNames||[]).find(x=>x.name===eq.name);
+        if(!def||def.category!==cat)return false;
+      }else{
+        const nm=filters.eqName.startsWith('name:')?filters.eqName.slice(5):filters.eqName;
+        if(eq.name!==nm)return false;
+      }
+    }
     if(filters.elapsedYears!==''&&filters.elapsedYears!==null){
       const months=_elapsedMonths(filters.elapsedBasis==='nextcheck'?eq.nextcheck:eq.date);
       if(months===null)return false; // 日付未記入の機器は年数条件を満たせないので除外
