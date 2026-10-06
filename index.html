@@ -2291,15 +2291,18 @@ function _genLocalId(){return 'L'+Date.now().toString(36)+Math.random().toString
 // 即座に返す（機器の保存はこの完了を待たない）。実際のDriveアップロードは
 // _processPendingQueue がバックグラウンドで行う。
 async function _captureAndQueuePhoto(file,eqSnapshot,slotType,slotKey,category,entryLocalId){
-  const upFile=await _prepareForDriveUpload(file);
-  const localPreviewUrl=URL.createObjectURL(upFile);
+  // HEIC変換や画質調整（_prepareForDriveUpload）は数秒かかることがあり、ここで
+  // 待ってしまうと「撮ってからサムネイルが出るまで」が遅く感じられてしまう。
+  // iPhoneの「Googleドライブに保存」と同じ体感速度にするため、画面には撮った
+  // ファイルをそのまま即座に反映し、変換・圧縮は送信キュー側（バックグラウンド）で行う。
+  const localPreviewUrl=URL.createObjectURL(file);
   if(slotType==='main'){
     // 全体写真などの単一スロットは、撮り直した場合に古い送信待ちを消しておく
     await _cancelPendingPhotosFor(eqSnapshot.id,slotType,slotKey);
   }
   await _addPendingPhoto({
     eqId:eqSnapshot.id,slotType,slotKey,entryLocalId:entryLocalId||null,
-    fileName:file.name,category,blob:upFile,eqSnapshot,
+    fileName:file.name,category,blob:file,prepared:false,eqSnapshot,
     status:'pending',driveUrl:null,createdAt:Date.now(),lastAttempt:0
   });
   _pendingPhotoKeys.add(_pendingKeyOf(eqSnapshot.id,slotType,slotKey));
@@ -2337,6 +2340,13 @@ async function _processPendingQueue(){
         if(Date.now()-(item.lastAttempt||0)<15000)continue; // 直近失敗した分は少し間隔を空けてリトライ
         try{
           await _updatePendingPhoto(item.id,{lastAttempt:Date.now()});
+          // HEIC変換・画質調整はここ（バックグラウンドの送信キュー）でまとめて行う。
+          // 撮影直後の画面反映を待たせないため、_captureAndQueuePhotoでは行っていない。
+          if(!item.prepared){
+            const prepared=await _prepareForDriveUpload(item.blob);
+            await _updatePendingPhoto(item.id,{blob:prepared,prepared:true});
+            item.blob=prepared;item.prepared=true;
+          }
           // _uploadToDrive内部のfetchには個々にタイムアウトがあるが、想定外の要因で
           // 応答が返らなくなった場合に備え、全体にも上限を設けてキューが永久に
           // 止まらないようにする。レジューム可能アップロードは通信が不安定な場合、
