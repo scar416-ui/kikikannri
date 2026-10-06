@@ -527,6 +527,7 @@ optgroup{font-weight:700}
             <span class="optional-tag">任意</span>
             <span class="photo-placeholder-sub">タップまたはドラッグで追加</span>
             <button type="button" class="paste-photo-btn" onclick="event.stopPropagation();pasteImageFromClipboard('modal','全体')">📋 貼り付け</button>
+            <button type="button" class="paste-photo-btn" onclick="event.stopPropagation();pickFromGoogleDrive('modal','全体')">📁 Driveから選択</button>
           </div>
         </div>
         <div class="photo-slot" id="modal_slot_銘板" onclick="triggerModalPhoto('銘板')" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onModalPhotoDrop(event,'銘板')" onmouseenter="_setHoverSlot('modal','銘板')" onmouseleave="_clearHoverSlot('modal','銘板')">
@@ -536,6 +537,7 @@ optgroup{font-weight:700}
             <span class="optional-tag">任意</span>
             <span class="photo-placeholder-sub">タップまたはドラッグで追加</span>
             <button type="button" class="paste-photo-btn" onclick="event.stopPropagation();pasteImageFromClipboard('modal','銘板')">📋 貼り付け</button>
+            <button type="button" class="paste-photo-btn" onclick="event.stopPropagation();pickFromGoogleDrive('modal','銘板')">📁 Driveから選択</button>
           </div>
         </div>
       </div>
@@ -547,6 +549,9 @@ optgroup{font-weight:700}
         </button>
         <button class="btn-add-photo" onclick="pasteImageFromClipboard('modalExtra')">
           <span style="font-size:20px">📋</span><span>貼り付け</span>
+        </button>
+        <button class="btn-add-photo" onclick="pickFromGoogleDrive('modalExtra')">
+          <span style="font-size:20px">📁</span><span>Driveから選択</span>
         </button>
       </div>
 
@@ -685,6 +690,9 @@ optgroup{font-weight:700}
           </button>
           <button class="btn-add-photo" onclick="pasteImageFromClipboard('history')">
             <span style="font-size:20px">📋</span><span>貼り付け</span>
+          </button>
+          <button class="btn-add-photo" onclick="pickFromGoogleDrive('history')">
+            <span style="font-size:20px">📁</span><span>Driveから選択</span>
           </button>
         </div>
       </div>
@@ -1169,6 +1177,7 @@ optgroup{font-weight:700}
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://accounts.google.com/gsi/client" async></script>
+<script src="https://apis.google.com/js/api.js" async></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
@@ -2117,6 +2126,77 @@ function _pasteToSlot(slotId,file){
   else if(scope==='detailExtra')processDetailExtraPhoto(file);
   else if(scope==='history')processHistoryPhoto(file);
 }
+
+/* ════ GOOGLE DRIVEから直接写真を選択（iPhoneで直接Driveに保存した写真などを、
+   端末のカメラロールを経由せずそのままアプリに取り込めるようにする） ════
+   Google Picker（ファイル選択UI）を使うことで、drive.fileスコープ（アプリが作成した
+   ファイルのみアクセス可とする安全な権限）のままでも、ユーザーが明示的に選んだ既存の
+   Driveファイルにだけアクセスできる（Pickerで選択した時点でそのファイル分のアクセスが
+   付与される仕組み）。 */
+let _pickerApiLoaded=false;
+function _ensureDrivePicker(){
+  return new Promise((resolve,reject)=>{
+    if(typeof gapi==='undefined'){
+      reject(new Error('Google Picker APIが読み込まれていません。ページを再読み込みしてください'));
+      return;
+    }
+    if(_pickerApiLoaded){resolve();return;}
+    gapi.load('picker',{
+      callback:()=>{_pickerApiLoaded=true;resolve();},
+      onerror:()=>reject(new Error('Google Picker APIの読み込みに失敗しました'))
+    });
+  });
+}
+async function _downloadDriveFileAndDispatch(fileId,fileName,mimeType,scope,key){
+  try{
+    const token=await _getDriveToken();
+    const r=await _fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,{
+      headers:{'Authorization':`Bearer ${token}`}
+    },30000);
+    if(!r.ok)throw new Error('ファイルの取得に失敗しました（HTTP '+r.status+'）');
+    const blob=await r.blob();
+    const file=new File([blob],fileName||('drive_'+fileId),{type:mimeType||blob.type||'image/jpeg'});
+    _pasteToSlot(key?`${scope}:${key}`:scope,file);
+  }catch(e){
+    console.error('Driveからの写真取得に失敗:',e);
+    showToast('⚠ Driveからの写真取得に失敗しました: '+((e&&e.message)||e),'error');
+  }
+}
+async function pickFromGoogleDrive(scope,key){
+  let token;
+  try{
+    token=await _getDriveToken();
+  }catch(e){
+    showToast('⚠ '+e.message,'error');
+    return;
+  }
+  try{
+    await _ensureDrivePicker();
+  }catch(e){
+    showToast('⚠ '+((e&&e.message)||e),'error');
+    return;
+  }
+  try{
+    const view=new google.picker.DocsView(google.picker.ViewId.DOCS_IMAGES)
+      .setIncludeFolders(true)
+      .setSelectFolderEnabled(false);
+    const picker=new google.picker.PickerBuilder()
+      .addView(view)
+      .setOAuthToken(token)
+      .setDeveloperKey(firebaseConfig.apiKey)
+      .setCallback(data=>{
+        if(data.action===google.picker.Action.PICKED){
+          const doc=data.docs[0];
+          _downloadDriveFileAndDispatch(doc.id,doc.name,doc.mimeType,scope,key);
+        }
+      })
+      .build();
+    picker.setVisible(true);
+  }catch(e){
+    console.error('Google Picker起動に失敗:',e);
+    showToast('⚠ Driveの選択画面を開けませんでした: '+((e&&e.message)||e),'error');
+  }
+}
 // 「📋 貼り付け」ボタン用：Ctrl+V操作に頼らず、ボタンクリックから明示的にクリップボードの
 // 画像を読み取る（スマートフォン等、Ctrl+Vやマウスホバーが使えない環境でも確実に貼り付けできるように）。
 // navigator.clipboard.read()はユーザー操作（クリック）を起点にした場合のみ許可される。
@@ -2588,6 +2668,8 @@ function renderModalExtraGrid(){
     <span style="font-size:20px">＋</span><span>写真を追加</span>
   </button><button class="btn-add-photo" onclick="pasteImageFromClipboard('modalExtra')">
     <span style="font-size:20px">📋</span><span>貼り付け</span>
+  </button><button class="btn-add-photo" onclick="pickFromGoogleDrive('modalExtra')">
+    <span style="font-size:20px">📁</span><span>Driveから選択</span>
   </button>`;
 }
 function openModalExtraLightbox(i){
@@ -2909,6 +2991,7 @@ function updateModalPhotoSlot(key){
         <button onclick="openModalLightbox('${key}',event)">🔍 拡大</button>
         <button onclick="triggerModalPhoto('${key}')">📷 変更</button>
         <button onclick="event.stopPropagation();pasteImageFromClipboard('modal','${key}')">📋 貼り付け</button>
+        <button onclick="event.stopPropagation();pickFromGoogleDrive('modal','${key}')">📁 Drive</button>
       </div>`;
   } else {
     slot.classList.remove('has-photo');
@@ -2919,6 +3002,7 @@ function updateModalPhotoSlot(key){
         <span class="optional-tag">任意</span>
         <span class="photo-placeholder-sub">タップまたはドラッグで追加</span>
         <button type="button" class="paste-photo-btn" onclick="event.stopPropagation();pasteImageFromClipboard('modal','銘板')">📋 貼り付け</button>
+        <button type="button" class="paste-photo-btn" onclick="event.stopPropagation();pickFromGoogleDrive('modal','銘板')">📁 Driveから選択</button>
       </div>`;
     } else {
       slot.innerHTML=`<div class="photo-placeholder">
@@ -2927,6 +3011,7 @@ function updateModalPhotoSlot(key){
         <span class="optional-tag">任意</span>
         <span class="photo-placeholder-sub">タップまたはドラッグで追加</span>
         <button type="button" class="paste-photo-btn" onclick="event.stopPropagation();pasteImageFromClipboard('modal','全体')">📋 貼り付け</button>
+        <button type="button" class="paste-photo-btn" onclick="event.stopPropagation();pickFromGoogleDrive('modal','全体')">📁 Driveから選択</button>
       </div>`;
     }
     slot.onclick=()=>triggerModalPhoto(key);
@@ -3108,6 +3193,8 @@ function renderHistoryPhotoGrid(){
     <span style="font-size:20px">＋</span><span>写真を追加</span>
   </button><button class="btn-add-photo" onclick="pasteImageFromClipboard('history')">
     <span style="font-size:20px">📋</span><span>貼り付け</span>
+  </button><button class="btn-add-photo" onclick="pickFromGoogleDrive('history')">
+    <span style="font-size:20px">📁</span><span>Driveから選択</span>
   </button>`;
 }
 function triggerHistoryPhoto(){document.getElementById('fi_history').click();}
