@@ -1005,14 +1005,15 @@ optgroup{font-weight:700}
     <div class="modal-body">
       <div class="form-group">
         <label class="form-label">出力形式</label>
-        <select class="form-input" id="ex_format" onchange="updateExportPreview()">
+        <select class="form-input" id="ex_format" onchange="onExportFormatChange()">
           <option value="standard">標準（社内用・販社／店舗ごとのシート）</option>
           <option value="gifu_nissan">岐阜日産形式（提出用）</option>
           <option value="raw">元データ（全項目・1行1機器）</option>
+          <option value="proposal">📊 販社提案資料（全店舗）</option>
         </select>
         <div style="font-size:11px;color:var(--gray-400);margin-top:4px">撤去済みの機器はどの形式でも出力されません。</div>
       </div>
-      <div class="form-group">
+      <div class="form-group" id="ex_scope_box">
         <label class="form-label">出力単位</label>
         <div class="scope-options">
           <div class="scope-option">
@@ -1047,7 +1048,7 @@ optgroup{font-weight:700}
     </div>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeExportModal()">キャンセル</button>
-      <button class="btn-cancel" onclick="runExport('csv')">📄 CSVで出力</button>
+      <button class="btn-cancel" id="ex_csv_btn" onclick="runExport('csv')">📄 CSVで出力</button>
       <button class="btn-save" onclick="runExport('xlsx')">📥 Excelで出力</button>
     </div>
   </div>
@@ -4865,6 +4866,25 @@ function onExportScopeChange(){
   document.getElementById('ex_store_group').style.display=scope==='store'?'block':'none';
   updateExportPreview();
 }
+function onExportFormatChange(){
+  const fmt=document.getElementById('ex_format').value;
+  const scopeBox=document.getElementById('ex_scope_box');
+  const csvBtn=document.getElementById('ex_csv_btn');
+  if(fmt==='proposal'){
+    // 販社提案資料は「1社まるごと・全店舗」を連続シートで出力する固定仕様のため、
+    // 出力単位（全機器／販社別／店舗別）の選択自体を不要にし、販社選択だけ残す。
+    document.getElementById('sc_company').checked=true;
+    if(scopeBox)scopeBox.style.display='none';
+    document.getElementById('ex_company_group').style.display='block';
+    document.getElementById('ex_store_group').style.display='none';
+    if(csvBtn)csvBtn.style.display='none';
+  }else{
+    if(scopeBox)scopeBox.style.display='';
+    if(csvBtn)csvBtn.style.display='';
+    onExportScopeChange();
+  }
+  updateExportPreview();
+}
 function onExportCompanyChange(){
   const companyId=document.getElementById('ex_company').value;
   const sSel=document.getElementById('ex_store');
@@ -4975,7 +4995,7 @@ function _exportScopeData(){
 function _exportFileBase(d,fmt){
   const today=todayStr().replace(/\//g,'');
   const who=d.store?`${d.company.name}_${d.store.name}`:(d.company?d.company.name:'全社');
-  const kind={standard:'設備機器一覧',gifu_nissan:'機器管理リスト',raw:'設備機器データ'}[fmt]||'設備機器一覧';
+  const kind={standard:'設備機器一覧',gifu_nissan:'機器管理リスト',raw:'設備機器データ',proposal:'販社提案資料'}[fmt]||'設備機器一覧';
   return `${who}_${kind}_${today}`;
 }
 
@@ -5094,6 +5114,211 @@ function buildStandardFlatAoa(d){
   return aoa;
 }
 
+/* ════ 販社提案資料（全店舗） ════
+   お客様（販社）へ機器老朽化・入替提案として提出する想定の書式。
+   1社につき1枚の連続シートに「店舗見出し（店名＋状況件数）→機器一覧（カテゴリー区分）」を
+   店舗の数だけ繰り返して並べる。店舗の切れ目には改ページを入れ、台数が多い店舗は
+   自動的に次ページへ続く（1店舗を1ページに収めることを強制はしない）。
+   店舗コード・住所・電話番号・写真は載せない。未記入の値はすべて「ー」（左寄せ）に統一する。 */
+const PROPOSAL_CATEGORIES=[
+  {label:'車検機器',match:['車検機器'],rail:'9C2020'},
+  {label:'リフト',match:['リフト'],rail:'1F6F55'},
+  {label:'コンプレッサー／洗車機器',match:['コンプレッサー','洗車機器'],rail:'8A6D1F'},
+  {label:'その他',match:['その他'],rail:'3A5A8C'}
+];
+function _proposalCategory(eq){
+  const def=(masterData.equipmentNames||[]).find(x=>x.name===eq.name);
+  return (def&&def.category)||'その他';
+}
+// 製造年月（例 2014-04）を先方提出資料向けの「2014/04」表記にする
+function _proposalYm(ym){
+  const m=/^(\d{4})-(\d{1,2})/.exec(String(ym||''));
+  return m?`${m[1]}/${String(Number(m[2])).padStart(2,'0')}`:'';
+}
+// ステータスに応じた所見・ご提案欄の文言と色味
+function _proposalNote(eq){
+  const cls=statusInfo(eq.status).cls;
+  if(cls==='badge-parts')return{text:'部品供給終了・入替をご提案',kind:'alert'};
+  if(cls==='badge-danger')return{text:'早急な入替をご提案します',kind:'alert'};
+  if(cls==='badge-caution')return{text:'注意・経過観察のうえ代替をご検討ください',kind:'caution'};
+  return{text:'ー',kind:null};
+}
+
+async function exportProposalWorkbook(company,base){
+  if(typeof ExcelJS==='undefined'){showToast('⚠ 出力機能の読み込みに失敗しました。再読み込みしてお試しください','error');return;}
+  showToast('📤 販社提案資料を作成中...','info');
+  try{
+    const INK='FF1C1C1C',INK_SOFT='FF5C5C5C',GRID='FFBDBDBD',GRID_SOFT='FFE2E2E2',
+          ZEBRA='FFF5F4F2',CAUTION='FF8A5D0A',ALERT='FF9C2020';
+    const COLS=7;
+    const wb=new ExcelJS.Workbook();
+    const ws=wb.addWorksheet('販社提案資料');
+    ws.columns=[{width:13},{width:20},{width:24},{width:14},{width:11},{width:10},{width:34}];
+    ws.pageSetup={paperSize:9,orientation:'portrait',fitToPage:true,fitToWidth:1,fitToHeight:0,
+      horizontalCentered:true,margins:{left:0.45,right:0.45,top:0.5,bottom:0.5,header:0.2,footer:0.2}};
+
+    function borderAllCols(r,side){
+      for(let c=1;c<=COLS;c++){
+        const cell=ws.getCell(r,c);
+        cell.border=Object.assign({},cell.border,side);
+      }
+    }
+
+    // ── タイトル行 ──
+    ws.mergeCells(1,1,1,5);
+    const titleCell=ws.getCell(1,1);
+    titleCell.value=`${companyLabel(company)}　機器老朽化・入替のご提案`;
+    titleCell.font={size:14,bold:true,color:{argb:INK}};
+    titleCell.alignment={vertical:'middle'};
+    ws.mergeCells(1,6,1,7);
+    const dateCell=ws.getCell(1,6);
+    dateCell.value=`出力日：${todayStr()}`;
+    dateCell.font={size:10,color:{argb:INK_SOFT}};
+    dateCell.alignment={horizontal:'right',vertical:'middle'};
+    ws.getRow(1).height=22;
+    borderAllCols(1,{bottom:{style:'thin',color:{argb:GRID}}});
+
+    let r=3;
+    const stores=sortedStores(company);
+    const alive=equipments.filter(e=>!e.retired&&e.companyId===company.id);
+    let wroteAny=false,prevLastRow=null;
+
+    stores.forEach(st=>{
+      const data=alive.filter(e=>e.storeId===st.id).sort(compareEquipment);
+      if(!data.length)return;
+      if(wroteAny&&prevLastRow)ws.getRow(prevLastRow).addPageBreak();
+      wroteAny=true;
+
+      // ── 店舗見出し ──
+      ws.mergeCells(r,1,r,7);
+      const nameCell=ws.getCell(r,1);
+      nameCell.value=st.name||'ー';
+      nameCell.font={size:16,bold:true,color:{argb:INK}};
+      nameCell.alignment={vertical:'middle'};
+      ws.getRow(r).height=24;
+      borderAllCols(r,{bottom:{style:'medium',color:{argb:INK}}});
+      r++;
+
+      // ── 状況件数（総台数／注意／部品供給不可／代替推奨） ──
+      const total=data.length;
+      const cautionN=data.filter(e=>statusInfo(e.status).cls==='badge-caution').length;
+      const partsN=data.filter(e=>statusInfo(e.status).cls==='badge-parts').length;
+      const dangerN=data.filter(e=>statusInfo(e.status).cls==='badge-danger').length;
+      ws.mergeCells(r,1,r,7);
+      const cntCell=ws.getCell(r,1);
+      const seg=(label,n,color)=>[
+        {text:`${label} `,font:{size:10,color:{argb:INK_SOFT}}},
+        {text:`${n}台`,font:{size:12,bold:true,color:{argb:n?color:INK_SOFT}}},
+        {text:'　｜　',font:{size:10,color:{argb:GRID}}}
+      ];
+      let runs=[].concat(
+        seg('総台数',total,INK),
+        seg('注意',cautionN,CAUTION),
+        seg('部品供給不可',partsN,ALERT),
+        seg('代替推奨',dangerN,ALERT)
+      );
+      runs=runs.slice(0,-1);
+      cntCell.value={richText:runs};
+      cntCell.alignment={vertical:'middle'};
+      ws.getRow(r).height=20;
+      borderAllCols(r,{top:{style:'thin',color:{argb:GRID_SOFT}},bottom:{style:'thin',color:{argb:GRID_SOFT}}});
+      r++;
+
+      // ── 列ヘッダー ──
+      const HDR=['設置場所','機器名称','型式／メーカー','製造番号','製造年月','経過年数','所見・ご提案'];
+      HDR.forEach((h,i)=>{
+        const cell=ws.getCell(r,i+1);
+        cell.value=h;
+        cell.font={size:10,bold:true,color:{argb:'FFFFFFFF'}};
+        cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:INK}};
+        cell.alignment={vertical:'middle',horizontal:(i===4||i===5)?'right':'left'};
+        cell.border={top:{style:'thin',color:{argb:GRID}},bottom:{style:'thin',color:{argb:GRID}},left:{style:'thin',color:{argb:GRID}},right:{style:'thin',color:{argb:GRID}}};
+      });
+      ws.getRow(r).height=18;
+      r++;
+
+      // ── カテゴリー区分ごとの機器一覧 ──
+      let zebra=true;
+      PROPOSAL_CATEGORIES.forEach(cat=>{
+        const rows=data.filter(e=>cat.match.includes(_proposalCategory(e)));
+        if(!rows.length)return;
+
+        // バナー行（カテゴリー名＋台数、左端にカテゴリー色のアクセント）
+        ws.mergeCells(r,1,r,7);
+        const banner=ws.getCell(r,1);
+        banner.value=`${cat.label}　${rows.length}台`;
+        banner.font={size:11,bold:true,color:{argb:INK}};
+        banner.alignment={vertical:'middle',indent:1};
+        borderAllCols(r,{top:{style:'thin',color:{argb:GRID}},bottom:{style:'thin',color:{argb:GRID}}});
+        banner.border=Object.assign({},banner.border,{left:{style:'thick',color:{argb:'FF'+cat.rail}}});
+        ws.getRow(r).height=18;
+        r++;
+
+        rows.forEach(eq=>{
+          const bay=eq.bay||'ー';
+          const name=eq.name||'ー';
+          const model=eq.model||'ー';
+          const maker=eq.maker||'ー';
+          const serial=eq.serial||'ー';
+          const ymOut=_proposalYm(eq.nextcheck)||'ー';
+          const elapsedOut=calcElapsed(eq.nextcheck)||'ー';
+          const note=_proposalNote(eq);
+          const vals=[bay,name,null,serial,ymOut,elapsedOut,note.text];
+          const rowBg=zebra?ZEBRA:null;
+
+          for(let c=1;c<=7;c++){
+            const cell=ws.getCell(r,c);
+            if(c===3){
+              cell.value={richText:[
+                {text:model,font:{size:10,bold:true,color:{argb:INK}}},
+                {text:'\n'+maker,font:{size:8,color:{argb:INK_SOFT}}}
+              ]};
+              cell.alignment={vertical:'middle',wrapText:true};
+            }else{
+              cell.value=vals[c-1];
+              let align='left';
+              if((c===5||c===6)&&vals[c-1]!=='ー')align='right';
+              cell.alignment={vertical:'middle',horizontal:align,wrapText:c===7};
+              if(c===7){
+                if(note.kind==='alert')cell.font={size:10,bold:true,color:{argb:ALERT}};
+                else if(note.kind==='caution')cell.font={size:10,bold:true,color:{argb:CAUTION}};
+                else cell.font={size:10,color:{argb:INK_SOFT}};
+              }else if(c===4){
+                cell.font={size:10,color:{argb:INK_SOFT}};
+              }else{
+                cell.font={size:10,color:{argb:INK}};
+              }
+            }
+            cell.border={top:{style:'thin',color:{argb:GRID_SOFT}},bottom:{style:'thin',color:{argb:GRID_SOFT}},
+              left:(c===1?{style:'medium',color:{argb:'FF'+cat.rail}}:{style:'thin',color:{argb:GRID_SOFT}}),
+              right:{style:'thin',color:{argb:GRID_SOFT}}};
+            if(rowBg)cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:rowBg}};
+          }
+          ws.getRow(r).height=28;
+          zebra=!zebra;
+          r++;
+        });
+      });
+      r++; // 店舗間の空行
+      prevLastRow=r-2;
+    });
+
+    if(!wroteAny){showToast('⚠ 出力対象の機器がありません','error');return;}
+
+    const buffer=await wb.xlsx.writeBuffer();
+    const blob=new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=`${base}.xlsx`;
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),10000);
+    showToast('✅ 販社提案資料を出力しました','success');
+  }catch(e){
+    console.error('販社提案資料の出力に失敗しました:',e);
+    showToast(`⚠ 出力に失敗しました：${e.message||e}`,'error');
+  }
+}
+
 /* ─ CSV出力 ─ */
 function _csvEscape(v){
   const s=(v===null||v===undefined)?'':String(v);
@@ -5116,9 +5341,11 @@ function updateExportPreview(){
   const fmt=document.getElementById('ex_format').value;
   const d=_exportScopeData();
   if(!d){el.innerHTML='販社・店舗を選択してください';return;}
-  const fmtLabel={standard:'標準（社内用）',gifu_nissan:'岐阜日産形式',raw:'元データ（全項目）'}[fmt];
+  const fmtLabel={standard:'標準（社内用）',gifu_nissan:'岐阜日産形式',raw:'元データ（全項目）',proposal:'📊 販社提案資料（全店舗）'}[fmt];
   let naiyo;
-  if(fmt==='standard'){
+  if(fmt==='proposal'){
+    naiyo=d.company?`1社連続シート（${sortedStores(d.company).length}店舗分・店舗ごとに見出し＋状況件数＋機器一覧、改ページ区切り）`:'販社を選択してください';
+  }else if(fmt==='standard'){
     naiyo=d.scope==='all'?`サマリーシート ＋ 販社別シート（${d.companies.length}社）`
       :d.scope==='company'?`サマリーシート ＋ 店舗別シート`
       :'店舗詳細シート（1枚）';
@@ -5133,13 +5360,20 @@ function updateExportPreview(){
     <strong>📁 ファイル名：</strong>${base}.xlsx ／ ${base}.csv`;
 }
 
-function runExport(kind){
+async function runExport(kind){
   kind=kind||'xlsx';
   const fmt=document.getElementById('ex_format').value;
   const d=_exportScopeData();
   if(!d){showToast('⚠ 販社・店舗を選択してください','error');return;}
   if(!d.list.length){showToast('⚠ 出力対象の機器がありません','error');return;}
   const base=_exportFileBase(d,fmt);
+
+  if(fmt==='proposal'){
+    if(kind==='csv'){showToast('⚠ 販社提案資料はExcel専用です（CSV非対応）','error');return;}
+    if(!d.company){showToast('⚠ 販社を選択してください','error');return;}
+    await exportProposalWorkbook(d.company,base);
+    closeExportModal();return;
+  }
 
   if(kind==='csv'){
     const aoa=fmt==='gifu_nissan'?buildNissanAoa(d):fmt==='raw'?buildRawAoa(d):buildStandardFlatAoa(d);
