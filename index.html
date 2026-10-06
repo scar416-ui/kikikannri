@@ -1075,6 +1075,27 @@ optgroup{font-weight:700}
   </div>
 </div>
 
+<!-- ════ 店舗未設定：一括削除（重複に限らず全件対象） ════ -->
+<div class="modal-overlay" id="unsetBulkDeleteOverlay" onclick="handleUnsetBulkDeleteOverlayClick(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">🗑 店舗未設定の機器を一括削除</div>
+      <button class="btn-close" onclick="closeUnsetBulkDelete()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">
+        登録されている店舗のどれにも該当しない機器です（店舗の統廃合等で、紐づいていた店舗が削除された場合などに発生します）。<br>
+        チェックした機器を<strong style="color:var(--primary)">完全に削除</strong>します。この操作は元に戻せません。内容をよく確認してください。
+      </div>
+      <div id="unsetBulkDeleteList" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeUnsetBulkDelete()">キャンセル</button>
+      <button class="btn-danger" id="unsetBulkDeleteExecBtn" onclick="executeUnsetBulkDelete()">🗑 選択した機器を削除</button>
+    </div>
+  </div>
+</div>
+
 <!-- ════ 廃棄確認 ════ -->
 <div class="confirm-overlay" id="confirmOverlay">
   <div class="confirm-box">
@@ -1550,6 +1571,53 @@ async function executeDupCleanup(){
   applyFilters();
 }
 
+/* ════ 店舗未設定：一括削除（重複に限らず、販社をまたいで全件を対象にする） ════
+   重複整理は「既に店舗が設定されている機器と一致するもの」だけを対象にするが、
+   店舗の統廃合などで店舗自体が削除され、紐づいていた機器がまるごと孤立するケースは
+   重複とは判定されない（一致する「店舗設定済み」の機器が存在しないため）。
+   そうした機器も含めて、店舗未設定の機器を一覧で確認しながらまとめて削除できるようにする。 */
+let _unsetBulkDeleteList=[];
+function openUnsetBulkDelete(){
+  _unsetBulkDeleteList=equipments.filter(e=>!e.retired&&isStoreUnset(e));
+  renderUnsetBulkDeleteList();
+  document.getElementById('unsetBulkDeleteOverlay').classList.add('show');
+}
+function closeUnsetBulkDelete(){document.getElementById('unsetBulkDeleteOverlay').classList.remove('show')}
+function handleUnsetBulkDeleteOverlayClick(e){if(e.target===document.getElementById('unsetBulkDeleteOverlay'))closeUnsetBulkDelete()}
+function renderUnsetBulkDeleteList(){
+  const el=document.getElementById('unsetBulkDeleteList');
+  if(!_unsetBulkDeleteList.length){el.innerHTML='<div class="dup-empty">店舗未設定の機器はありません</div>';return;}
+  el.innerHTML=_unsetBulkDeleteList.map((e,i)=>{
+    const c=getCompany(e.companyId);
+    return `<label class="dup-item">
+      <input type="checkbox" data-unset-idx="${i}" checked>
+      <div class="dup-item-body">
+        <div class="dup-item-name">${e.name||'（名称未設定）'}</div>
+        <div class="dup-item-row">${c?companyLabel(c):'（販社も未設定）'}／旧店舗ID：${e.storeId||'（空欄）'}</div>
+        <div class="dup-item-row">${e.maker||''} ${e.model||'（型式なし）'} ／ 製造番号 ${e.serial||'（なし）'}</div>
+      </div>
+    </label>`;
+  }).join('');
+}
+async function executeUnsetBulkDelete(){
+  const checks=[...document.querySelectorAll('#unsetBulkDeleteList input[type=checkbox]:checked')];
+  if(!checks.length){showToast('⚠ 削除する機器を選択してください','error');return;}
+  if(!confirm(`選択した ${checks.length} 件の機器を完全に削除します。この操作は元に戻せません。よろしいですか？`))return;
+  const targets=checks.map(cb=>_unsetBulkDeleteList[Number(cb.dataset.unsetIdx)]);
+  const btn=document.getElementById('unsetBulkDeleteExecBtn');
+  btn.disabled=true;btn.textContent='削除中…';
+  for(const eq of targets){
+    const idx=equipments.findIndex(x=>x.id===eq.id);
+    if(idx!==-1)equipments.splice(idx,1);
+    await _delEq(eq.id);
+  }
+  btn.disabled=false;btn.textContent='🗑 選択した機器を削除';
+  showToast(`🗑 ${targets.length}件の店舗未設定機器を削除しました`,'');
+  closeUnsetBulkDelete();
+  rebuildStoreSelect();
+  applyFilters();
+}
+
 /* ════ 機器の検索 ════
    型式・製造番号・年式・店舗名などをまとめて探せるようにする。
    全角／半角、大文字／小文字、型式のハイフンや空白の有無で取りこぼさないよう、
@@ -1821,6 +1889,18 @@ function renderList(){
 
   // 店舗で絞り込み中は、その店舗の情報（住所・TEL/FAX・工場長・備考）を一覧の先頭に表示
   let bannerHTML='';
+  // 店舗未設定の機器は、どの絞り込み状態からでも気づけるよう、常にまとめて案内する
+  // （販社をまたいだ全件が対象。重複整理バナーは販社を絞り込んだ時だけ別途表示される）
+  const totalUnsetCount=equipments.filter(e=>!e.retired&&isStoreUnset(e)).length;
+  if(totalUnsetCount){
+    bannerHTML+=`<div class="store-info-banner">
+      <div class="store-info-banner-head">
+        <div class="store-info-banner-title">⚠ 店舗未設定の機器</div>
+        <button class="store-info-banner-btn" onclick="openUnsetBulkDelete()">🗑 確認して削除（${totalUnsetCount}件）</button>
+      </div>
+      <div class="store-info-banner-meta">登録されている店舗のどれにも該当しない機器が、販社をまたいで合計 ${totalUnsetCount} 件あります。内容を確認のうえ、不要なものを削除できます。</div>
+    </div>`;
+  }
   if(filters.storeId===STORE_UNSET&&filters.companyId){
     const dupCount=findDupCandidates(filters.companyId).length;
     bannerHTML=`<div class="store-info-banner">
