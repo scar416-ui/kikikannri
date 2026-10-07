@@ -5396,7 +5396,9 @@ async function exportProposalWorkbook(company,base){
           DANGER_FILL='FFFFF176'; // 危険（要代替）の機器を一目で分かるように塗りつぶす黄色
     const COLS=7;
     const wb=new ExcelJS.Workbook();
-    const ws=wb.addWorksheet('販社提案資料');
+    // シートタブ名はExcelの制約（31文字以内、\ / ? * [ ] : が使用不可）に合わせて販社名から作る
+    const sheetName=((company&&company.name)||'機器一覧').replace(/[\\\/\?\*\[\]:]/g,'_').slice(0,31)||'機器一覧';
+    const ws=wb.addWorksheet(sheetName);
     ws.columns=[{width:13},{width:20},{width:24},{width:14},{width:11},{width:10},{width:34}];
     ws.pageSetup={paperSize:9,orientation:'portrait',fitToPage:true,fitToWidth:1,fitToHeight:0,
       horizontalCentered:true,margins:{left:0.45,right:0.45,top:0.5,bottom:0.5,header:0.2,footer:0.2}};
@@ -5416,7 +5418,7 @@ async function exportProposalWorkbook(company,base){
     const titleCell=ws.getCell(1,1);
     titleCell.value={richText:[
       {text:`${(company&&company.name)||'-'}　様\n`,font:{size:17,bold:true,color:{argb:INK}}},
-      {text:'機器老朽化・入替のご提案資料',font:{size:10,color:{argb:INK_SOFT}}}
+      {text:'機器一覧',font:{size:10,color:{argb:INK_SOFT}}}
     ]};
     titleCell.alignment={vertical:'middle',wrapText:true};
     ws.mergeCells(1,6,1,7);
