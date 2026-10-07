@@ -1155,6 +1155,25 @@ optgroup{font-weight:700}
   <div class="lightbox-zoomhint" id="lightboxZoomHint">🔍 ダブルタップ／ピンチ／ホイールでさらに拡大できます</div>
 </div>
 
+<!-- ════ Driveから選択した写真の確認モーダル ════
+     Google Picker自体のサムネイル表示がGoogle側の不具合で機能しないため、
+     ダウンロード直後にアプリ側で正しいプレビューを表示し、ユーザーが
+     「この写真で間違いないか」を確認してから追加できるようにする。 -->
+<div class="lightbox" id="driveConfirmOverlay" style="z-index:600" onclick="_driveConfirmCancel()">
+  <div style="display:flex;justify-content:flex-end;width:90vw">
+    <button class="lightbox-close" onclick="_driveConfirmCancel()">✕</button>
+  </div>
+  <div class="lightbox-label" id="driveConfirmLabel"></div>
+  <div class="lightbox-imgwrap" onclick="event.stopPropagation()">
+    <img id="driveConfirmImg" src="" alt="確認用プレビュー" style="cursor:default">
+  </div>
+  <div style="color:rgba(255,255,255,.75);font-size:13px;margin-top:4px">この写真を追加しますか？</div>
+  <div style="display:flex;gap:12px;margin-top:14px" onclick="event.stopPropagation()">
+    <button class="btn-cancel" onclick="_driveConfirmCancel()">キャンセル（選び直す）</button>
+    <button class="btn-save" onclick="_driveConfirmAccept()">✅ この写真を追加する</button>
+  </div>
+</div>
+
 <!-- ════ 代替提案書：写真選択モーダル ════ -->
 <div class="modal-overlay" id="proposalPhotoOverlay" onclick="handleProposalPhotoOverlayClick(event)">
   <div class="modal">
@@ -2318,6 +2337,7 @@ function _ensureDrivePicker(){
 }
 async function _downloadDriveFileAndDispatch(fileId,fileName,mimeType,scope,key){
   try{
+    showToast('📥 Driveから写真を読み込み中…','info');
     const token=await _getDriveToken();
     // supportsAllDrives=true を付けないと、共有ドライブ（チームドライブ）内のファイルを
     // 取得しようとした際にHTTP 404（ファイルが見つかりません）になることがあるため付与する
@@ -2327,11 +2347,38 @@ async function _downloadDriveFileAndDispatch(fileId,fileName,mimeType,scope,key)
     if(!r.ok)throw new Error('ファイルの取得に失敗しました（HTTP '+r.status+'）');
     const blob=await r.blob();
     const file=new File([blob],fileName||('drive_'+fileId),{type:mimeType||blob.type||'image/jpeg'});
-    _pasteToSlot(key?`${scope}:${key}`:scope,file);
+    // Google Picker自体のサムネイル表示がGoogle側の不具合で機能しないため、
+    // ここで即座に追加はせず、アプリ側で正しいプレビューを見せてから
+    // ユーザーに追加するかどうかを確認してもらう（誤った写真の追加を防ぐ）
+    _showDriveConfirm(file,scope,key);
   }catch(e){
     console.error('Driveからの写真取得に失敗:',e);
     showToast('⚠ Driveからの写真取得に失敗しました: '+((e&&e.message)||e),'error');
   }
+}
+let _driveConfirmFile=null,_driveConfirmScope=null,_driveConfirmKey=null,_driveConfirmUrl=null;
+function _showDriveConfirm(file,scope,key){
+  _driveConfirmFile=file;_driveConfirmScope=scope;_driveConfirmKey=key;
+  if(_driveConfirmUrl)URL.revokeObjectURL(_driveConfirmUrl);
+  _driveConfirmUrl=URL.createObjectURL(file);
+  document.getElementById('driveConfirmImg').src=_driveConfirmUrl;
+  document.getElementById('driveConfirmLabel').textContent=file.name||'';
+  document.getElementById('driveConfirmOverlay').classList.add('show');
+}
+function _driveConfirmAccept(){
+  if(_driveConfirmFile){
+    _pasteToSlot(_driveConfirmKey?`${_driveConfirmScope}:${_driveConfirmKey}`:_driveConfirmScope,_driveConfirmFile);
+  }
+  _closeDriveConfirm();
+}
+function _driveConfirmCancel(){
+  _closeDriveConfirm();
+}
+function _closeDriveConfirm(){
+  document.getElementById('driveConfirmOverlay').classList.remove('show');
+  if(_driveConfirmUrl){URL.revokeObjectURL(_driveConfirmUrl);_driveConfirmUrl=null;}
+  _driveConfirmFile=null;_driveConfirmScope=null;_driveConfirmKey=null;
+  document.getElementById('driveConfirmImg').src='';
 }
 async function pickFromGoogleDrive(scope,key){
   let token;
