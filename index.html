@@ -1384,17 +1384,21 @@ function _scrollEditFormIntoView(id){
 }
 function getBayTypeByName(name){ return masterData.bayTypes.find(b=>b.name===name)||null; }
 function parseBay(bay){
-  if(!bay)return{type:'',num:''};
+  if(!bay)return{type:'',num:'',hadSuffix:false};
   for(const bt of masterData.bayTypes){
     if(bt.hasNumber){
       // ベイ番号は数字（3→「3番」）だけでなく、A・Bなどの文字も入力できる。
       // 数字の場合のみ末尾に自動で付く「番」を取り除いて元の入力値を復元する。
-      const m=bay.match(new RegExp('^'+_escRe(bt.name)+'\\s+(.+?)番?$'));
-      if(m)return{type:bt.name,num:m[1]};
+      const m=bay.match(new RegExp('^'+_escRe(bt.name)+'\\s+(.+?)(番)?$'));
+      if(m)return{type:bt.name,num:m[1],hadSuffix:!!m[2]};
     }
   }
-  return{type:bay,num:''};
+  return{type:bay,num:'',hadSuffix:false};
 }
+// 編集時に、元のベイ表記が数字だけ（「3」）だったか「番」付き（「3番」）だったかを覚えておき、
+// ベイ番号以外の項目だけを変更して保存した場合でも、勝手に「番」が付いたり外れたりしないようにする。
+// （「番」の有無の統一は、専用の「整備ベイの表記統一」機能から明示的に行う）
+let _bayNumHadSuffix=true;
 function buildBay(){
   const type=document.getElementById('f_bay_type').value;
   if(!type)return'';
@@ -1402,9 +1406,10 @@ function buildBay(){
   if(bt&&bt.hasNumber){
     const n=_toHalfWidthDigits(document.getElementById('f_bay_num').value.trim());
     if(!n)return type;
-    // 数字のみの場合は従来通り「3番」のように「番」を付け、
+    // 数字のみの場合、元々「番」付きだった（または新規入力の）場合は従来通り「3番」のように
+    // 「番」を付け、元々「番」なしだった場合はそのまま数字だけを維持する。
     // A・Bなど数字以外が含まれる場合はそのまま表示する（例：「A」）。
-    return /^\d+$/.test(n)?`${type} ${n}番`:`${type} ${n}`;
+    return(/^\d+$/.test(n)&&_bayNumHadSuffix)?`${type} ${n}番`:`${type} ${n}`;
   }
   return type;
 }
@@ -1415,6 +1420,8 @@ function onBayTypeChange(){
   const show=!!(bt&&bt.hasNumber);
   grp.style.display=show?'block':'none';
   if(!show)document.getElementById('f_bay_num').value='';
+  // ユーザーが手動でベイ種別を変更した場合は、新規入力扱いとして従来通り「番」を付ける
+  _bayNumHadSuffix=true;
 }
 function onEquipmentNameChange(){
   const name=document.getElementById('f_name').value;
@@ -1428,11 +1435,14 @@ function onEquipmentNameChange(){
   }
 }
 function setBayValue(bay){
-  const{type,num}=parseBay(bay);
+  const{type,num,hadSuffix}=parseBay(bay);
   document.getElementById('f_bay_type').value=type;
   const bt=getBayTypeByName(type);
   document.getElementById('f_bay_num_group').style.display=(bt&&bt.hasNumber)?'block':'none';
   document.getElementById('f_bay_num').value=num;
+  // 既存の表記（「番」の有無）を保存時にも維持する。bayが空（新規追加）の場合は
+  // 従来通り「番」を自動で付ける挙動のままにする。
+  _bayNumHadSuffix=bay?hadSuffix:true;
 }
 
 /* ════ 動的セレクト構築 ════ */
@@ -4042,6 +4052,7 @@ function clearForm(){
   document.getElementById('f_bay_type').value='';
   document.getElementById('f_bay_num').value='';
   document.getElementById('f_bay_num_group').style.display='none';
+  _bayNumHadSuffix=true;
   ['err_model','err_serial'].forEach(id=>document.getElementById(id).style.display='none');
   ['f_model','f_serial'].forEach(id=>document.getElementById(id).classList.remove('error'));
   _resetNameplateTouched(null);
@@ -4930,10 +4941,11 @@ function saveBayTypeItem(){
         equipments.forEach(eq=>{
           if(eq.bay===oldName){eq.bay=name;_saveEq(eq);}
           else if(b.hasNumber){
-            const m=eq.bay&&eq.bay.match(new RegExp('^'+_escRe(oldName)+'\\s+(.+?)番?$'));
+            const m=eq.bay&&eq.bay.match(new RegExp('^'+_escRe(oldName)+'\\s+(.+?)(番)?$'));
             if(m){
-              const raw=m[1];
-              eq.bay=/^\d+$/.test(raw)?`${name} ${raw}番`:`${name} ${raw}`;
+              const raw=m[1];const hadSuffix=!!m[2];
+              // 名称変更のみが目的のため、「番」の有無など元の表記はそのまま維持する
+              eq.bay=(/^\d+$/.test(raw)&&hadSuffix)?`${name} ${raw}番`:`${name} ${raw}`;
               _saveEq(eq);
             }
           }
