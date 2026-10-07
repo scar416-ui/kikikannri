@@ -443,6 +443,14 @@ optgroup{font-weight:700}
     <span class="filter-arrow">›</span>
 
     <div class="filter-group">
+      <select id="filterStatus" onchange="onFilterStatusChange()">
+        <option value="">ステータス (全て)</option>
+      </select>
+    </div>
+
+    <span class="filter-arrow">›</span>
+
+    <div class="filter-group">
       <label style="display:flex;align-items:center;gap:4px;font-size:13px;color:var(--gray-500);cursor:pointer;white-space:nowrap">
         <input type="checkbox" id="filterShowRetired" onchange="onFilterShowRetiredChange()">
         🗑 撤去済みも表示
@@ -1560,7 +1568,7 @@ let nextId=7;
 let currentEq=null;
 let isEditMode=false;
 let filters={region:'',category:'',companyId:'',storeId:'',showRetired:false,q:'',
-  model:'',eqName:'',elapsedYears:'',elapsedOp:'gte'};
+  status:'',model:'',eqName:'',elapsedYears:'',elapsedOp:'gte'};
 // 店舗の絞り込みで使う特別な値。店舗が削除された等の理由で、販社に登録されている
 // どの店舗にも該当しない機器（＝店舗が未設定の機器）だけを表示するために使う。
 const STORE_UNSET='__unset__';
@@ -1855,6 +1863,18 @@ function onFilterShowRetiredChange(){
   filters.showRetired=document.getElementById('filterShowRetired').checked;
   applyFilters();
 }
+function onFilterStatusChange(){
+  filters.status=document.getElementById('filterStatus').value;
+  applyFilters();
+}
+function rebuildStatusFilterSelect(){
+  const sel=document.getElementById('filterStatus');if(!sel)return;
+  const prev=sel.value;
+  sel.innerHTML='<option value="">ステータス (全て)</option>'
+    +masterData.statuses.map(s=>`<option value="${s.id}">${s.label}</option>`).join('');
+  if(prev&&masterData.statuses.some(s=>s.id===prev))sel.value=prev;
+  else{sel.value='';filters.status='';}
+}
 function onFilterSearchChange(){
   const el=document.getElementById('filterSearch');
   filters.q=el.value;
@@ -1984,6 +2004,7 @@ function getFiltered(){
       if(!isStoreUnset(eq))return false;
     }else if(filters.storeId&&eq.storeId!==filters.storeId)return false;
     if(!filters.showRetired&&eq.retired)return false;
+    if(filters.status&&eq.status!==filters.status)return false;
     if(!matchesSearch(eq,terms))return false;
     if(filters.model&&_normSearch(eq.model).indexOf(_normSearch(filters.model))<0)return false;
     if(filters.eqName){
@@ -4897,6 +4918,7 @@ function saveStatusItem(){
   }
   _saveMd();
   rebuildStatusSelect();
+  rebuildStatusFilterSelect();
   renderStatusManageList();
   renderList();
   showToast(`✅ ステータス「${label}」を保存しました`,'success');
@@ -4917,6 +4939,7 @@ function executeDeleteStatus(id){
   if(idx!==-1)masterData.statuses.splice(idx,1);
   _saveMd();
   rebuildStatusSelect();
+  rebuildStatusFilterSelect();
   if(_editingStatusId===id)cancelEditStatus();
   renderStatusManageList();
   renderList();
@@ -5802,7 +5825,7 @@ function _initFirestore(){
     // サーバーで確認された（キャッシュのみではない）データに対してのみ、
     // 移行処理からの自動保存を行う。古いキャッシュデータでの誤った自動保存を防ぐため。
     if(!snap.metadata.fromCache&&_migrateStoreManagers())_saveMd();
-    rebuildCompanySelect();rebuildEquipmentNameSelect();rebuildEqNameFilterSelect();rebuildStatusSelect();rebuildBayTypeSelect();
+    rebuildCompanySelect();rebuildEquipmentNameSelect();rebuildEqNameFilterSelect();rebuildStatusSelect();rebuildStatusFilterSelect();rebuildBayTypeSelect();
     renderItemManageLists();renderList();
     if(currentEq)renderDetail();
   },err=>console.error('masterData snapshot error:',err));
@@ -6361,6 +6384,7 @@ window.addEventListener('online',()=>{
 rebuildCompanySelect();
 rebuildEquipmentNameSelect();rebuildEqNameFilterSelect();
 rebuildStatusSelect();
+rebuildStatusFilterSelect();
 rebuildBayTypeSelect();
 renderList();
 // 前回終了時に残っていた送信待ち写真があれば、バッジ表示・インジケーターに反映しておく
