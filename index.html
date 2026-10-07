@@ -1654,7 +1654,8 @@ async function executeUnsetBulkDelete(){
 const BAY_NORMALIZE_RE=/^(.+?)\s*([0-9]+)番$/;
 let _bayNormalizeList=[];
 function _findBayNormalizeTargets(){
-  return equipments.filter(e=>!e.retired&&e.bay&&BAY_NORMALIZE_RE.test(e.bay));
+  // 撤去済みの機器も含めて対象にする（表記ゆれは稼働中／撤去済みを問わず発生するため）
+  return equipments.filter(e=>e.bay&&BAY_NORMALIZE_RE.test(e.bay));
 }
 function openBayNormalize(){
   _bayNormalizeList=_findBayNormalizeTargets();
@@ -1672,7 +1673,7 @@ function renderBayNormalizeList(){
     return `<label class="dup-item">
       <input type="checkbox" data-baynorm-idx="${i}" checked>
       <div class="dup-item-body">
-        <div class="dup-item-name">${e.name||'（名称未設定）'}</div>
+        <div class="dup-item-name">${e.name||'（名称未設定）'}${e.retired?'<span class="badge badge-gray" style="margin-left:6px;font-size:11px">🗑 撤去済み</span>':''}</div>
         <div class="dup-item-row">${c?companyLabel(c):''}${st?'／'+storeLabel(st):''}</div>
         <div class="dup-item-row">「${e.bay}」→「${newBay}」に変更</div>
       </div>
@@ -1986,7 +1987,7 @@ function renderList(){
         <div class="store-info-banner-title">🔧 整備ベイの表記ゆれ</div>
         <button class="store-info-banner-btn" onclick="openBayNormalize()">✓ 確認して統一（${bayNormalizeCount}件）</button>
       </div>
-      <div class="store-info-banner-meta">整備ベイの表記に「3番」と数字だけのものが混在しています。販社をまたいで合計 ${bayNormalizeCount} 件あります。内容を確認のうえ、数字だけの表記に統一できます。</div>
+      <div class="store-info-banner-meta">整備ベイの表記に「3番」と数字だけのものが混在しています（撤去済みの機器を含む）。販社をまたいで合計 ${bayNormalizeCount} 件あります。内容を確認のうえ、数字だけの表記に統一できます。</div>
     </div>`;
   }
   if(filters.storeId===STORE_UNSET&&filters.companyId){
