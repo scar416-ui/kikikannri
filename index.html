@@ -5336,7 +5336,8 @@ async function exportProposalWorkbook(company,base){
   showToast('📤 販社提案資料を作成中...','info');
   try{
     const INK='FF1C1C1C',INK_SOFT='FF5C5C5C',GRID='FFBDBDBD',GRID_SOFT='FFE2E2E2',
-          ZEBRA='FFF5F4F2',CAUTION='FF8A5D0A',ALERT='FF9C2020';
+          ZEBRA='FFF5F4F2',CAUTION='FF8A5D0A',ALERT='FF9C2020',
+          DANGER_FILL='FFFFF176'; // 危険（要代替）の機器を一目で分かるように塗りつぶす黄色
     const COLS=7;
     const wb=new ExcelJS.Workbook();
     const ws=wb.addWorksheet('販社提案資料');
@@ -5354,7 +5355,7 @@ async function exportProposalWorkbook(company,base){
     // ── タイトル行 ──
     ws.mergeCells(1,1,1,5);
     const titleCell=ws.getCell(1,1);
-    titleCell.value=`${companyLabel(company)}　機器老朽化・入替のご提案`;
+    titleCell.value=`${(company&&company.name)||'ー'}　様　機器一覧`;
     titleCell.font={size:14,bold:true,color:{argb:INK}};
     titleCell.alignment={vertical:'middle'};
     ws.mergeCells(1,6,1,7);
@@ -5400,9 +5401,9 @@ async function exportProposalWorkbook(company,base){
       ];
       let runs=[].concat(
         seg('総台数',total,INK),
-        seg('注意',cautionN,CAUTION),
+        seg('注意・経過観察（経年劣化等）',cautionN,CAUTION),
         seg('部品供給不可',partsN,ALERT),
-        seg('代替推奨',dangerN,ALERT)
+        seg('危険・使用不可',dangerN,ALERT)
       );
       runs=runs.slice(0,-1);
       cntCell.value={richText:runs};
@@ -5451,7 +5452,9 @@ async function exportProposalWorkbook(company,base){
           const elapsedOut=calcElapsed(eq.nextcheck)||'ー';
           const note=_proposalNote(eq);
           const vals=[bay,name,null,serial,ymOut,elapsedOut,note.text];
-          const rowBg=zebra?ZEBRA:null;
+          // 危険（要代替）の機器は、ゼブラ柄より優先して黄色塗りつぶしで一目で分かるようにする
+          const isDanger=statusInfo(eq.status).cls==='badge-danger';
+          const rowBg=isDanger?DANGER_FILL:(zebra?ZEBRA:null);
 
           for(let c=1;c<=7;c++){
             const cell=ws.getCell(r,c);
