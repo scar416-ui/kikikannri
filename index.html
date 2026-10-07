@@ -2366,10 +2366,13 @@ function _showDriveConfirm(file,scope,key){
   document.getElementById('driveConfirmOverlay').classList.add('show');
 }
 function _driveConfirmAccept(){
-  if(_driveConfirmFile){
-    _pasteToSlot(_driveConfirmKey?`${_driveConfirmScope}:${_driveConfirmKey}`:_driveConfirmScope,_driveConfirmFile);
-  }
+  // 連打やダブルクリックで追加処理が2重に走らないよう、ファイルを即座に退避してから
+  // 状態をクリアする（_driveConfirmFileを先にnullにしてから非同期処理に渡す）
+  const file=_driveConfirmFile,scope=_driveConfirmScope,key=_driveConfirmKey;
   _closeDriveConfirm();
+  if(file){
+    _pasteToSlot(key?`${scope}:${key}`:scope,file);
+  }
 }
 function _driveConfirmCancel(){
   _closeDriveConfirm();
@@ -2406,12 +2409,21 @@ async function pickFromGoogleDrive(scope,key){
       // setAppId（GCPプロジェクト番号）の指定が必須。これが無いと選択自体はできても
       // 実際のファイル取得時にHTTP 404（権限不足を隠すためのGoogle側の仕様）になる。
       .setAppId(firebaseConfig.messagingSenderId)
-      .setCallback(data=>{
-        if(data.action===google.picker.Action.PICKED){
-          const doc=data.docs[0];
-          _downloadDriveFileAndDispatch(doc.id,doc.name,doc.mimeType,scope,key);
-        }
-      })
+      .setCallback((()=>{
+        // Google Picker はファイルをダブルクリックした場合など、1回の選択操作でも
+        // PICKEDイベントが2回発火することがある（Google側の既知の挙動）。
+        // 何も対策しないと写真が2枚登録されてしまうため、1回のPicker表示につき
+        // 最初の1回のみ処理するようにする。
+        let handled=false;
+        return data=>{
+          if(data.action===google.picker.Action.PICKED){
+            if(handled)return;
+            handled=true;
+            const doc=data.docs[0];
+            _downloadDriveFileAndDispatch(doc.id,doc.name,doc.mimeType,scope,key);
+          }
+        };
+      })())
       .build();
     picker.setVisible(true);
   }catch(e){
