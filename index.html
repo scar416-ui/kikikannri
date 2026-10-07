@@ -5459,7 +5459,53 @@ async function exportProposalWorkbook(company,base){
     ws.getRow(2).height=22;
     borderAllCols(2,{bottom:{style:'thin',color:{argb:GRID}}});
 
-    let r=4; // 1:タイトル 2:販社全体サマリー 3:空行 4〜:店舗セクション
+    let r=4; // 1:タイトル 2:販社全体サマリー 3:空行 4〜:目次（店舗別ページ案内）
+
+    // ── 目次（店舗別ページ案内） ──
+    // 店舗ごとに必ず改ページしているため、目次の次ページ（2ページ目）から店舗の数だけ順にページが並ぶ。
+    // 目次の最後で改ページすることで、店舗セクションは常に2ページ目から始まるようにする。
+    const storeEntries=stores
+      .map(st=>({st,data:alive.filter(e=>e.storeId===st.id)}))
+      .filter(x=>x.data.length);
+    if(storeEntries.length){
+      ws.mergeCells(r,1,r,7);
+      const idxLabelCell=ws.getCell(r,1);
+      idxLabelCell.value='📑 目次（店舗別ページ案内）';
+      idxLabelCell.font={size:11,bold:true,color:{argb:INK}};
+      idxLabelCell.alignment={vertical:'middle'};
+      ws.getRow(r).height=20;
+      borderAllCols(r,{bottom:{style:'thin',color:{argb:GRID_SOFT}}});
+      r++;
+
+      let pageNo=2;
+      storeEntries.forEach(({st,data})=>{
+        const total=data.length;
+        const cautionN=data.filter(e=>statusInfo(e.status).cls==='badge-caution').length;
+        const partsN=data.filter(e=>statusInfo(e.status).cls==='badge-parts').length;
+        const dangerN=data.filter(e=>statusInfo(e.status).cls==='badge-danger').length;
+        ws.mergeCells(r,1,r,7);
+        const idxCell=ws.getCell(r,1);
+        let idxRuns=[
+          {text:st.name||'-',font:{size:11,bold:true,color:{argb:INK}}},
+          {text:`　P.${pageNo}　｜　`,font:{size:10,color:{argb:INK_SOFT}}}
+        ].concat(
+          seg('総台数',total,INK),
+          seg('注意・経過観察（経年劣化等）',cautionN,CAUTION),
+          seg('部品供給不可',partsN,ALERT),
+          seg('危険・使用不可',dangerN,ALERT)
+        );
+        idxRuns=idxRuns.slice(0,-1);
+        idxCell.value={richText:idxRuns};
+        idxCell.alignment={vertical:'middle'};
+        ws.getRow(r).height=17;
+        borderAllCols(r,{bottom:{style:'thin',color:{argb:GRID_SOFT}}});
+        r++;
+        pageNo++;
+      });
+
+      wroteAny=true;
+      prevLastRow=r-1; // この行の直後で改ページ→店舗セクションは2ページ目から開始
+    }
 
     stores.forEach(st=>{
       const data=alive.filter(e=>e.storeId===st.id).sort(compareEquipment);
