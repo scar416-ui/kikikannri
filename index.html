@@ -600,6 +600,7 @@ optgroup{font-weight:700}
           <select class="form-input" id="f_nextcheck_year" onchange="markNameplateFieldTouched('mfgDate')"><option value="">年</option></select>
           <select class="form-input" id="f_nextcheck_month" onchange="markNameplateFieldTouched('mfgDate')"><option value="">月</option></select>
         </div>
+        <div style="font-size:12px;color:var(--gray-500);margin-top:4px">月が分からない場合は、年だけ選択すれば登録できます</div>
       </div>
 
       <!-- ── 設置場所 ── -->
@@ -1477,35 +1478,51 @@ function rebuildBayTypeSelect(){
 }
 
 /* ════ ELAPSED ════ */
+// 製造年月は「2014-04」（年月）のほか、月が不明な機器向けに「2014」（年のみ）も許容する。
+// 年のみの場合は月が分からないため、1月とみなして計算する（＝その年のうちで最も古い扱いとなる、安全側の見積もり）。
+function _parseYm(d){
+  const s=String(d||'');
+  let m=/^(\d{4})-(\d{1,2})$/.exec(s);
+  if(m)return{y:Number(m[1]),m:Number(m[2]),hasMonth:true};
+  m=/^(\d{4})$/.exec(s);
+  if(m)return{y:Number(m[1]),m:1,hasMonth:false};
+  return null;
+}
 function calcElapsed(d){
   if(!d)return null;
-  const[y,m]=d.split('-').map(Number);
+  const p=_parseYm(d);
+  if(!p)return null;
   const now=new Date();
-  const months=(now.getFullYear()-y)*12+(now.getMonth()+1-m);
+  const months=(now.getFullYear()-p.y)*12+(now.getMonth()+1-p.m);
   if(months<0)return null;
   const yr=Math.floor(months/12),mo=months%12;
+  // 年のみ登録の機器は月数まで分からないため、月の端数は表示しない
+  if(!p.hasMonth)return yr<=0?'1年未満':yr+'年';
   if(yr===0)return mo+'ヶ月';
   if(mo===0)return yr+'年';
   return yr+'年 '+mo+'ヶ月';
 }
 function isOld(d){
   if(!d)return false;
-  const[y,m]=d.split('-').map(Number);
+  const p=_parseYm(d);
+  if(!p)return false;
   const now=new Date();
-  return(now.getFullYear()-y)*12+(now.getMonth()+1-m)>=120;
+  return(now.getFullYear()-p.y)*12+(now.getMonth()+1-p.m)>=120;
 }
-// 製造年月（例 2014-04）を一覧表示向けの「2014年4月」表記にする
+// 製造年月（例 2014-04 または年のみ 2014）を一覧表示向けの「2014年4月」「2014年」表記にする
 function _ymLabel(d){
-  const m=/^(\d{4})-(\d{1,2})/.exec(String(d||''));
-  return m?`${m[1]}年${Number(m[2])}月`:(d||'');
+  const p=_parseYm(d);
+  if(!p)return(d||'');
+  return p.hasMonth?`${p.y}年${p.m}月`:`${p.y}年`;
 }
 // 「経過年数」での絞り込みに使う、経過月数（整数）。日付が未記入／不正な場合はnull。
+// 年のみ登録の機器は1月とみなして計算する（calcElapsed/isOldと同じ扱い）。
 function _elapsedMonths(d){
   if(!d)return null;
-  const[y,m]=String(d).split('-').map(Number);
-  if(!y||!m)return null;
+  const p=_parseYm(d);
+  if(!p)return null;
   const now=new Date();
-  const months=(now.getFullYear()-y)*12+(now.getMonth()+1-m);
+  const months=(now.getFullYear()-p.y)*12+(now.getMonth()+1-p.m);
   return months<0?null:months;
 }
 
@@ -2212,7 +2229,7 @@ function renderDetail(){
         </div>
         <div class="info-item">
           <div class="info-item-label">製造年月</div>
-          <div class="info-item-value">${eq.nextcheck||'—'}</div>
+          <div class="info-item-value">${_ymLabel(eq.nextcheck)||'—'}</div>
           ${mfgElapsed?`<div class="elapsed-badge ${mfgOld?'old':'normal'}">${mfgElapsed}経過${mfgOld?' ⚠':''}</div>`:''}
         </div>
       </div>
@@ -4106,7 +4123,10 @@ function _mfgSelectsGet(){
   const ySel=document.getElementById('f_nextcheck_year');
   const mSel=document.getElementById('f_nextcheck_month');
   const y=ySel?ySel.value:'',m=mSel?mSel.value:'';
-  if(!y||!m)return '';
+  if(!y)return '';
+  // 月が分からない機器も多いため、月が未選択の場合は年だけ（例：「2014」）を保存する。
+  // 年月（「2014-04」）とは区別できるよう、年のみのときはハイフンを付けない。
+  if(!m)return y;
   return `${y}-${String(m).padStart(2,'0')}`;
 }
 function _mfgSelectsSet(ym){
@@ -4115,9 +4135,15 @@ function _mfgSelectsSet(ym){
   const mSel=document.getElementById('f_nextcheck_month');
   if(!ySel||!mSel)return;
   if(ym){
-    const[y,m]=ym.split('-');
-    ySel.value=y;
-    mSel.value=String(Number(m));
+    // 年のみ（「2014」）の場合は月を未選択のままにする
+    if(/^\d{4}$/.test(String(ym))){
+      ySel.value=ym;
+      mSel.value='';
+    }else{
+      const[y,m]=String(ym).split('-');
+      ySel.value=y;
+      mSel.value=String(Number(m));
+    }
   }else{
     ySel.value='';
     mSel.value='';
@@ -5188,15 +5214,20 @@ function _exportFileBase(d,fmt){
 
 // 製造年月（例 2014-04）から先方書式の製造記号（例 14-D）を作る。A=1月〜L=12月。
 function _seizoKigo(ym){
-  const m=/^(\d{4})-(\d{1,2})/.exec(String(ym||''));
-  if(!m)return '';
-  const mo=Number(m[2]);
-  if(mo<1||mo>12)return '';
-  return m[1].slice(2)+'-'+'ABCDEFGHIJKL'[mo-1];
+  const m=/^(\d{4})-(\d{1,2})$/.exec(String(ym||''));
+  if(m){
+    const mo=Number(m[2]);
+    if(mo<1||mo>12)return '';
+    return m[1].slice(2)+'-'+'ABCDEFGHIJKL'[mo-1];
+  }
+  // 年のみ登録の場合は月の記号が付けられないため、年の下2桁だけを返す
+  const yOnly=/^(\d{4})$/.exec(String(ym||''));
+  return yOnly?yOnly[1].slice(2):'';
 }
 function _ymJa(ym){
-  const m=/^(\d{4})-(\d{1,2})/.exec(String(ym||''));
-  return m?`${m[1]}年${Number(m[2])}月`:'';
+  const p=_parseYm(ym);
+  if(!p)return '';
+  return p.hasMonth?`${p.y}年${p.m}月`:`${p.y}年`;
 }
 
 /* 岐阜日産の「機器管理リスト」書式で使う分類名（と、先方の機器分類コード）。
@@ -5319,8 +5350,9 @@ function _proposalCategory(eq){
 }
 // 製造年月（例 2014-04）を先方提出資料向けの「2014/04」表記にする
 function _proposalYm(ym){
-  const m=/^(\d{4})-(\d{1,2})/.exec(String(ym||''));
-  return m?`${m[1]}/${String(Number(m[2])).padStart(2,'0')}`:'';
+  const p=_parseYm(ym);
+  if(!p)return '';
+  return p.hasMonth?`${p.y}/${String(p.m).padStart(2,'0')}`:`${p.y}`;
 }
 // ステータスに応じた所見・ご提案欄の文言と色味
 function _proposalNote(eq){
