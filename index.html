@@ -2350,8 +2350,7 @@ async function pickFromGoogleDrive(scope,key){
   try{
     const view=new google.picker.DocsView(google.picker.ViewId.DOCS_IMAGES)
       .setIncludeFolders(true)
-      .setSelectFolderEnabled(false)
-      .setEnableDrives(true); // 共有ドライブ（チームドライブ）内のファイルも一覧・選択できるようにする
+      .setSelectFolderEnabled(false);
     const picker=new google.picker.PickerBuilder()
       .addView(view)
       .setOAuthToken(token)
