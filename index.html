@@ -212,6 +212,8 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .history-note{font-size:12px;color:var(--gray-500);line-height:1.5}
 .btn-del-history{background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:14px;padding:2px 4px;border-radius:4px;flex-shrink:0}
 .btn-del-history:hover{color:var(--primary);background:var(--primary-light)}
+.btn-edit-history{background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:14px;padding:2px 4px;border-radius:4px;flex-shrink:0}
+.btn-edit-history:hover{color:var(--gray-700);background:var(--gray-100)}
 .history-empty{text-align:center;padding:24px;color:var(--gray-400);font-size:13px}
 .btn-add-history{background:#fff;border:2px dashed var(--primary-border);color:var(--primary);padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px}
 .btn-add-history:hover{background:var(--primary-light)}
@@ -660,7 +662,7 @@ optgroup{font-weight:700}
 <div class="modal-overlay" id="historyModalOverlay" onclick="handleHistoryOverlayClick(event)">
   <div class="modal">
     <div class="modal-header">
-      <div class="modal-title">🔧 保守履歴を追加</div>
+      <div class="modal-title" id="historyModalTitle">🔧 保守履歴を追加</div>
       <button class="btn-close" onclick="closeHistoryModal()">✕</button>
     </div>
     <div class="modal-body">
@@ -699,7 +701,7 @@ optgroup{font-weight:700}
     </div>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeHistoryModal()">キャンセル</button>
-      <button class="btn-save" onclick="saveHistory()">💾 追加する</button>
+      <button class="btn-save" id="historySaveBtn" onclick="saveHistory()">💾 追加する</button>
     </div>
   </div>
 </div>
@@ -2157,7 +2159,10 @@ function renderDetail(){
               <span class="history-date">📅 ${h.date}</span>
               <span class="history-nss">👷 ${h.nss||'—'}</span>
             </div>
-            <button class="btn-del-history" onclick="deleteHistory(${i})" title="削除">🗑</button>
+            <span style="display:flex;gap:2px;flex-shrink:0">
+              <button class="btn-edit-history" onclick="editHistory(${i})" title="編集">✏️</button>
+              <button class="btn-del-history" onclick="deleteHistory(${i})" title="削除">🗑</button>
+            </span>
           </div>
           <div class="history-content">${h.content}</div>
           ${h.note?`<div class="history-note">📝 ${h.note}</div>`:''}
@@ -3378,17 +3383,28 @@ function closeLightbox(){document.getElementById('lightbox').classList.remove('s
 
 /* ════ MAINTENANCE HISTORY ════ */
 let _currentHistoryEntryLocalId=null;
-function openHistoryModal(){
-  document.getElementById('h_content').value='';
-  document.getElementById('h_nss').value='';
-  document.getElementById('h_date').value=new Date().toISOString().slice(0,10);
-  document.getElementById('h_note').value='';
-  historyPhotos=[];
-  _currentHistoryEntryLocalId=_genLocalId();
+// 編集中の保守履歴のインデックス（新規追加の場合はnull）
+let _editingHistoryIndex=null;
+function openHistoryModal(editIndex){
+  _editingHistoryIndex=(typeof editIndex==='number')?editIndex:null;
+  const entry=(_editingHistoryIndex!=null&&currentEq&&currentEq.maintenance)?currentEq.maintenance[_editingHistoryIndex]:null;
+  document.getElementById('h_content').value=entry?entry.content:'';
+  document.getElementById('h_nss').value=entry?entry.nss:'';
+  document.getElementById('h_date').value=entry?entry.date:new Date().toISOString().slice(0,10);
+  document.getElementById('h_note').value=entry?(entry.note||''):'';
+  // 編集時は既存の写真をそのまま読み込み、以後の追加・削除もこの配列に対して行う
+  historyPhotos=entry?(entry.photos||[]).slice():[];
+  _currentHistoryEntryLocalId=(entry&&entry._localId)?entry._localId:_genLocalId();
   renderHistoryPhotoGrid();
+  document.getElementById('historyModalTitle').textContent=entry?'🔧 保守履歴を編集':'🔧 保守履歴を追加';
+  document.getElementById('historySaveBtn').textContent=entry?'💾 更新する':'💾 追加する';
   document.getElementById('historyModalOverlay').classList.add('show');
 }
-function closeHistoryModal(){document.getElementById('historyModalOverlay').classList.remove('show')}
+function editHistory(i){openHistoryModal(i);}
+function closeHistoryModal(){
+  document.getElementById('historyModalOverlay').classList.remove('show');
+  _editingHistoryIndex=null;
+}
 function handleHistoryOverlayClick(e){if(e.target===document.getElementById('historyModalOverlay'))closeHistoryModal()}
 function saveHistory(){
   const content=document.getElementById('h_content').value.trim();
@@ -3397,12 +3413,18 @@ function saveHistory(){
   const note=document.getElementById('h_note').value.trim();
   if(!content||!nss||!date){showToast('⚠ 修理内容・対応NSS・修理年月日は必須です','error');return;}
   if(!currentEq.maintenance)currentEq.maintenance=[];
+  const isEdit=_editingHistoryIndex!=null&&!!currentEq.maintenance[_editingHistoryIndex];
   // まだDriveへの送信が終わっていない写真も保守履歴自体はすぐ保存できる
   // （blob:のプレビューはFirestoreには保存されず、送信完了後に自動で反映される）。
-  currentEq.maintenance.push({content,nss,date,note,photos:historyPhotos.slice(),_localId:_currentHistoryEntryLocalId});
+  const entry={content,nss,date,note,photos:historyPhotos.slice(),_localId:_currentHistoryEntryLocalId};
+  if(isEdit){
+    currentEq.maintenance[_editingHistoryIndex]=entry;
+  }else{
+    currentEq.maintenance.push(entry);
+  }
   _saveEq(currentEq);
   closeHistoryModal();renderDetail();simulateCloudSync();
-  showToast('✅ 保守履歴を追加しました','success');
+  showToast(isEdit?'✅ 保守履歴を更新しました':'✅ 保守履歴を追加しました','success');
   _processPendingQueue();
 }
 function deleteHistory(i){
