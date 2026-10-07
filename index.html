@@ -57,6 +57,8 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .adv-filter-bar input[type=text],.adv-filter-bar input[type=number]{border:1px solid var(--gray-300);border-radius:6px;padding:5px 8px;font-size:13px;color:var(--gray-700);background:#fff}
 .adv-filter-bar input[type=number]{width:60px}
 .adv-filter-bar select{padding:5px 24px 5px 8px;font-size:13px}
+.status-filter-checks{display:flex;flex-wrap:wrap;gap:4px 12px}
+.status-filter-checks label{display:flex;align-items:center;gap:4px;font-size:13px;color:var(--gray-700);cursor:pointer;white-space:nowrap}
 .btn-filter-add:hover{background:var(--primary-dark)}
 .main{flex:1;overflow:hidden;display:flex}
 
@@ -443,14 +445,6 @@ optgroup{font-weight:700}
     <span class="filter-arrow">›</span>
 
     <div class="filter-group">
-      <select id="filterStatus" onchange="onFilterStatusChange()">
-        <option value="">ステータス (全て)</option>
-      </select>
-    </div>
-
-    <span class="filter-arrow">›</span>
-
-    <div class="filter-group">
       <label style="display:flex;align-items:center;gap:4px;font-size:13px;color:var(--gray-500);cursor:pointer;white-space:nowrap">
         <input type="checkbox" id="filterShowRetired" onchange="onFilterShowRetiredChange()">
         🗑 撤去済みも表示
@@ -469,8 +463,12 @@ optgroup{font-weight:700}
     </div>
   </div>
 
-  <!-- 型式・機器名称・経過年数の組み合わせで絞り込む詳細条件パネル -->
+  <!-- ステータス・型式・機器名称・経過年数の組み合わせで絞り込む詳細条件パネル -->
   <div class="adv-filter-bar" id="advFilterBar">
+    <div class="filter-group">
+      <span class="adv-filter-label">ステータス（複数選択可）</span>
+      <div class="status-filter-checks" id="filterStatusChecks"></div>
+    </div>
     <div class="filter-group">
       <span class="adv-filter-label">型式</span>
       <input type="text" id="filterModel" placeholder="型式で絞り込み" oninput="onAdvFilterChange()" autocomplete="off">
@@ -1568,7 +1566,7 @@ let nextId=7;
 let currentEq=null;
 let isEditMode=false;
 let filters={region:'',category:'',companyId:'',storeId:'',showRetired:false,q:'',
-  status:'',model:'',eqName:'',elapsedYears:'',elapsedOp:'gte'};
+  statuses:[],model:'',eqName:'',elapsedYears:'',elapsedOp:'gte'};
 // 店舗の絞り込みで使う特別な値。店舗が削除された等の理由で、販社に登録されている
 // どの店舗にも該当しない機器（＝店舗が未設定の機器）だけを表示するために使う。
 const STORE_UNSET='__unset__';
@@ -1863,17 +1861,19 @@ function onFilterShowRetiredChange(){
   filters.showRetired=document.getElementById('filterShowRetired').checked;
   applyFilters();
 }
-function onFilterStatusChange(){
-  filters.status=document.getElementById('filterStatus').value;
+function onStatusFilterCheckChange(){
+  const wrap=document.getElementById('filterStatusChecks');if(!wrap)return;
+  filters.statuses=[...wrap.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.value);
+  _updateAdvFilterToggleLabel();
   applyFilters();
 }
 function rebuildStatusFilterSelect(){
-  const sel=document.getElementById('filterStatus');if(!sel)return;
-  const prev=sel.value;
-  sel.innerHTML='<option value="">ステータス (全て)</option>'
-    +masterData.statuses.map(s=>`<option value="${s.id}">${s.label}</option>`).join('');
-  if(prev&&masterData.statuses.some(s=>s.id===prev))sel.value=prev;
-  else{sel.value='';filters.status='';}
+  const wrap=document.getElementById('filterStatusChecks');if(!wrap)return;
+  // 既に選択されていたが、ステータス自体が削除された等で存在しなくなったものは除外する
+  filters.statuses=filters.statuses.filter(id=>masterData.statuses.some(s=>s.id===id));
+  wrap.innerHTML=masterData.statuses.map(s=>`
+    <label><input type="checkbox" value="${s.id}" onchange="onStatusFilterCheckChange()"${filters.statuses.includes(s.id)?' checked':''}>${s.label}</label>
+  `).join('');
 }
 function onFilterSearchChange(){
   const el=document.getElementById('filterSearch');
@@ -1912,7 +1912,7 @@ function rebuildEqNameFilterSelect(){
   if(prev&&[...sel.options].some(o=>o.value===prev))sel.value=prev;
 }
 function _updateAdvFilterToggleLabel(){
-  const n=(filters.model?1:0)+(filters.eqName?1:0)+(filters.elapsedYears!==''?1:0);
+  const n=(filters.statuses.length?1:0)+(filters.model?1:0)+(filters.eqName?1:0)+(filters.elapsedYears!==''?1:0);
   const btn=document.getElementById('advFilterToggleBtn');
   btn.textContent=n?`🔧 詳細条件（${n}）`:'🔧 詳細条件';
   btn.classList.toggle('active',n>0);
@@ -1929,11 +1929,12 @@ function onAdvFilterChange(){
   applyFilters();
 }
 function clearAdvFilter(){
+  document.getElementById('filterStatusChecks').querySelectorAll('input[type=checkbox]').forEach(c=>c.checked=false);
   document.getElementById('filterModel').value='';
   document.getElementById('filterEqName').value='';
   document.getElementById('filterElapsedYears').value='';
   document.getElementById('filterElapsedOp').value='gte';
-  filters.model='';filters.eqName='';filters.elapsedYears='';filters.elapsedOp='gte';
+  filters.statuses=[];filters.model='';filters.eqName='';filters.elapsedYears='';filters.elapsedOp='gte';
   _updateAdvFilterToggleLabel();
   applyFilters();
 }
@@ -2004,7 +2005,7 @@ function getFiltered(){
       if(!isStoreUnset(eq))return false;
     }else if(filters.storeId&&eq.storeId!==filters.storeId)return false;
     if(!filters.showRetired&&eq.retired)return false;
-    if(filters.status&&eq.status!==filters.status)return false;
+    if(filters.statuses.length&&!filters.statuses.includes(eq.status))return false;
     if(!matchesSearch(eq,terms))return false;
     if(filters.model&&_normSearch(eq.model).indexOf(_normSearch(filters.model))<0)return false;
     if(filters.eqName){
