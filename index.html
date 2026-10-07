@@ -5384,7 +5384,7 @@ function _proposalNote(eq){
   if(cls==='badge-parts')return{text:'部品供給終了・入替をご提案',kind:'alert'};
   if(cls==='badge-danger')return{text:'早急な入替をご提案します',kind:'alert'};
   if(cls==='badge-caution')return{text:'注意・経過観察のうえ代替をご検討ください',kind:'caution'};
-  return{text:'ー',kind:null};
+  return{text:'-',kind:null};
 }
 
 async function exportProposalWorkbook(company,base){
@@ -5411,7 +5411,7 @@ async function exportProposalWorkbook(company,base){
     // ── タイトル行 ──
     ws.mergeCells(1,1,1,5);
     const titleCell=ws.getCell(1,1);
-    titleCell.value=`${(company&&company.name)||'ー'}　様　機器一覧`;
+    titleCell.value=`${(company&&company.name)||'-'}　様　機器一覧`;
     titleCell.font={size:14,bold:true,color:{argb:INK}};
     titleCell.alignment={vertical:'middle'};
     ws.mergeCells(1,6,1,7);
@@ -5470,7 +5470,7 @@ async function exportProposalWorkbook(company,base){
       // ── 店舗見出し ──
       ws.mergeCells(r,1,r,7);
       const nameCell=ws.getCell(r,1);
-      nameCell.value=st.name||'ー';
+      nameCell.value=st.name||'-';
       nameCell.font={size:16,bold:true,color:{argb:INK}};
       nameCell.alignment={vertical:'middle'};
       ws.getRow(r).height=24;
@@ -5528,13 +5528,13 @@ async function exportProposalWorkbook(company,base){
         r++;
 
         rows.forEach(eq=>{
-          const bay=eq.bay||'ー';
-          const name=eq.name||'ー';
-          const model=eq.model||'ー';
-          const maker=eq.maker||'ー';
-          const serial=eq.serial||'ー';
-          const ymOut=_proposalYm(eq.nextcheck)||'ー';
-          const elapsedOut=calcElapsed(eq.nextcheck)||'ー';
+          const bay=eq.bay||'-';
+          const name=eq.name||'-';
+          const model=eq.model||'-';
+          const maker=eq.maker||'-';
+          const serial=eq.serial||'-';
+          const ymOut=_proposalYm(eq.nextcheck)||'-';
+          const elapsedOut=calcElapsed(eq.nextcheck)||'-';
           const note=_proposalNote(eq);
           const vals=[bay,name,null,serial,ymOut,elapsedOut,note.text];
           // 危険（要代替）の機器は、ゼブラ柄より優先して黄色塗りつぶしで一目で分かるようにする
@@ -5552,7 +5552,7 @@ async function exportProposalWorkbook(company,base){
             }else{
               cell.value=vals[c-1];
               let align='left';
-              if((c===5||c===6)&&vals[c-1]!=='ー')align='right';
+              if((c===5||c===6)&&vals[c-1]!=='-')align='right';
               cell.alignment={vertical:'middle',horizontal:align,wrapText:c===7};
               if(c===7){
                 if(note.kind==='alert')cell.font={size:10,bold:true,color:{argb:ALERT}};
