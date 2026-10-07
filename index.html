@@ -2355,6 +2355,10 @@ async function pickFromGoogleDrive(scope,key){
       .addView(view)
       .setOAuthToken(token)
       .setDeveloperKey(firebaseConfig.apiKey)
+      // drive.fileスコープでPickerから選択したファイルへのアクセス権を正しく付与するには
+      // setAppId（GCPプロジェクト番号）の指定が必須。これが無いと選択自体はできても
+      // 実際のファイル取得時にHTTP 404（権限不足を隠すためのGoogle側の仕様）になる。
+      .setAppId(firebaseConfig.messagingSenderId)
       .setCallback(data=>{
         if(data.action===google.picker.Action.PICKED){
           const doc=data.docs[0];
