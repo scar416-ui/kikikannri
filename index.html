@@ -5408,58 +5408,67 @@ async function exportProposalWorkbook(company,base){
       }
     }
 
-    // ── タイトル行 ──
+    const PRIMARY='FFC0282A',PRIMARY_DARK='FF9B1C1E'; // アプリのブランドカラー（表紙の差し色に使用）
+    const CARD_TOTAL_FILL='FFF2F1EE',CARD_CAUTION_FILL='FFFCEFD9',CARD_ALERT_FILL='FFFBEAEA';
+
+    // ── 表紙：タイトル（レターヘッド風） ──
     ws.mergeCells(1,1,1,5);
     const titleCell=ws.getCell(1,1);
-    titleCell.value=`${(company&&company.name)||'-'}　様　機器一覧`;
-    titleCell.font={size:14,bold:true,color:{argb:INK}};
-    titleCell.alignment={vertical:'middle'};
+    titleCell.value={richText:[
+      {text:`${(company&&company.name)||'-'}　様\n`,font:{size:17,bold:true,color:{argb:INK}}},
+      {text:'機器老朽化・入替のご提案資料',font:{size:10,color:{argb:INK_SOFT}}}
+    ]};
+    titleCell.alignment={vertical:'middle',wrapText:true};
     ws.mergeCells(1,6,1,7);
     const dateCell=ws.getCell(1,6);
-    dateCell.value=`出力日：${todayStr()}`;
-    dateCell.font={size:10,color:{argb:INK_SOFT}};
-    dateCell.alignment={horizontal:'right',vertical:'middle'};
-    ws.getRow(1).height=22;
-    borderAllCols(1,{bottom:{style:'thin',color:{argb:GRID}}});
-
     const stores=sortedStores(company);
     const alive=equipments.filter(e=>!e.retired&&e.companyId===company.id);
+    const storeCount=stores.filter(st=>alive.some(e=>e.storeId===st.id)).length;
+    dateCell.value={richText:[
+      {text:`出力日：${todayStr()}\n`,font:{size:10,color:{argb:INK_SOFT}}},
+      {text:`対象店舗数：${storeCount}店舗`,font:{size:10,bold:true,color:{argb:INK}}}
+    ]};
+    dateCell.alignment={horizontal:'right',vertical:'middle',wrapText:true};
+    ws.getRow(1).height=40;
+    borderAllCols(1,{bottom:{style:'medium',color:{argb:PRIMARY}}});
+
     let wroteAny=false,prevLastRow=null;
 
     // 件数表示（総台数／注意・経過観察／部品供給不可／危険）の共通ヘルパー。
-    // 販社全体のサマリー行と、店舗ごとの件数行の両方で同じ表記を使う。
+    // 店舗ごとの件数行で使う（表紙のKPIカードは別途個別に組み立てる）。
     const seg=(label,n,color)=>[
       {text:`${label} `,font:{size:10,color:{argb:INK_SOFT}}},
       {text:`${n}台`,font:{size:12,bold:true,color:{argb:n?color:INK_SOFT}}},
       {text:'　｜　',font:{size:10,color:{argb:GRID}}}
     ];
 
-    // ── 販社全体のサマリー行（店舗数＋総台数／注意／部品供給不可／危険） ──
-    const storeCount=stores.filter(st=>alive.some(e=>e.storeId===st.id)).length;
+    // ── 表紙：全体サマリー（KPIカード：総台数／注意／部品供給不可／危険） ──
     const totalAll=alive.length;
     const cautionAll=alive.filter(e=>statusInfo(e.status).cls==='badge-caution').length;
     const partsAll=alive.filter(e=>statusInfo(e.status).cls==='badge-parts').length;
     const dangerAll=alive.filter(e=>statusInfo(e.status).cls==='badge-danger').length;
-    ws.mergeCells(2,1,2,7);
-    const summaryCell=ws.getCell(2,1);
-    let summaryRuns=[
-      {text:'店舗数 ',font:{size:10,color:{argb:INK_SOFT}}},
-      {text:`${storeCount}店舗`,font:{size:12,bold:true,color:{argb:INK}}},
-      {text:'　｜　',font:{size:10,color:{argb:GRID}}}
-    ].concat(
-      seg('総台数',totalAll,INK),
-      seg('注意・経過観察（経年劣化等）',cautionAll,CAUTION),
-      seg('部品供給不可',partsAll,ALERT),
-      seg('危険・使用不可',dangerAll,ALERT)
-    );
-    summaryRuns=summaryRuns.slice(0,-1);
-    summaryCell.value={richText:summaryRuns};
-    summaryCell.alignment={vertical:'middle'};
-    summaryCell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF0EFEC'}};
-    ws.getRow(2).height=22;
-    borderAllCols(2,{bottom:{style:'thin',color:{argb:GRID}}});
+    const kpiCard=(c1,c2,label,n,fill,numColor)=>{
+      ws.mergeCells(2,c1,2,c2);
+      const cell=ws.getCell(2,c1);
+      cell.value={richText:[
+        {text:`${label}\n`,font:{size:9,bold:true,color:{argb:INK_SOFT}}},
+        {text:`${n}台`,font:{size:19,bold:true,color:{argb:n?numColor:INK_SOFT}}}
+      ]};
+      cell.alignment={vertical:'middle',horizontal:'center',wrapText:true};
+      cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:fill}};
+      for(let c=c1;c<=c2;c++){
+        ws.getCell(2,c).border={top:{style:'thin',color:{argb:GRID}},bottom:{style:'thin',color:{argb:GRID}},
+          left:{style:'thin',color:{argb:GRID}},right:{style:'thin',color:{argb:GRID}}};
+      }
+    };
+    kpiCard(1,2,'総台数',totalAll,CARD_TOTAL_FILL,INK);
+    kpiCard(3,4,'注意・経過観察',cautionAll,CARD_CAUTION_FILL,CAUTION);
+    kpiCard(5,6,'部品供給不可',partsAll,CARD_ALERT_FILL,ALERT);
+    kpiCard(7,7,'危険・使用不可',dangerAll,CARD_ALERT_FILL,ALERT);
+    ws.getCell(2,7).border=Object.assign({},ws.getCell(2,7).border,{top:{style:'medium',color:{argb:ALERT}}});
+    ws.getRow(2).height=42;
 
-    let r=4; // 1:タイトル 2:販社全体サマリー 3:空行 4〜:目次（店舗別ページ案内）
+    let r=4; // 1:タイトル 2:KPIカード 3:空行 4〜:目次（店舗別ページ案内）
 
     // ── 目次（店舗別ページ案内） ──
     // 店舗ごとに必ず改ページしているため、目次の次ページ（2ページ目）から店舗の数だけ順にページが並ぶ。
@@ -5468,39 +5477,60 @@ async function exportProposalWorkbook(company,base){
       .map(st=>({st,data:alive.filter(e=>e.storeId===st.id)}))
       .filter(x=>x.data.length);
     if(storeEntries.length){
+      // セクション見出し（左端にブランドカラーのアクセントバー）
       ws.mergeCells(r,1,r,7);
       const idxLabelCell=ws.getCell(r,1);
-      idxLabelCell.value='📑 目次（店舗別ページ案内）';
-      idxLabelCell.font={size:11,bold:true,color:{argb:INK}};
-      idxLabelCell.alignment={vertical:'middle'};
-      ws.getRow(r).height=20;
+      idxLabelCell.value='📑 目次　店舗別ページ案内';
+      idxLabelCell.font={size:12,bold:true,color:{argb:INK}};
+      idxLabelCell.alignment={vertical:'middle',indent:1};
+      ws.getRow(r).height=22;
       borderAllCols(r,{bottom:{style:'thin',color:{argb:GRID_SOFT}}});
+      idxLabelCell.border=Object.assign({},idxLabelCell.border,{left:{style:'thick',color:{argb:PRIMARY}}});
       r++;
 
-      let pageNo=2;
+      // 表形式の列見出し（ページ／店舗名／総台数／注意／部品供給不可／危険）
+      const IDX_HDR=['ページ','店舗名','','総台数','注意','部品不可','危険・使用不可'];
+      ws.mergeCells(r,2,r,3);
+      [1,2,3,4,5,6,7].forEach(c=>{
+        const cell=ws.getCell(r,c);
+        if(c!==3)cell.value=IDX_HDR[c-1];
+        cell.font={size:9,bold:true,color:{argb:'FFFFFFFF'}};
+        cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:INK}};
+        cell.alignment={vertical:'middle',horizontal:c===2?'left':'center',wrapText:true,indent:c===2?1:0};
+        cell.border={top:{style:'thin',color:{argb:GRID}},bottom:{style:'thin',color:{argb:GRID}},left:{style:'thin',color:{argb:GRID}},right:{style:'thin',color:{argb:GRID}}};
+      });
+      ws.getRow(r).height=22;
+      r++;
+
+      let pageNo=2,idxZebra=false;
       storeEntries.forEach(({st,data})=>{
         const total=data.length;
         const cautionN=data.filter(e=>statusInfo(e.status).cls==='badge-caution').length;
         const partsN=data.filter(e=>statusInfo(e.status).cls==='badge-parts').length;
         const dangerN=data.filter(e=>statusInfo(e.status).cls==='badge-danger').length;
-        ws.mergeCells(r,1,r,7);
-        const idxCell=ws.getCell(r,1);
-        let idxRuns=[
-          {text:st.name||'-',font:{size:11,bold:true,color:{argb:INK}}},
-          {text:`　P.${pageNo}　｜　`,font:{size:10,color:{argb:INK_SOFT}}}
-        ].concat(
-          seg('総台数',total,INK),
-          seg('注意・経過観察（経年劣化等）',cautionN,CAUTION),
-          seg('部品供給不可',partsN,ALERT),
-          seg('危険・使用不可',dangerN,ALERT)
-        );
-        idxRuns=idxRuns.slice(0,-1);
-        idxCell.value={richText:idxRuns};
-        idxCell.alignment={vertical:'middle'};
-        ws.getRow(r).height=17;
-        borderAllCols(r,{bottom:{style:'thin',color:{argb:GRID_SOFT}}});
+        ws.mergeCells(r,2,r,3);
+        const vals=[`P.${pageNo}`,st.name||'-',null,`${total}台`,`${cautionN}台`,`${partsN}台`,`${dangerN}台`];
+        const numColors=[null,null,null,INK,cautionN?CAUTION:INK_SOFT,partsN?ALERT:INK_SOFT,dangerN?ALERT:INK_SOFT];
+        [1,2,3,4,5,6,7].forEach(c=>{
+          const cell=ws.getCell(r,c);
+          if(c!==3)cell.value=vals[c-1];
+          if(c===1){
+            cell.font={size:11,bold:true,color:{argb:PRIMARY}};
+            cell.alignment={vertical:'middle',horizontal:'center'};
+          }else if(c===2||c===3){
+            cell.font={size:11,bold:true,color:{argb:INK}};
+            cell.alignment={vertical:'middle',horizontal:'left',indent:1};
+          }else{
+            cell.font={size:11,bold:c===4||c===7,color:{argb:numColors[c-1]}};
+            cell.alignment={vertical:'middle',horizontal:'center'};
+          }
+          cell.border={top:{style:'thin',color:{argb:GRID_SOFT}},bottom:{style:'thin',color:{argb:GRID_SOFT}},left:{style:'thin',color:{argb:GRID_SOFT}},right:{style:'thin',color:{argb:GRID_SOFT}}};
+          if(idxZebra)cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:ZEBRA}};
+        });
+        ws.getRow(r).height=19;
         r++;
         pageNo++;
+        idxZebra=!idxZebra;
       });
 
       wroteAny=true;
