@@ -5402,6 +5402,8 @@ async function exportProposalWorkbook(company,base){
     ws.columns=[{width:13},{width:20},{width:24},{width:14},{width:11},{width:10},{width:34}];
     ws.pageSetup={paperSize:9,orientation:'portrait',fitToPage:true,fitToWidth:1,fitToHeight:0,
       horizontalCentered:true,margins:{left:0.45,right:0.45,top:0.5,bottom:0.5,header:0.2,footer:0.2}};
+    // フッター中央にページ番号（現在ページ／総ページ数）を印刷。表紙（1ページ目）を含む全ページに表示。
+    ws.headerFooter={oddFooter:'&C&8&P / &N',evenFooter:'&C&8&P / &N'};
 
     function borderAllCols(r,side){
       for(let c=1;c<=COLS;c++){
