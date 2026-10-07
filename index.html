@@ -1097,6 +1097,27 @@ optgroup{font-weight:700}
   </div>
 </div>
 
+<!-- ════ 整備ベイの表記統一（「◯番」→数字のみ） ════ -->
+<div class="modal-overlay" id="bayNormalizeOverlay" onclick="handleBayNormalizeOverlayClick(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">🔧 整備ベイの表記統一</div>
+      <button class="btn-close" onclick="closeBayNormalize()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">
+        整備ベイの表記に「3番」のように<strong style="color:var(--gray-700)">「番」が付いたもの</strong>と、数字だけのものが混在しています。<br>
+        チェックした機器は、整備ベイの表記から<strong style="color:var(--primary)">「番」を取り除いて数字だけ</strong>に統一します。内容を確認のうえチェックしてください。
+      </div>
+      <div id="bayNormalizeList" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeBayNormalize()">キャンセル</button>
+      <button class="btn-save" id="bayNormalizeExecBtn" onclick="executeBayNormalize()">✓ 選択した機器を変更</button>
+    </div>
+  </div>
+</div>
+
 <!-- ════ 廃棄確認 ════ -->
 <div class="confirm-overlay" id="confirmOverlay">
   <div class="confirm-box">
@@ -1619,6 +1640,56 @@ async function executeUnsetBulkDelete(){
   applyFilters();
 }
 
+/* ════ 整備ベイの表記統一（「◯番」と数字のみが混在しているものを数字のみに統一） ════
+   番号入力欄から登録すると本来「整備ベイ 3番」のように「番」が付くが、
+   手入力で登録された古いデータなどに「整備ベイ ４」のように「番」が付かないものが
+   混在しているため、「番」が付いているものを数字のみの表記に揃えられるようにする。
+   対象はベイ名＋数字＋「番」で終わる形に完全一致するものだけに限定し、
+   「整備ベイ」だけの表記や「整備ベイ 別棟１」のような非数値表記には触れない。 */
+const BAY_NORMALIZE_RE=/^(.+?)\s*([0-9]+)番$/;
+let _bayNormalizeList=[];
+function _findBayNormalizeTargets(){
+  return equipments.filter(e=>!e.retired&&e.bay&&BAY_NORMALIZE_RE.test(e.bay));
+}
+function openBayNormalize(){
+  _bayNormalizeList=_findBayNormalizeTargets();
+  renderBayNormalizeList();
+  document.getElementById('bayNormalizeOverlay').classList.add('show');
+}
+function closeBayNormalize(){document.getElementById('bayNormalizeOverlay').classList.remove('show')}
+function handleBayNormalizeOverlayClick(e){if(e.target===document.getElementById('bayNormalizeOverlay'))closeBayNormalize()}
+function renderBayNormalizeList(){
+  const el=document.getElementById('bayNormalizeList');
+  if(!_bayNormalizeList.length){el.innerHTML='<div class="dup-empty">表記ゆれのある整備ベイはありません</div>';return;}
+  el.innerHTML=_bayNormalizeList.map((e,i)=>{
+    const c=getCompany(e.companyId),st=getStore(e.companyId,e.storeId);
+    const newBay=e.bay.replace(BAY_NORMALIZE_RE,'$1 $2');
+    return `<label class="dup-item">
+      <input type="checkbox" data-baynorm-idx="${i}" checked>
+      <div class="dup-item-body">
+        <div class="dup-item-name">${e.name||'（名称未設定）'}</div>
+        <div class="dup-item-row">${c?companyLabel(c):''}${st?'／'+storeLabel(st):''}</div>
+        <div class="dup-item-row">「${e.bay}」→「${newBay}」に変更</div>
+      </div>
+    </label>`;
+  }).join('');
+}
+async function executeBayNormalize(){
+  const checks=[...document.querySelectorAll('#bayNormalizeList input[type=checkbox]:checked')];
+  if(!checks.length){showToast('⚠ 変更する機器を選択してください','error');return;}
+  const targets=checks.map(cb=>_bayNormalizeList[Number(cb.dataset.baynormIdx)]);
+  const btn=document.getElementById('bayNormalizeExecBtn');
+  btn.disabled=true;btn.textContent='変更中…';
+  for(const eq of targets){
+    eq.bay=eq.bay.replace(BAY_NORMALIZE_RE,'$1 $2');
+    await _saveEq(eq);
+  }
+  btn.disabled=false;btn.textContent='✓ 選択した機器を変更';
+  showToast(`✓ ${targets.length}件の整備ベイの表記を統一しました`,'');
+  closeBayNormalize();
+  applyFilters();
+}
+
 /* ════ 機器の検索 ════
    型式・製造番号・年式・店舗名などをまとめて探せるようにする。
    全角／半角、大文字／小文字、型式のハイフンや空白の有無で取りこぼさないよう、
@@ -1900,6 +1971,17 @@ function renderList(){
         <button class="store-info-banner-btn" onclick="openUnsetBulkDelete()">🗑 確認して削除（${totalUnsetCount}件）</button>
       </div>
       <div class="store-info-banner-meta">登録されている店舗のどれにも該当しない機器が、販社をまたいで合計 ${totalUnsetCount} 件あります。内容を確認のうえ、不要なものを削除できます。</div>
+    </div>`;
+  }
+  // 整備ベイの表記ゆれ（「3番」と数字だけが混在）も、どの絞り込み状態からでも気づけるよう常に案内する
+  const bayNormalizeCount=_findBayNormalizeTargets().length;
+  if(bayNormalizeCount){
+    bannerHTML+=`<div class="store-info-banner">
+      <div class="store-info-banner-head">
+        <div class="store-info-banner-title">🔧 整備ベイの表記ゆれ</div>
+        <button class="store-info-banner-btn" onclick="openBayNormalize()">✓ 確認して統一（${bayNormalizeCount}件）</button>
+      </div>
+      <div class="store-info-banner-meta">整備ベイの表記に「3番」と数字だけのものが混在しています。販社をまたいで合計 ${bayNormalizeCount} 件あります。内容を確認のうえ、数字だけの表記に統一できます。</div>
     </div>`;
   }
   if(filters.storeId===STORE_UNSET&&filters.companyId){
