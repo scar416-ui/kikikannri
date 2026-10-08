@@ -149,6 +149,11 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .btn-del-item:hover{color:var(--primary);background:var(--primary-light)}
 .btn-edit-item{background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:14px;padding:10px;border-radius:6px;flex-shrink:0;line-height:1}
 .btn-edit-item:hover{color:var(--primary);background:var(--primary-light)}
+.reorder-btns{display:flex;flex-direction:column;gap:1px;flex-shrink:0}
+.btn-reorder-item{background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;line-height:1}
+.btn-reorder-item:hover{color:var(--primary);background:var(--primary-light)}
+.btn-reorder-item:disabled{opacity:.25;cursor:default}
+.btn-reorder-item:disabled:hover{color:var(--gray-400);background:none}
 .status-swatch{width:10px;height:10px;border-radius:50%;flex-shrink:0}
 .manage-empty{font-size:13px;color:var(--gray-400);text-align:center;padding:12px;background:var(--gray-50);border-radius:6px}
 .btn-edit:hover{background:var(--primary-dark)}
@@ -4802,6 +4807,15 @@ function renderItemManageLists(){
   renderStatusManageList();
   renderBayTypeManageList();
 }
+// マスタ項目（機器名称・ステータス・ベイ種別）の表示順を入れ替える共通ヘルパー
+function _moveMasterItem(arr,id,dir){
+  const idx=arr.findIndex(x=>x.id===id);
+  if(idx===-1)return false;
+  const newIdx=idx+dir;
+  if(newIdx<0||newIdx>=arr.length)return false;
+  const tmp=arr[idx];arr[idx]=arr[newIdx];arr[newIdx]=tmp;
+  return true;
+}
 
 /* --- 機器名称 --- */
 function renderEqNameManageList(){
@@ -4809,8 +4823,12 @@ function renderEqNameManageList(){
   if(!masterData.equipmentNames.length){
     el.innerHTML='<div class="manage-empty">機器名称が登録されていません</div>';return;
   }
-  el.innerHTML=masterData.equipmentNames.map(e=>
+  el.innerHTML=masterData.equipmentNames.map((e,i)=>
     `<div class="manage-item">
+      <div class="reorder-btns">
+        <button class="btn-reorder-item" onclick="moveEquipmentName('${e.id}',-1)" title="上へ移動"${i===0?' disabled':''}>▲</button>
+        <button class="btn-reorder-item" onclick="moveEquipmentName('${e.id}',1)" title="下へ移動"${i===masterData.equipmentNames.length-1?' disabled':''}>▼</button>
+      </div>
       <div class="manage-item-name">${e.name}</div>
       <div class="manage-item-meta">${e.category}</div>
       <button class="btn-edit-item" onclick="editEquipmentName('${e.id}')" title="編集">✏️</button>
@@ -4872,6 +4890,12 @@ function executeDeleteEquipmentName(id){
   renderEqNameManageList();
   showToast('🗑 機器名称を削除しました','');
 }
+function moveEquipmentName(id,dir){
+  if(!_moveMasterItem(masterData.equipmentNames,id,dir))return;
+  _saveMd();
+  rebuildEquipmentNameSelect();rebuildEqNameFilterSelect();
+  renderEqNameManageList();
+}
 
 /* --- ステータス --- */
 function renderStatusManageList(){
@@ -4879,8 +4903,12 @@ function renderStatusManageList(){
   if(!masterData.statuses.length){
     el.innerHTML='<div class="manage-empty">ステータスが登録されていません</div>';return;
   }
-  el.innerHTML=masterData.statuses.map(s=>
+  el.innerHTML=masterData.statuses.map((s,i)=>
     `<div class="manage-item">
+      <div class="reorder-btns">
+        <button class="btn-reorder-item" onclick="moveStatusItem('${s.id}',-1)" title="上へ移動"${i===0?' disabled':''}>▲</button>
+        <button class="btn-reorder-item" onclick="moveStatusItem('${s.id}',1)" title="下へ移動"${i===masterData.statuses.length-1?' disabled':''}>▼</button>
+      </div>
       <span class="status-swatch" style="background:var(${COLOR_VAR_MAP[s.cls]||'--neutral'})"></span>
       <div class="manage-item-name">${s.label}</div>
       <button class="btn-edit-item" onclick="editStatusItem('${s.id}')" title="編集">✏️</button>
@@ -4946,6 +4974,14 @@ function executeDeleteStatus(id){
   renderList();
   showToast('🗑 ステータスを削除しました','');
 }
+function moveStatusItem(id,dir){
+  if(!_moveMasterItem(masterData.statuses,id,dir))return;
+  _saveMd();
+  rebuildStatusSelect();
+  rebuildStatusFilterSelect();
+  renderStatusManageList();
+  renderList();
+}
 
 /* --- ベイ種別 --- */
 function renderBayTypeManageList(){
@@ -4953,8 +4989,12 @@ function renderBayTypeManageList(){
   if(!masterData.bayTypes.length){
     el.innerHTML='<div class="manage-empty">ベイ種別が登録されていません</div>';return;
   }
-  el.innerHTML=masterData.bayTypes.map(b=>
+  el.innerHTML=masterData.bayTypes.map((b,i)=>
     `<div class="manage-item">
+      <div class="reorder-btns">
+        <button class="btn-reorder-item" onclick="moveBayTypeItem('${b.id}',-1)" title="上へ移動"${i===0?' disabled':''}>▲</button>
+        <button class="btn-reorder-item" onclick="moveBayTypeItem('${b.id}',1)" title="下へ移動"${i===masterData.bayTypes.length-1?' disabled':''}>▼</button>
+      </div>
       <div class="manage-item-name">${b.name}</div>
       <div class="manage-item-meta">${b.hasNumber?'番号あり':'番号なし'}</div>
       <button class="btn-edit-item" onclick="editBayTypeItem('${b.id}')" title="編集">✏️</button>
@@ -5035,6 +5075,13 @@ function executeDeleteBayType(id){
   renderBayTypeManageList();
   renderList();
   showToast('🗑 ベイ種別を削除しました','');
+}
+function moveBayTypeItem(id,dir){
+  if(!_moveMasterItem(masterData.bayTypes,id,dir))return;
+  _saveMd();
+  rebuildBayTypeSelect();
+  renderBayTypeManageList();
+  renderList();
 }
 
 /* ════ RETIRE ════ */
