@@ -1298,7 +1298,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-09d';
+const APP_BUILD='2026-10-09e';
 const PHOTO_MAX_DIM=2560;   // 長辺の上限（px）／Driveへ保存する本番の画質
 const PHOTO_QUALITY=0.82;   // JPEG品質
 // 撮影直後に「まず確実に保存する」ための暫定画質。銘板写真と同じく端末内で圧縮して
@@ -2557,7 +2557,9 @@ async function processDetailPhoto(file,key){
   renderList();
   showToast(ok?`✅ ${key}写真を保存しました`:'⚠ 写真の保存に失敗しました','success');
   if(ok){
-    _captureAndQueuePhoto(file,eq,'main',key,`${key}写真`)
+    // 編集画面と同様、圧縮済みの画像をそのままDriveへ送る（変換をやり直さない）
+    const sendFile=_dataUrlToFile(dataUrl,(file.name||'photo').replace(/\.[^.]+$/,'')+'.jpg');
+    _captureAndQueuePhoto(sendFile,eq,'main',key,`${key}写真`,null,true)
       .catch(e=>console.warn('Driveへのバックアップ登録に失敗しました（写真の保存自体は完了しています）:',e));
   }
 }
@@ -2710,7 +2712,19 @@ function _genLocalId(){return 'L'+Date.now().toString(36)+Math.random().toString
 // 写真を選んだ／撮影した瞬間に端末内へ先行保存し、プレビュー用のローカルURLを
 // 即座に返す（機器の保存はこの完了を待たない）。実際のDriveアップロードは
 // _processPendingQueue がバックグラウンドで行う。
-async function _captureAndQueuePhoto(file,eqSnapshot,slotType,slotKey,category,entryLocalId){
+// data URL（撮影直後に圧縮済みの画像）を、そのまま送信できるファイルに変換する。
+// これを送信キューへ渡せば、Drive用にHEIC変換や縮小をやり直さずに済む。
+function _dataUrlToFile(dataUrl,name){
+  const i=dataUrl.indexOf(',');
+  const mime=(dataUrl.slice(0,i).match(/:(.*?);/)||[,'image/jpeg'])[1];
+  const bin=atob(dataUrl.slice(i+1));
+  const arr=new Uint8Array(bin.length);
+  for(let k=0;k<bin.length;k++)arr[k]=bin.charCodeAt(k);
+  return new File([arr],name,{type:mime});
+}
+// alreadyPrepared=true のときは、送信キューは変換処理を一切行わず、渡されたファイルを
+// そのままDriveへ送る。
+async function _captureAndQueuePhoto(file,eqSnapshot,slotType,slotKey,category,entryLocalId,alreadyPrepared){
   // HEIC変換や画質調整（_prepareForDriveUpload）は数秒かかることがあり、ここで
   // 待ってしまうと「撮ってからサムネイルが出るまで」が遅く感じられてしまう。
   // iPhoneの「Googleドライブに保存」と同じ体感速度にするため、画面には撮った
@@ -2722,7 +2736,7 @@ async function _captureAndQueuePhoto(file,eqSnapshot,slotType,slotKey,category,e
   }
   await _addPendingPhoto({
     eqId:eqSnapshot.id,slotType,slotKey,entryLocalId:entryLocalId||null,
-    fileName:file.name,category,blob:file,prepared:false,eqSnapshot,
+    fileName:file.name,category,blob:file,prepared:!!alreadyPrepared,eqSnapshot,
     status:'pending',driveUrl:null,createdAt:Date.now(),lastAttempt:0
   });
   _pendingPhotoKeys.add(_pendingKeyOf(eqSnapshot.id,slotType,slotKey));
@@ -3286,9 +3300,15 @@ async function processModalPhoto(file,key){
       return;
     }
     _applyModalPhotoResult(targetId,key,dataUrl,`${key}写真を追加しました`);
-    // Driveへの送信は待たない（ここで待つと、結局Driveの状態に引きずられてしまう）
+    // Driveへの送信は待たない（ここで待つと、結局Driveの状態に引きずられてしまう）。
+    // 【重要】送るのは「いま圧縮したばかりの画像」そのもの。以前は元の12MPのHEICを
+    // 渡していたため、裏側でHEIC変換と大きなcanvas処理をもう一度やり直していた。
+    // iPhoneは起動時に大量のデータを抱えておりメモリに余裕がないため、この重い処理が
+    // 応答を返さなくなり「バックアップ中」のまま進まない原因になっていた。
+    // 既に圧縮済みの数百KBの画像を渡せば、変換は不要で送信も1往復で済む。
     const refEq=currentEq||{id:targetId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
-    _captureAndQueuePhoto(file,refEq,'main',key,`${key}写真`)
+    const sendFile=_dataUrlToFile(dataUrl,(file.name||'photo').replace(/\.[^.]+$/,'')+'.jpg');
+    _captureAndQueuePhoto(sendFile,refEq,'main',key,`${key}写真`,null,true)
       .catch(e=>console.warn('Driveへのバックアップ登録に失敗しました（写真の保存自体は完了しています）:',e));
   }
 }
