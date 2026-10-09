@@ -1299,7 +1299,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-09f';
+const APP_BUILD='2026-10-09g';
 const PHOTO_MAX_DIM=2560;   // 長辺の上限（px）／Driveへ保存する本番の画質
 const PHOTO_QUALITY=0.82;   // JPEG品質
 // 撮影直後に「まず確実に保存する」ための暫定画質。銘板写真と同じく端末内で圧縮して
@@ -1431,10 +1431,9 @@ function parseBay(bay){
   }
   return{type:bay,num:'',hadSuffix:false};
 }
-// 編集時に、元のベイ表記が数字だけ（「3」）だったか「番」付き（「3番」）だったかを覚えておき、
-// ベイ番号以外の項目だけを変更して保存した場合でも、勝手に「番」が付いたり外れたりしないようにする。
-// （「番」の有無の統一は、専用の「整備ベイの表記統一」機能から明示的に行う）
-let _bayNumHadSuffix=true;
+// 編集を開始した時点のベイ表記。ベイを一切さわらずに他の項目だけを変更して保存したときに、
+// 既存データの表記（「3番」など）が勝手に書き換わらないようにするために覚えておく。
+let _originalBay='';
 function buildBay(){
   const type=document.getElementById('f_bay_type').value;
   if(!type)return'';
@@ -1442,10 +1441,14 @@ function buildBay(){
   if(bt&&bt.hasNumber){
     const n=_toHalfWidthDigits(document.getElementById('f_bay_num').value.trim());
     if(!n)return type;
-    // 数字のみの場合、元々「番」付きだった（または新規入力の）場合は従来通り「3番」のように
-    // 「番」を付け、元々「番」なしだった場合はそのまま数字だけを維持する。
-    // A・Bなど数字以外が含まれる場合はそのまま表示する（例：「A」）。
-    return(/^\d+$/.test(n)&&_bayNumHadSuffix)?`${type} ${n}番`:`${type} ${n}`;
+    // 【仕様変更】入力した番号に「番」を自動で付けるのをやめた（例：3 → 「整備ベイ 3」）。
+    // 以前は数字を入れると勝手に「3番」になっていた。
+    const built=`${type} ${n}`;
+    // ただし、既存データが「整備ベイ 3番」のように「番」付きで、種別も番号も変えていない場合は、
+    // 他の項目だけを編集したときに表記が勝手に変わってしまわないよう元の表記のまま残す。
+    // （既存データの「番」を一括で外したい場合は「整備ベイの表記統一」機能を使う）
+    if(_originalBay&&_originalBay.replace(/番$/,'')===built)return _originalBay;
+    return built;
   }
   return type;
 }
@@ -1456,8 +1459,8 @@ function onBayTypeChange(){
   const show=!!(bt&&bt.hasNumber);
   grp.style.display=show?'block':'none';
   if(!show)document.getElementById('f_bay_num').value='';
-  // ユーザーが手動でベイ種別を変更した場合は、新規入力扱いとして従来通り「番」を付ける
-  _bayNumHadSuffix=true;
+  // ユーザーが手動でベイ種別を変更した時点で「元の表記を維持する」対象ではなくなる
+  _originalBay='';
 }
 function onEquipmentNameChange(){
   const name=document.getElementById('f_name').value;
@@ -1471,14 +1474,13 @@ function onEquipmentNameChange(){
   }
 }
 function setBayValue(bay){
-  const{type,num,hadSuffix}=parseBay(bay);
+  const{type,num}=parseBay(bay);
   document.getElementById('f_bay_type').value=type;
   const bt=getBayTypeByName(type);
   document.getElementById('f_bay_num_group').style.display=(bt&&bt.hasNumber)?'block':'none';
   document.getElementById('f_bay_num').value=num;
-  // 既存の表記（「番」の有無）を保存時にも維持する。bayが空（新規追加）の場合は
-  // 従来通り「番」を自動で付ける挙動のままにする。
-  _bayNumHadSuffix=bay?hadSuffix:true;
+  // 編集開始時の表記を控えておく（さわらずに保存した場合はこのまま残す）
+  _originalBay=bay||'';
 }
 
 /* ════ 動的セレクト構築 ════ */
@@ -4269,7 +4271,7 @@ function clearForm(){
   document.getElementById('f_bay_type').value='';
   document.getElementById('f_bay_num').value='';
   document.getElementById('f_bay_num_group').style.display='none';
-  _bayNumHadSuffix=true;
+  _originalBay='';
   ['err_model','err_serial'].forEach(id=>document.getElementById(id).style.display='none');
   ['f_model','f_serial'].forEach(id=>document.getElementById(id).classList.remove('error'));
   _resetNameplateTouched(null);
