@@ -1298,7 +1298,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-09c';
+const APP_BUILD='2026-10-09d';
 const PHOTO_MAX_DIM=2560;   // 長辺の上限（px）／Driveへ保存する本番の画質
 const PHOTO_QUALITY=0.82;   // JPEG品質
 // 撮影直後に「まず確実に保存する」ための暫定画質。銘板写真と同じく端末内で圧縮して
@@ -2933,6 +2933,12 @@ function _updatePhotoUploadIndicator(){
     el.style.display='none';
     return;
   }
+  // エラーが出ていない「バックアップ中」の表示は、写真の保存自体は終わっているので
+  // 閉じたら出し直さない（Driveへの送信は裏で続く）。新たにエラーが起きれば上の条件で再表示される。
+  if(n>0&&!_lastQueueErrorMsg&&_indicatorDismissedAt){
+    el.style.display='none';
+    return;
+  }
   el.style.display=n>0?'flex':'none';
   if(n>0&&_lastQueueErrorMsg){
     // トースト（数秒で消える）は見逃しやすいため、失敗が続いている間は
@@ -2944,7 +2950,9 @@ function _updatePhotoUploadIndicator(){
   }else{
     el.classList.remove('has-error');
     el.onclick=n>0?_showPendingPhotoBreakdown:null;
-    if(closeEl)closeEl.style.display='none';
+    // 写真の保存は完了しているため、この表示はいつでも閉じられるようにする
+    // （以前は✕がエラー時しか出ず、「バックアップ中」の表示を消す手段が無かった）
+    if(closeEl)closeEl.style.display=n>0?'flex':'none';
     // 写真の保存自体は撮影時点で完了しているため、ここは「裏でDriveへ控えを送っている」だけ。
     // 以前の「送信中…」という表記だと、まだ登録が終わっていないように見えて不安になるため、
     // 保存済みであることが分かる文言にする。
@@ -2954,9 +2962,13 @@ function _updatePhotoUploadIndicator(){
 // エラー表示の✕タップ：今表示中の内容を「閉じた」として記録し、インジケーターを隠す。
 // 裏側の再送信キューは止めない（写真は消えず、機器が保存されれば次回のキュー処理で自動的に反映される）。
 // エラー内容が変わる（＝新しい問題が発生する）と自動的にまた表示される。
+// ユーザーが✕で閉じた時刻。写真の保存自体は撮影時点で完了しているため、
+// Driveへのバックアップ状況の表示はいつでも閉じられてよい（閉じても送信は裏で続く）。
+let _indicatorDismissedAt=0;
 function _dismissPhotoUploadIndicator(ev){
   if(ev){ev.stopPropagation();}
   _dismissedQueueErrorMsg=_lastQueueErrorMsg;
+  _indicatorDismissedAt=Date.now();
   const el=document.getElementById('photoUploadIndicator');
   if(el)el.style.display='none';
 }
@@ -2974,10 +2986,14 @@ async function _showPendingPhotoBreakdown(){
     const ageStr=ageMin<60?`${ageMin}分前`:ageMin<1440?`${Math.round(ageMin/60)}時間前`:`${Math.round(ageMin/1440)}日前`;
     const sizeMB=it.blob&&it.blob.size?(it.blob.size/1024/1024).toFixed(1)+'MB':'?';
     const failInfo=it.failCount?`失敗${it.failCount}回`:'';
-    return `・${eqName}／${it.category||it.slotType}／${it.status==='uploaded'?'反映待ち':'送信待ち'}／${ageStr}／${sizeMB}${failInfo?'／'+failInfo:''}`;
+    const stage=it.status==='uploaded'?'Drive送信済→機器へ反映待ち':(it.prepared?'画像変換済→Drive送信待ち':'画像変換待ち');
+    const errInfo=it.lastError?`\n   直近のエラー：${it.lastError}`:'';
+    return `・${eqName}／${it.category||it.slotType}\n   状態：${stage}／${ageStr}／${sizeMB}${failInfo?'／'+failInfo:''}${errInfo}`;
   });
+  // 不具合調査用：Driveの接続状態も併せて表示する
+  const driveState=(typeof _driveToken!=='undefined'&&_driveToken)?'接続済み':'未接続';
   const orphanCount=items.filter(it=>!equipments.find(e=>e.id===it.eqId)).length;
-  let msg=`送信待ちの写真：全${items.length}件\n\n${lines.join('\n')}`;
+  let msg=`Driveへバックアップ待ちの写真：全${items.length}件\n（写真そのものは保存済みです）\n版数：${APP_BUILD}／Drive：${driveState}\n\n${lines.join('\n')}`;
   if(orphanCount>0){
     msg+=`\n\n※「見つかりません」の${orphanCount}件は対象の機器が見当たらない送信待ちです。3日経過すると自動的に整理されます。`;
   }
@@ -2988,7 +3004,7 @@ async function _showPendingPhotoBreakdown(){
   const STUCK_AGE_MS=10*60*1000;
   const stuckItems=items.filter(it=>(it.failCount||0)>0||(Date.now()-(it.createdAt||0))>STUCK_AGE_MS);
   if(stuckItems.length===0)return;
-  const doDelete=confirm(`このうち、送信に失敗している／長時間動きのない${stuckItems.length}件を今すぐ削除しますか？\n\n※削除すると、その写真データはこの端末から消え、機器には反映されません。もう一度撮影・追加し直してください。\n※正常に送信中の項目は削除されません。`);
+  const doDelete=confirm(`このうち、送信が進んでいない${stuckItems.length}件のDriveバックアップを取りやめますか？\n\n※写真そのものは撮影時点で既に保存済みです。取りやめても機器の写真は消えません。\n※取りやめるのは「Driveへの控えの保存」だけです。`);
   if(!doDelete)return;
   for(const it of stuckItems){
     try{
