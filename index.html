@@ -2711,6 +2711,11 @@ function _withTimeout(promise,ms,label){
   });
 }
 let _processingQueue=false;
+let _queueStartedAt=0;
+// 個々の処理にはタイムアウトを設けているが、それでも想定外の箇所で処理が止まった場合に、
+// 「処理中」フラグが立ちっぱなしになって二度とキューが動かなくなるのを防ぐための最後の保険。
+// この時間を超えてまだ処理中のままなら、異常とみなして新しい処理の開始を許可する。
+const QUEUE_WATCHDOG_MS=15*60*1000;
 let _lastQueueErrorToast=0;
 // トースト（数秒で消える）は見逃されやすいため、最後に発生したエラー内容は
 // ここにも保持しておき、画面下部のインジケーターに常時表示できるようにする。
@@ -2718,8 +2723,15 @@ let _lastQueueErrorMsg=null;
 let _dismissedQueueErrorMsg=null; // ユーザーが✕で閉じたエラー内容。同じ内容の間は常駐インジケーターを再表示しない
 // 送信待ちキューを順番に処理する。同時に複数呼ばれても多重実行しないようにする。
 async function _processPendingQueue(){
-  if(_processingQueue)return;
+  if(_processingQueue){
+    if(Date.now()-_queueStartedAt<QUEUE_WATCHDOG_MS)return;
+    // 前回の処理が長時間終わっていない＝どこかで止まっている。このまま待っても復帰しないため、
+    // 処理中フラグを解除して新しく開始し直す。
+    console.warn('[写真送信キュー] 前回の処理が終了していないため、中断して再開します');
+    _lastQueueErrorMsg='写真の送信処理が応答しなくなったため、自動的にやり直しています';
+  }
   _processingQueue=true;
+  _queueStartedAt=Date.now();
   console.log('[写真送信キュー] 処理を開始します',new Date().toLocaleTimeString());
   try{
     let items;
@@ -2733,7 +2745,20 @@ async function _processPendingQueue(){
           // HEIC変換・画質調整はここ（バックグラウンドの送信キュー）でまとめて行う。
           // 撮影直後の画面反映を待たせないため、_captureAndQueuePhotoでは行っていない。
           if(!item.prepared){
-            const prepared=await _prepareForDriveUpload(item.blob);
+            // 【キューが固まる不具合の対策】HEIC変換（heic2any＝WASM）や画像のデコードは、
+            // 端末のメモリ状況によっては「成功も失敗もせず応答が返らない」状態になることがある。
+            // ここは以前タイムアウトが無かったため、そうなると_processingQueueがtrueのままとなり、
+            // 30秒ごとの再試行もすべて素通りして、画面は「送信中…」のまま永久に変化しなくなっていた
+            // （エラーも出ないため原因が分からない）。上限を設け、超えた場合は変換をあきらめて
+            // 元のファイルのまま送信する（送信できないまま止まるより良い）。
+            let prepared;
+            try{
+              prepared=await _withTimeout(_prepareForDriveUpload(item.blob),120000,'写真の変換');
+            }catch(e){
+              console.warn('写真の変換に失敗またはタイムアウトしたため、元のファイルのまま送信します:',e);
+              _lastQueueErrorMsg=`写真の変換に時間がかかりすぎたため、元の画像のまま送信しました（${(e&&e.message)||e}）`;
+              prepared=item.blob;
+            }
             await _updatePendingPhoto(item.id,{blob:prepared,prepared:true});
             item.blob=prepared;item.prepared=true;
           }
@@ -2775,7 +2800,15 @@ async function _processPendingQueue(){
         }
       }
       if(item.status==='uploaded'){
-        const applied=await _tryApplyPendingPhoto(item);
+        // Firestoreへの書き込みは、オフライン永続化が有効なためサーバーの応答があるまで
+        // 完了しない。通信が不安定なまま切れると、成功も失敗もせずに待ち続けてキュー全体が
+        // 止まってしまうため、ここにも上限を設ける（次回のキュー処理で改めて試す）。
+        const applied=await _withTimeout(_tryApplyPendingPhoto(item),90000,'写真の反映')
+          .catch(e=>{
+            console.warn('写真の反映に失敗またはタイムアウトしました（後で再試行します）:',e);
+            _lastQueueErrorMsg=(e&&e.message)||String(e);
+            return false;
+          });
         if(applied){
           await _deletePendingPhoto(item.id);
           _lastQueueErrorMsg=null;
@@ -3011,12 +3044,38 @@ function openModalExtraLightbox(i){
 // なお、EXIFの回転情報は<img>経由であればブラウザが自動的に反映してくれるため、
 // 縦向きで撮影した写真が横倒しになることはない（createImageBitmapは端末によって
 // 挙動が異なるため、ここでは採用していない）。
+// 従来方式（FileReader＋data URL）。blob: URLでの読み込みが使えなかった場合の保険として残す。
+function _loadImageViaDataUrl(file){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      const img=new Image();
+      img.onload=()=>resolve({img,revoke:()=>{}});
+      img.onerror=()=>reject(new Error('画像の読み込みに失敗しました'));
+      img.src=ev.target.result;
+    };
+    reader.onerror=()=>reject(new Error('ファイルの読み込みに失敗しました'));
+    reader.readAsDataURL(file);
+  });
+}
 function _loadImageFromFile(file){
   return new Promise((resolve,reject)=>{
+    let settled=false;
     const url=URL.createObjectURL(file);
     const img=new Image();
-    img.onload=()=>resolve({img,revoke:()=>URL.revokeObjectURL(url)});
-    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('画像の読み込みに失敗しました'));};
+    const once=fn=>{if(settled)return;settled=true;clearTimeout(timer);fn();};
+    // blob: URLで読めなかった場合は、従来方式（data URL）で読み直す
+    const fallback=reason=>{
+      console.warn('blob URLでの画像読み込みができなかったため、従来方式で読み直します:',reason);
+      URL.revokeObjectURL(url);
+      _loadImageViaDataUrl(file).then(resolve,reject);
+    };
+    // 【重要】iOS Safariでは、デコードできない形式（変換前のHEIC等）のblob: URLを<img>に
+    // 渡したとき、onloadもonerrorも発火しないことがある。その場合ここで永久に待ち続けてしまい、
+    // 送信キュー全体が「送信中…」のまま止まる原因になる。一定時間で従来方式へ切り替える。
+    const timer=setTimeout(()=>once(()=>fallback('応答がありません')),8000);
+    img.onload=()=>once(()=>resolve({img,revoke:()=>URL.revokeObjectURL(url)}));
+    img.onerror=()=>once(()=>fallback('読み込みエラー'));
     img.src=url;
   });
 }
