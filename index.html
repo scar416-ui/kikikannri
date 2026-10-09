@@ -388,7 +388,8 @@ optgroup{font-weight:700}
 <body>
 
 <div class="header">
-  <div class="header-title">🔧 設備機器管理システム</div>
+  <!-- 端末が古いキャッシュを表示していないか確認できるよう、版数を小さく表示する -->
+  <div class="header-title">🔧 設備機器管理システム<span id="appBuildLabel" style="font-size:10px;font-weight:400;opacity:.5;margin-left:6px"></span></div>
   <div class="cloud-status" id="cloudStatus" style="display:none;gap:8px">
     <div class="cloud-dot"></div>
     <span class="header-user" id="loginUserEmail"></span>
@@ -1295,8 +1296,16 @@ const DEFAULT_EQUIPMENT_NAMES=[
    アプリが写真を表示するのは最大でも sz=w2000（拡大表示）であり、一覧サムネイルと
    提案資料は sz=w800。元画質のまま保存しても見た目は変わらず、送信時間だけが
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
-const PHOTO_MAX_DIM=2560;   // 長辺の上限（px）
+// 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
+// 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
+const APP_BUILD='2026-10-09c';
+const PHOTO_MAX_DIM=2560;   // 長辺の上限（px）／Driveへ保存する本番の画質
 const PHOTO_QUALITY=0.82;   // JPEG品質
+// 撮影直後に「まず確実に保存する」ための暫定画質。銘板写真と同じく端末内で圧縮して
+// そのままFirestoreへ保存するため、1文書あたり約1MBの上限に収まる大きさにする。
+// Driveへの送信が完了した時点で、この暫定データは高画質のURLに置き換わって消える。
+const PHOTO_INSTANT_MAX_DIM=1200;
+const PHOTO_INSTANT_QUALITY=0.75;
 // この値以下のファイルは分割送信せず1回のリクエストで送る（往復回数を最小化）。
 // Google Drive APIのmultipartアップロードは5MBまで推奨。
 const DRIVE_SIMPLE_UPLOAD_MAX=4*1024*1024;
@@ -2535,10 +2544,22 @@ async function pasteImageFromClipboard(scope,key){
 
 function triggerDetailPhoto(key){document.getElementById(`fi_detail_${key}`).click();}
 async function processDetailPhoto(file,key){
+  // 編集画面と同じく、まず端末内で圧縮してその場で保存を完了させる（Drive待ちにしない）。
   const eq=currentEq;
-  await _captureAndQueuePhoto(file,eq,'main',key,`${key}写真`);
-  showToast('📤 写真をDriveへ送信中です…','info');
+  // 銘板は文字を読む用途なので、編集画面と同じ1400px/0.8を維持する
+  const dataUrl=key==='銘板'
+    ? await _compressImageToDataURL(file,1400,0.8)
+    : await _compressImageToDataURL(file,PHOTO_INSTANT_MAX_DIM,PHOTO_INSTANT_QUALITY);
+  eq.photos=eq.photos||{'全体':null,'銘板':null,extra:[]};
+  eq.photos[key]=dataUrl;
+  const ok=await _saveEqPhotosOnly(eq,'main');
   if(currentEq===eq)renderDetail();
+  renderList();
+  showToast(ok?`✅ ${key}写真を保存しました`:'⚠ 写真の保存に失敗しました','success');
+  if(ok){
+    _captureAndQueuePhoto(file,eq,'main',key,`${key}写真`)
+      .catch(e=>console.warn('Driveへのバックアップ登録に失敗しました（写真の保存自体は完了しています）:',e));
+  }
 }
 async function handleDetailPhoto(e,key){
   const file=e.target.files[0];if(!file)return;
@@ -2593,6 +2614,15 @@ let _pendingDBPromise=null;
 function _openPendingDB(){
   if(_pendingDBPromise)return _pendingDBPromise;
   _pendingDBPromise=new Promise((resolve,reject)=>{
+    // iOS Safariでは、indexedDB.open()がonsuccess・onerrorのどちらも発火しないまま
+    // 固まることが知られている。その場合ここで永久に待ち続け、送信キューが一切動かなくなる
+    // （しかもエラーも出ない）ため、上限を設けて必ず結果が返るようにする。
+    // 失敗してもキャッシュを捨て、次回の呼び出しで開き直せるようにする。
+    const giveUp=setTimeout(()=>{
+      _pendingDBPromise=null;
+      reject(new Error('端末内データベースの読み込みが応答しませんでした'));
+    },15000);
+    const settle=(fn)=>{clearTimeout(giveUp);fn();};
     const req=indexedDB.open(PENDING_DB_NAME,1);
     req.onupgradeneeded=()=>{
       const db=req.result;
@@ -2601,8 +2631,8 @@ function _openPendingDB(){
         store.createIndex('eqId','eqId',{unique:false});
       }
     };
-    req.onsuccess=()=>resolve(req.result);
-    req.onerror=()=>reject(req.error);
+    req.onsuccess=()=>settle(()=>resolve(req.result));
+    req.onerror=()=>settle(()=>{_pendingDBPromise=null;reject(req.error);});
   });
   return _pendingDBPromise;
 }
@@ -2915,7 +2945,10 @@ function _updatePhotoUploadIndicator(){
     el.classList.remove('has-error');
     el.onclick=n>0?_showPendingPhotoBreakdown:null;
     if(closeEl)closeEl.style.display='none';
-    textEl.textContent=n>1?`写真をDriveへ送信中…（${n}件）タップで内訳表示`:'写真をDriveへ送信中…';
+    // 写真の保存自体は撮影時点で完了しているため、ここは「裏でDriveへ控えを送っている」だけ。
+    // 以前の「送信中…」という表記だと、まだ登録が終わっていないように見えて不安になるため、
+    // 保存済みであることが分かる文言にする。
+    textEl.textContent=n>1?`✅ 保存済み／Driveへバックアップ中（${n}件）タップで内訳`:'✅ 保存済み／Driveへバックアップ中';
   }
 }
 // エラー表示の✕タップ：今表示中の内容を「閉じた」として記録し、インジケーターを隠す。
@@ -3095,11 +3128,13 @@ function _drawScaledToCanvas(img,maxDim){
   ctx.drawImage(img,0,0,w,h);
   return canvas;
 }
+// 【注意】この関数は銘板写真など「端末内で圧縮して即保存する」経路で使われており、
+// iPhone実機で長く問題なく動作している実績がある。blob: URL方式（_loadImageFromFile）は
+// iOS Safariで応答が返らなくなる場合があることが分かったため、ここでは実績のある
+// FileReader方式（_loadImageViaDataUrl）を使い、余計な変更を持ち込まない。
 async function _compressImageToDataURL(file,maxDim,quality){
-  const{img,revoke}=await _loadImageFromFile(file);
-  try{
-    return _drawScaledToCanvas(img,maxDim).toDataURL('image/jpeg',quality);
-  }finally{revoke();}
+  const{img}=await _loadImageViaDataUrl(file);
+  return _drawScaledToCanvas(img,maxDim).toDataURL('image/jpeg',quality);
 }
 // 既にdata:image形式のbase64になっている画像を、さらに小さく再圧縮する
 // （Firestoreの1文書あたりの上限（約1MB）に近づいた場合の緊急退避用）。
@@ -3220,18 +3255,25 @@ async function processModalPhoto(file,key){
     _applyModalPhotoResult(targetId,key,dataUrl,'銘板写真を追加しました');
     autoFillFromNameplate(dataUrl);
   }else{
-    // 全体写真は端末内へ先行保存し、Driveへはバックグラウンドで送信する
-    const refEq=currentEq||{id:targetId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
-    const localUrl=await _captureAndQueuePhoto(file,refEq,'main',key,`${key}写真`);
-    const stillSameTarget=document.getElementById('modalOverlay').classList.contains('show')&&
-      (currentEq?currentEq.id:pendingNewEqId)===targetId;
-    if(stillSameTarget){
-      modalPhotos[key]=localUrl;
-      updateModalPhotoSlot(key);
-      showToast(`📤 ${key}写真を追加しました（Driveへ送信中…）`,'info');
-    }else{
-      showToast('📤 写真をDriveへ送信中です…','info');
+    // 【全体写真も銘板写真と同じ「即保存」方式にする】
+    // 以前は、Driveへの送信が完了するまで写真が確定しない作りだった。そのためDrive・通信・
+    // HEIC変換のいずれかでつまずくと「送信中…」のまま写真が登録されず、現場で使えなかった。
+    // ここでは銘板写真とまったく同じ手順（端末内で圧縮 → そのまま保存）で先に登録を完了させる。
+    // Driveへの送信はそのあと裏側で行い、成功したら高画質のURLに差し替える（暫定データは消える）。
+    // つまりDriveは「あれば嬉しい付加処理」であり、写真の登録自体はDriveに依存しない。
+    let dataUrl;
+    try{
+      dataUrl=await _compressImageToDataURL(file,PHOTO_INSTANT_MAX_DIM,PHOTO_INSTANT_QUALITY);
+    }catch(e){
+      console.error(e);
+      showToast('⚠ 画像の処理に失敗しました','error');
+      return;
     }
+    _applyModalPhotoResult(targetId,key,dataUrl,`${key}写真を追加しました`);
+    // Driveへの送信は待たない（ここで待つと、結局Driveの状態に引きずられてしまう）
+    const refEq=currentEq||{id:targetId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
+    _captureAndQueuePhoto(file,refEq,'main',key,`${key}写真`)
+      .catch(e=>console.warn('Driveへのバックアップ登録に失敗しました（写真の保存自体は完了しています）:',e));
   }
 }
 async function handleModalPhoto(e,key){
@@ -6660,6 +6702,7 @@ window.addEventListener('online',()=>{
 });
 
 /* ════ INIT ════ */
+{const _b=document.getElementById('appBuildLabel');if(_b)_b.textContent=APP_BUILD;}
 rebuildCompanySelect();
 rebuildEquipmentNameSelect();rebuildEqNameFilterSelect();
 rebuildStatusSelect();
