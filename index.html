@@ -1203,13 +1203,14 @@ optgroup{font-weight:700}
     </div>
     <div class="modal-body">
       <div style="font-size:12px;color:var(--gray-500);margin-bottom:14px">
-        候補から<strong style="color:var(--primary)">2〜3枚</strong>選んでください（クリックした順に 写真1→写真2→写真3 になります。2枚のみでも出力できます）
+        候補から<strong style="color:var(--primary)">最大3枚</strong>まで選べます（クリックした順に 写真1→写真2→写真3 になります）。<br>
+        <strong style="color:var(--gray-700)">選ばずにそのまま出力することもできます</strong>（選ばなかった枠は「写真なし」と表示されます）。
       </div>
       <div id="proposalPhotoGroups"></div>
     </div>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeProposalPhotoModal()">キャンセル</button>
-      <button class="btn-save" id="proposalPhotoConfirmBtn" onclick="confirmProposalPhotoSelection()" disabled>💾 出力する</button>
+      <button class="btn-save" id="proposalPhotoConfirmBtn" onclick="confirmProposalPhotoSelection()">💾 出力する</button>
     </div>
   </div>
 </div>
@@ -1298,7 +1299,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-09e';
+const APP_BUILD='2026-10-09f';
 const PHOTO_MAX_DIM=2560;   // 長辺の上限（px）／Driveへ保存する本番の画質
 const PHOTO_QUALITY=0.82;   // JPEG品質
 // 撮影直後に「まず確実に保存する」ための暫定画質。銘板写真と同じく端末内で圧縮して
@@ -3889,8 +3890,10 @@ function renderProposalPhotoGroups(){
   }
   const btn=document.getElementById('proposalPhotoConfirmBtn');
   const n=_proposalSelected.length;
-  btn.disabled=n<2;
-  btn.textContent=n>0?`💾 出力する（${n}枚選択中）`:'💾 出力する';
+  // 写真を選ばなくても出力できる。選ばなかった枠は出力側で「写真なし」と表示されるため、
+  // レイアウトは崩れない（以前は2枚以上選ばないとボタンを押せなかった）。
+  btn.disabled=false;
+  btn.textContent=n>0?`💾 出力する（${n}枚選択中）`:'💾 写真なしで出力する';
 }
 function toggleProposalPhoto(idx){
   const pos=_proposalSelected.indexOf(idx);
@@ -3903,7 +3906,7 @@ function toggleProposalPhoto(idx){
   renderProposalPhotoGroups();
 }
 function confirmProposalPhotoSelection(){
-  if(_proposalSelected.length<2){showToast('⚠ 写真を2枚以上選択してください','error');return;}
+  // 写真の選択は任意。0枚でも出力できる。
   const selectedPhotos=_proposalSelected.map(i=>_proposalCandidates[i]);
   closeProposalPhotoModal();
   exportReplacementProposal(selectedPhotos);
