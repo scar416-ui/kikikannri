@@ -708,7 +708,7 @@ optgroup{font-weight:700}
         <textarea class="form-input" id="h_note" placeholder="部品番号・費用・特記事項など" style="min-height:56px"></textarea>
       </div>
       <div class="form-group">
-        <label class="form-label">写真・資料（PDF・Excelなども添付できます）</label>
+        <label class="form-label">写真・資料（PDF・Excelなども可／まとめて追加できます）</label>
         <div class="photo-extra-grid" id="historyPhotoGrid" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onHistoryPhotoDrop(event)" onmouseenter="_setHoverSlot('history')" onmouseleave="_clearHoverSlot('history')">
           <button class="btn-add-photo" onclick="triggerHistoryPhoto()">
             <span style="font-size:20px">＋</span><span>写真を追加</span>
@@ -1225,13 +1225,13 @@ optgroup{font-weight:700}
      写真ライブラリから既存の写真を選んで「変更」することができなくなるため -->
 <input type="file" id="fi_modal_全体" accept="image/*" style="display:none" onchange="handleModalPhoto(event,'全体')">
 <input type="file" id="fi_modal_銘板" accept="image/*" style="display:none" onchange="handleModalPhoto(event,'銘板')">
-<input type="file" id="fi_modal_extra" accept="image/*" style="display:none" onchange="handleModalExtraPhoto(event)">
+<input type="file" id="fi_modal_extra" multiple accept="image/*" style="display:none" onchange="handleModalExtraPhoto(event)">
 <!-- 非表示ファイル入力 (詳細画面用) -->
 <input type="file" id="fi_detail_全体" accept="image/*" style="display:none" onchange="handleDetailPhoto(event,'全体')">
 <input type="file" id="fi_detail_銘板" accept="image/*" style="display:none" onchange="handleDetailPhoto(event,'銘板')">
-<input type="file" id="fi_detail_extra" accept="image/*" style="display:none" onchange="handleDetailExtraPhoto(event)">
+<input type="file" id="fi_detail_extra" multiple accept="image/*" style="display:none" onchange="handleDetailExtraPhoto(event)">
 <!-- 非表示ファイル入力 (保守履歴写真用) -->
-<input type="file" id="fi_history" accept="image/*,.pdf,.xls,.xlsx,.xlsm,.xlsb,.csv,.doc,.docx,.ppt,.pptx,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none" onchange="handleHistoryPhoto(event)">
+<input type="file" id="fi_history" multiple accept="image/*,.pdf,.xls,.xlsx,.xlsm,.xlsb,.csv,.doc,.docx,.ppt,.pptx,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none" onchange="handleHistoryPhoto(event)">
 
 <!-- 一覧のステータスバッジをクリックしたときに出す、その場で変更できる小さなメニュー -->
 <div class="status-quick-menu" id="statusQuickMenu"></div>
@@ -1304,7 +1304,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-14a';
+const APP_BUILD='2026-10-14b';
 const PHOTO_MAX_DIM=2560;   // 長辺の上限（px）／Driveへ保存する本番の画質
 const PHOTO_QUALITY=0.82;   // JPEG品質
 // 撮影直後に「まず確実に保存する」ための暫定画質。銘板写真と同じく端末内で圧縮して
@@ -2396,6 +2396,41 @@ function _firstAttachmentFile(dataTransfer){
   if(!_isAllowedAttachment(file)){showToast('⚠ 写真・PDF・Excelなどのファイルを追加してください','error');return null;}
   return file;
 }
+
+/* ── 複数ファイルの同時追加 ──
+   追加写真・保守履歴の添付は何枚でも持てるため、まとめてドロップ／選択できるようにする。
+   一度に大量に放り込まれると端末が苦しくなるので上限を設け、超えた分は知らせて切り捨てる。 */
+const MAX_FILES_AT_ONCE=20;
+// 受け取ったファイル一覧から、追加できるものだけを取り出す。
+// 弾いたファイルがあれば、何が弾かれたのかが分かるように知らせる。
+function _collectFiles(fileList,allowFn,rejectMsg){
+  const all=Array.from(fileList||[]);
+  if(!all.length)return[];
+  const ok=all.filter(allowFn);
+  const ng=all.length-ok.length;
+  if(ng>0)showToast(`⚠ ${rejectMsg}（${ng}件を除きました）`,'error');
+  if(ok.length>MAX_FILES_AT_ONCE){
+    showToast(`⚠ 一度に追加できるのは${MAX_FILES_AT_ONCE}件までです。残りは分けて追加してください`,'error');
+    return ok.slice(0,MAX_FILES_AT_ONCE);
+  }
+  return ok;
+}
+// 1件ずつ順番に処理する。まとめて並列に走らせると端末内保存やDrive送信が詰まるため、
+// あえて直列にしている。途中で失敗しても残りは続行し、最後に結果をまとめて知らせる。
+async function _addFilesSequentially(files,processOne,label){
+  if(!files.length)return;
+  let ok=0,ng=0,lastErr='';
+  if(files.length>1)showToast(`📤 ${files.length}件を追加しています…`,'info');
+  for(const f of files){
+    try{ await processOne(f,files.length>1); ok++; }
+    catch(e){ ng++; lastErr=(e&&e.message)||String(e); console.error(`${label}の追加に失敗しました:`,f&&f.name,e); }
+  }
+  if(files.length>1||ng>0){
+    if(ng===0)showToast(`✅ ${ok}件を追加しました（Driveへ送信中…）`,'success');
+    else if(ok===0)showToast(`⚠ ${label}を追加できませんでした：${lastErr}`,'error');
+    else showToast(`⚠ ${ok}件を追加しましたが、${ng}件は失敗しました：${lastErr}`,'error');
+  }
+}
 function onDetailPhotoDrop(e,key){
   e.preventDefault();e.currentTarget.classList.remove('drag-over');
   const file=_firstImageFile(e.dataTransfer);if(!file)return;
@@ -2403,8 +2438,9 @@ function onDetailPhotoDrop(e,key){
 }
 function onDetailExtraDrop(e){
   e.preventDefault();e.currentTarget.classList.remove('drag-over');
-  const file=_firstImageFile(e.dataTransfer);if(!file)return;
-  processDetailExtraPhoto(file);
+  // 追加写真は何枚でも持てるので、まとめてドロップできる
+  const files=_collectFiles(e.dataTransfer&&e.dataTransfer.files,f=>f.type.startsWith('image/'),'画像ファイルのみ追加できます');
+  _addFilesSequentially(files,(f,bulk)=>processDetailExtraPhoto(f,bulk),'写真');
 }
 function onModalPhotoDrop(e,key){
   e.preventDefault();e.currentTarget.classList.remove('drag-over');
@@ -2413,14 +2449,15 @@ function onModalPhotoDrop(e,key){
 }
 function onModalExtraDrop(e){
   e.preventDefault();e.currentTarget.classList.remove('drag-over');
-  const file=_firstImageFile(e.dataTransfer);if(!file)return;
-  processModalExtraPhoto(file);
+  // 追加写真は何枚でも持てるので、まとめてドロップできる
+  const files=_collectFiles(e.dataTransfer&&e.dataTransfer.files,f=>f.type.startsWith('image/'),'画像ファイルのみ追加できます');
+  _addFilesSequentially(files,(f,bulk)=>processModalExtraPhoto(f,bulk),'写真');
 }
 function onHistoryPhotoDrop(e){
   e.preventDefault();e.currentTarget.classList.remove('drag-over');
-  // 保守履歴は写真だけでなくPDF・Excelなどの書類も添付できる
-  const file=_firstAttachmentFile(e.dataTransfer);if(!file)return;
-  processHistoryPhoto(file);
+  // 保守履歴は写真だけでなくPDF・Excelなどの書類も、まとめてドロップできる
+  const files=_collectFiles(e.dataTransfer&&e.dataTransfer.files,_isAllowedAttachment,'写真・PDF・Excelなどのファイルのみ追加できます');
+  _addFilesSequentially(files,(f,bulk)=>processHistoryPhoto(f,bulk),'添付');
 }
 
 /* ════ CLIPBOARD PASTE（Ctrl+V / Cmd+Vで写真スロットに画像を貼り付け） ════ */
@@ -2635,23 +2672,18 @@ async function handleDetailPhoto(e,key){
   }
 }
 function triggerDetailExtraPhoto(){document.getElementById('fi_detail_extra').click();}
-async function processDetailExtraPhoto(file){
+async function processDetailExtraPhoto(file,bulk){
   const eq=currentEq;
   const localId=_genLocalId();
   const localUrl=await _captureAndQueuePhoto(file,eq,'extra',localId,'追加写真');
   eq.photos.extra.push({name:file.name,data:localUrl,localId});
-  showToast('📤 写真をDriveへ送信中です…','info');
+  if(!bulk)showToast('📤 写真をDriveへ送信中です…','info');
   if(currentEq===eq)renderDetail();
 }
 async function handleDetailExtraPhoto(e){
-  const file=e.target.files[0];if(!file)return;
+  const files=_collectFiles(e.target.files,f=>f.type.startsWith('image/'),'画像ファイルのみ追加できます');
   e.target.value='';
-  try{
-    await processDetailExtraPhoto(file);
-  }catch(err){
-    console.error('写真の追加に失敗しました:',err);
-    showToast(`⚠ 写真の追加に失敗しました：${(err&&err.message)||err}`,'error');
-  }
+  await _addFilesSequentially(files,(f,bulk)=>processDetailExtraPhoto(f,bulk),'写真');
 }
 function deleteExtraPhoto(i,e){
   e.stopPropagation();
@@ -3093,7 +3125,7 @@ async function _showPendingPhotoBreakdown(){
 /* ════ MODAL PHOTOS ════ */
 function triggerModalPhoto(key){document.getElementById(`fi_modal_${key}`).click();}
 function triggerModalExtraPhoto(){document.getElementById('fi_modal_extra').click();}
-async function processModalExtraPhoto(file){
+async function processModalExtraPhoto(file,bulk){
   // 撮影開始時点で編集対象だった機器を固定しておく（詳細はキュー処理欄のコメント参照）
   const targetId=currentEq?currentEq.id:pendingNewEqId;
   const refEq=currentEq||{id:targetId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
@@ -3104,20 +3136,15 @@ async function processModalExtraPhoto(file){
   if(stillSameTarget){
     modalPhotos.extra.push({name:file.name,data:localUrl,localId});
     renderModalExtraGrid();
-    showToast('📤 写真を追加しました（Driveへ送信中…）','info');
+    if(!bulk)showToast('📤 写真を追加しました（Driveへ送信中…）','info');
   }else{
-    showToast('📤 写真をDriveへ送信中です…','info');
+    if(!bulk)showToast('📤 写真をDriveへ送信中です…','info');
   }
 }
 async function handleModalExtraPhoto(e){
-  const file=e.target.files[0];if(!file)return;
+  const files=_collectFiles(e.target.files,f=>f.type.startsWith('image/'),'画像ファイルのみ追加できます');
   e.target.value='';
-  try{
-    await processModalExtraPhoto(file);
-  }catch(err){
-    console.error('写真の追加に失敗しました:',err);
-    showToast(`⚠ 写真の追加に失敗しました：${(err&&err.message)||err}`,'error');
-  }
+  await _addFilesSequentially(files,(f,bulk)=>processModalExtraPhoto(f,bulk),'写真');
 }
 function deleteModalExtraPhoto(i){
   const removed=modalPhotos.extra[i];
@@ -3749,7 +3776,9 @@ function renderHistoryPhotoGrid(){
   </button>`;
 }
 function triggerHistoryPhoto(){document.getElementById('fi_history').click();}
-async function processHistoryPhoto(file){
+// bulk=true は「複数まとめて追加している最中」。1件ごとのトーストは出さず、
+// 最後に _addFilesSequentially が件数をまとめて知らせる。
+async function processHistoryPhoto(file,bulk){
   const eq=currentEq;
   const entryLocalId=_currentHistoryEntryLocalId;
   const localId=_genLocalId();
@@ -3763,23 +3792,15 @@ async function processHistoryPhoto(file){
     // 書類はブラウザ内でプレビューできないため、一覧ではアイコン表示にする（data は送信完了後にDriveのリンクへ差し替わる）
     historyPhotos.push({name:file.name,data:isImage?localUrl:'',localId});
     renderHistoryPhotoGrid();
-    showToast(`📤 ${what}を追加しました（Driveへ送信中…）`,'info');
+    if(!bulk)showToast(`📤 ${what}を追加しました（Driveへ送信中…）`,'info');
   }else{
-    showToast(`📤 ${what}をDriveへ送信中です…`,'info');
+    if(!bulk)showToast(`📤 ${what}をDriveへ送信中です…`,'info');
   }
 }
 async function handleHistoryPhoto(e){
-  const file=e.target.files[0];if(!file)return;
+  const files=_collectFiles(e.target.files,_isAllowedAttachment,'写真・PDF・Excelなどのファイルのみ追加できます');
   e.target.value='';
-  try{
-    if(!_isAllowedAttachment(file)){
-      showToast('⚠ 写真・PDF・Excelなどのファイルを追加してください','error');return;
-    }
-    await processHistoryPhoto(file);
-  }catch(err){
-    console.error('添付の追加に失敗しました:',err);
-    showToast(`⚠ 添付の追加に失敗しました：${(err&&err.message)||err}`,'error');
-  }
+  await _addFilesSequentially(files,(f,bulk)=>processHistoryPhoto(f,bulk),'添付');
 }
 function deleteHistoryPhoto(i){
   const removed=historyPhotos[i];
