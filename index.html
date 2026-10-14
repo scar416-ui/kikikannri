@@ -196,6 +196,11 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .photo-extra-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
 .photo-extra-item{aspect-ratio:4/3;border-radius:6px;overflow:hidden;position:relative;cursor:pointer;background:var(--gray-100)}
 .photo-extra-item img{width:100%;height:100%;object-fit:cover}
+/* PDF・Excelなど、画像として表示できない添付のタイル */
+.attach-file-tile{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:6px;background:var(--gray-50);border:1px solid var(--gray-200);box-sizing:border-box;text-align:center}
+.attach-file-icon{font-size:22px;line-height:1}
+.attach-file-type{font-size:10px;font-weight:700;letter-spacing:.02em}
+.attach-file-name{font-size:9px;color:var(--gray-500);line-height:1.25;word-break:break-all;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .photo-extra-del{position:absolute;top:3px;right:3px;background:rgba(0,0,0,.55);color:#fff;border:none;width:20px;height:20px;border-radius:50%;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .2s}
 .photo-extra-item:hover .photo-extra-del{opacity:1}
 .photo-pending-badge{position:absolute;left:4px;bottom:4px;background:rgba(0,0,0,.65);color:#fff;font-size:10px;font-weight:700;padding:3px 7px;border-radius:10px;display:flex;align-items:center;gap:4px;z-index:2;pointer-events:none}
@@ -703,7 +708,7 @@ optgroup{font-weight:700}
         <textarea class="form-input" id="h_note" placeholder="部品番号・費用・特記事項など" style="min-height:56px"></textarea>
       </div>
       <div class="form-group">
-        <label class="form-label">写真</label>
+        <label class="form-label">写真・資料（PDF・Excelなども添付できます）</label>
         <div class="photo-extra-grid" id="historyPhotoGrid" ondragover="onPhotoDragOver(event)" ondragleave="onPhotoDragLeave(event)" ondrop="onHistoryPhotoDrop(event)" onmouseenter="_setHoverSlot('history')" onmouseleave="_clearHoverSlot('history')">
           <button class="btn-add-photo" onclick="triggerHistoryPhoto()">
             <span style="font-size:20px">＋</span><span>写真を追加</span>
@@ -1226,7 +1231,7 @@ optgroup{font-weight:700}
 <input type="file" id="fi_detail_銘板" accept="image/*" style="display:none" onchange="handleDetailPhoto(event,'銘板')">
 <input type="file" id="fi_detail_extra" accept="image/*" style="display:none" onchange="handleDetailExtraPhoto(event)">
 <!-- 非表示ファイル入力 (保守履歴写真用) -->
-<input type="file" id="fi_history" accept="image/*" style="display:none" onchange="handleHistoryPhoto(event)">
+<input type="file" id="fi_history" accept="image/*,.pdf,.xls,.xlsx,.xlsm,.xlsb,.csv,.doc,.docx,.ppt,.pptx,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none" onchange="handleHistoryPhoto(event)">
 
 <!-- 一覧のステータスバッジをクリックしたときに出す、その場で変更できる小さなメニュー -->
 <div class="status-quick-menu" id="statusQuickMenu"></div>
@@ -1299,7 +1304,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-09g';
+const APP_BUILD='2026-10-14a';
 const PHOTO_MAX_DIM=2560;   // 長辺の上限（px）／Driveへ保存する本番の画質
 const PHOTO_QUALITY=0.82;   // JPEG品質
 // 撮影直後に「まず確実に保存する」ための暫定画質。銘板写真と同じく端末内で圧縮して
@@ -2233,7 +2238,7 @@ function renderDetail(){
         const i=(eq.maintenance.length-1-ri);
         const historyPhotosHTML=(h.photos&&h.photos.length)?`<div class="photo-extra-grid" style="grid-template-columns:repeat(4,1fr);margin-top:8px">${h.photos.map((p,pi)=>
           `<div class="photo-extra-item" onclick="openSavedHistoryPhotoLightbox(${i},${pi})">
-            <img src="${p.data}" alt="${p.name}" onerror="_photoRetry(this)">
+            ${_attachTileInner(p)}
             ${p.localId&&_isPendingPhoto(eq.id,'history',p.localId)?'<span class="photo-pending-badge"><span class="spinner"></span>送信中</span>':''}
           </div>`).join('')}</div>`:'';
         return`<div class="history-card">
@@ -2341,6 +2346,56 @@ function _firstImageFile(dataTransfer){
   if(!file.type.startsWith('image/')){showToast('⚠ 画像ファイルのみ追加できます','error');return null;}
   return file;
 }
+/* ── 保守履歴の添付ファイル（写真のほかPDF・Excelなども扱う） ──
+   写真は従来どおり端末内で圧縮してからDriveへ送るが、PDFやExcelは中身を変えずに
+   そのままDriveへ送る必要があるため、両者を見分ける共通処理をここにまとめる。 */
+function _isImageAttachment(nameOrFile,type){
+  const name=typeof nameOrFile==='string'?nameOrFile:((nameOrFile&&nameOrFile.name)||'');
+  const t=(typeof nameOrFile==='object'&&nameOrFile?(nameOrFile.type||''):(type||'')).toLowerCase();
+  if(t.startsWith('image/'))return true;
+  if(t)return false;
+  return /\.(jpe?g|png|gif|webp|bmp|heic|heif|avif|svg)$/i.test(name);
+}
+// 保守履歴に添付できるファイル（写真＋書類）かどうか
+function _isAllowedAttachment(file){
+  if(!file)return false;
+  if(_isImageAttachment(file))return true;
+  const t=(file.type||'').toLowerCase();
+  if(t==='application/pdf')return true;
+  if(t.includes('spreadsheet')||t.includes('excel')||t==='text/csv')return true;
+  if(t.includes('word')||t.includes('presentation'))return true;
+  return /\.(pdf|xls|xlsx|xlsm|xlsb|csv|doc|docx|ppt|pptx|txt)$/i.test(file.name||'');
+}
+// 添付の種類に応じたアイコンと表示色（一覧のタイル表示に使う）
+function _attachIcon(name){
+  const n=String(name||'').toLowerCase();
+  if(/\.pdf$/.test(n))return{icon:'📕',label:'PDF',color:'#c0282a'};
+  if(/\.(xls|xlsx|xlsm|xlsb|csv)$/.test(n))return{icon:'📗',label:'Excel',color:'#1d6f42'};
+  if(/\.(doc|docx)$/.test(n))return{icon:'📘',label:'Word',color:'#2b579a'};
+  if(/\.(ppt|pptx)$/.test(n))return{icon:'📙',label:'PowerPoint',color:'#c43e1c'};
+  return{icon:'📄',label:'ファイル',color:'#6b7280'};
+}
+// 保存済みの添付が「写真ではない書類」かどうかの判定。
+// 既存データ（すべて写真）の表示を変えてしまわないよう、書類だと確実に分かる場合だけtrueにし、
+// 判断がつかないものは従来どおり写真として扱う。
+function _isDocAttachment(p){
+  if(!p)return false;
+  if(/\.(pdf|xls|xlsx|xlsm|xlsb|csv|doc|docx|ppt|pptx|txt)$/i.test(String(p.name||'')))return true;
+  // Driveの閲覧用リンク（/file/d/…/view）で保存されているものは書類
+  if(typeof p.data==='string'&&/drive\.google\.com\/file\/d\//.test(p.data))return true;
+  return false;
+}
+// 添付の拡張子（Driveへ保存するときのファイル名に使う）
+function _attachExt(name){
+  const m=String(name||'').match(/\.[A-Za-z0-9]{1,6}$/);
+  return m?m[0]:'';
+}
+function _firstAttachmentFile(dataTransfer){
+  const file=dataTransfer&&dataTransfer.files&&dataTransfer.files[0];
+  if(!file)return null;
+  if(!_isAllowedAttachment(file)){showToast('⚠ 写真・PDF・Excelなどのファイルを追加してください','error');return null;}
+  return file;
+}
 function onDetailPhotoDrop(e,key){
   e.preventDefault();e.currentTarget.classList.remove('drag-over');
   const file=_firstImageFile(e.dataTransfer);if(!file)return;
@@ -2363,7 +2418,8 @@ function onModalExtraDrop(e){
 }
 function onHistoryPhotoDrop(e){
   e.preventDefault();e.currentTarget.classList.remove('drag-over');
-  const file=_firstImageFile(e.dataTransfer);if(!file)return;
+  // 保守履歴は写真だけでなくPDF・Excelなどの書類も添付できる
+  const file=_firstAttachmentFile(e.dataTransfer);if(!file)return;
   processHistoryPhoto(file);
 }
 
@@ -3662,18 +3718,30 @@ function deleteHistory(i){
   renderDetail();
   if(removed&&removed._localId)_cancelPendingPhotosForEntry(currentEq.id,removed._localId);
 }
+// 添付タイルの中身。写真はサムネイル、PDF・Excelなどはアイコンとファイル名で表示する。
+function _attachTileInner(p){
+  if(!_isDocAttachment(p)&&p.data){
+    return `<img src="${p.data}" alt="${p.name}" onerror="_photoRetry(this)">`;
+  }
+  const ic=_attachIcon(p.name);
+  return `<div class="attach-file-tile" title="${p.name}">
+    <span class="attach-file-icon">${ic.icon}</span>
+    <span class="attach-file-type" style="color:${ic.color}">${ic.label}</span>
+    <span class="attach-file-name">${p.name||''}</span>
+  </div>`;
+}
 function renderHistoryPhotoGrid(){
   const grid=document.getElementById('historyPhotoGrid');
   if(!grid)return;
   const eqId=currentEq?currentEq.id:null;
   const items=historyPhotos.map((p,i)=>
     `<div class="photo-extra-item" onclick="openHistoryPhotoLightbox(${i})">
-      <img src="${p.data}" alt="${p.name}" onerror="_photoRetry(this)">
+      ${_attachTileInner(p)}
       ${p.localId&&eqId!=null&&_isPendingPhoto(eqId,'history',p.localId)?'<span class="photo-pending-badge"><span class="spinner"></span>送信中</span>':''}
       <button class="photo-extra-del" onclick="event.stopPropagation();deleteHistoryPhoto(${i})">✕</button>
     </div>`).join('');
   grid.innerHTML=items+`<button class="btn-add-photo" onclick="triggerHistoryPhoto()">
-    <span style="font-size:20px">＋</span><span>写真を追加</span>
+    <span style="font-size:20px">＋</span><span>写真・資料を追加</span>
   </button><button class="btn-add-photo" onclick="pasteImageFromClipboard('history')">
     <span style="font-size:20px">📋</span><span>貼り付け</span>
   </button><button class="btn-add-photo" onclick="pickFromGoogleDrive('history')">
@@ -3685,24 +3753,32 @@ async function processHistoryPhoto(file){
   const eq=currentEq;
   const entryLocalId=_currentHistoryEntryLocalId;
   const localId=_genLocalId();
-  const localUrl=await _captureAndQueuePhoto(file,eq,'history',localId,'保守履歴写真',entryLocalId);
+  const isImage=_isImageAttachment(file);
+  // 写真は従来どおり送信キュー側で圧縮する。PDF・Excelなどの書類は中身を変えてはいけないので、
+  // 変換済み（alreadyPrepared=true）として渡し、そのままDriveへ送る。
+  const localUrl=await _captureAndQueuePhoto(file,eq,'history',localId,'保守履歴添付',entryLocalId,!isImage);
   const stillSameHistoryTarget=document.getElementById('historyModalOverlay').classList.contains('show')&&currentEq===eq&&_currentHistoryEntryLocalId===entryLocalId;
+  const what=isImage?'写真':_attachIcon(file.name).label;
   if(stillSameHistoryTarget){
-    historyPhotos.push({name:file.name,data:localUrl,localId});
+    // 書類はブラウザ内でプレビューできないため、一覧ではアイコン表示にする（data は送信完了後にDriveのリンクへ差し替わる）
+    historyPhotos.push({name:file.name,data:isImage?localUrl:'',localId});
     renderHistoryPhotoGrid();
-    showToast('📤 写真を追加しました（Driveへ送信中…）','info');
+    showToast(`📤 ${what}を追加しました（Driveへ送信中…）`,'info');
   }else{
-    showToast('📤 写真をDriveへ送信中です…','info');
+    showToast(`📤 ${what}をDriveへ送信中です…`,'info');
   }
 }
 async function handleHistoryPhoto(e){
   const file=e.target.files[0];if(!file)return;
   e.target.value='';
   try{
+    if(!_isAllowedAttachment(file)){
+      showToast('⚠ 写真・PDF・Excelなどのファイルを追加してください','error');return;
+    }
     await processHistoryPhoto(file);
   }catch(err){
-    console.error('写真の追加に失敗しました:',err);
-    showToast(`⚠ 写真の追加に失敗しました：${(err&&err.message)||err}`,'error');
+    console.error('添付の追加に失敗しました:',err);
+    showToast(`⚠ 添付の追加に失敗しました：${(err&&err.message)||err}`,'error');
   }
 }
 function deleteHistoryPhoto(i){
@@ -3711,20 +3787,25 @@ function deleteHistoryPhoto(i){
   renderHistoryPhotoGrid();
   if(removed&&removed.localId&&currentEq)_cancelPendingPhotosFor(currentEq.id,'history',removed.localId);
 }
-function openHistoryPhotoLightbox(i){
-  const p=historyPhotos[i];if(!p)return;
+// 添付を開く。写真は従来どおり拡大表示、PDF・Excelなどの書類はDriveの別タブで開く。
+function _openAttachment(p){
+  if(!p)return;
+  if(_isDocAttachment(p)){
+    if(!p.data){showToast('⏳ まだDriveへの送信中です。完了までお待ちください','info');return;}
+    window.open(p.data,'_blank','noopener');
+    return;
+  }
   document.getElementById('lightboxImg').src=_hiresLightboxUrl(p.data);
   _setLightboxOriginalLink(p.data);
   document.getElementById('lightboxLabel').textContent=p.name;
   document.getElementById('lightbox').classList.add('show');
 }
+function openHistoryPhotoLightbox(i){
+  _openAttachment(historyPhotos[i]);
+}
 function openSavedHistoryPhotoLightbox(hi,pi){
   const eq=currentEq;if(!eq||!eq.maintenance||!eq.maintenance[hi])return;
-  const p=(eq.maintenance[hi].photos||[])[pi];if(!p)return;
-  document.getElementById('lightboxImg').src=_hiresLightboxUrl(p.data);
-  _setLightboxOriginalLink(p.data);
-  document.getElementById('lightboxLabel').textContent=p.name;
-  document.getElementById('lightbox').classList.add('show');
+  _openAttachment((eq.maintenance[hi].photos||[])[pi]);
 }
 
 // ライトボックス（拡大表示）用に、一覧サムネイル用の低解像度URL（sz=w800）を
@@ -3853,7 +3934,8 @@ function _buildProposalCandidates(eq){
   (eq.maintenance||[]).forEach(h=>{
     const g=`保守履歴の写真（${h.date||'日付未設定'}　${h.content||''}）`;
     (h.photos||[]).forEach((p,pi)=>{
-      if(p&&p.data)list.push({url:p.data,label:`写真${pi+1}`,groupLabel:g});
+      // PDF・Excelなどの書類はExcelの提案書に貼り込めないため、候補から除く
+      if(p&&p.data&&!_isDocAttachment(p))list.push({url:p.data,label:`写真${pi+1}`,groupLabel:g});
     });
   });
   return list;
@@ -6299,14 +6381,25 @@ async function _findOrCreateFolder(name,parentId){
 
 // Driveに保存するファイル名を「ベイ名_機器名_写真の種類_日時」のように分かりやすくする。
 // ファイル名から見ただけで何の写真か判別できるようにするための処理。
-function _driveFileLabel(eq,category){
+function _driveFileLabel(eq,category,srcFile){
   const bay=(eq&&eq.bay)?String(eq.bay):'';
   const name=(eq&&eq.name)?String(eq.name):'';
   const d=new Date();
   const pad=n=>String(n).padStart(2,'0');
   const ts=`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
   const base=[bay,name,category].filter(Boolean).join('_').replace(/[\\/:*?"<>|]/g,'_');
-  return `${base}_${ts}.jpg`;
+  // 写真は必ずJPEGへ変換してから送るので .jpg。PDFやExcelなどの書類は、
+  // 元の拡張子のまま保存しないとDrive上で開けなくなるため元の拡張子を使う。
+  let ext='.jpg';
+  if(srcFile&&!_isImageAttachment(srcFile)){
+    ext=_attachExt(srcFile.name)||'';
+  }
+  // 書類は元のファイル名も残しておくと、Drive上で何の資料か分かりやすい
+  if(srcFile&&!_isImageAttachment(srcFile)){
+    const orig=String(srcFile.name||'').replace(/\.[^.]+$/,'').replace(/[\\/:*?"<>|]/g,'_');
+    return `${base}_${orig}_${ts}${ext}`;
+  }
+  return `${base}_${ts}${ext}`;
 }
 async function _uploadToDrive(file,eq,category){
   const token=await _getDriveToken();
@@ -6321,7 +6414,7 @@ async function _uploadToDrive(file,eq,category){
   const storeFId=await _findOrCreateFolder(storeName,companyFId);
   const eqFId=await _findOrCreateFolder(eqFolderName,storeFId);
   // ファイルをアップロード（写真の種類が分かるファイル名にする）
-  const fileName=category?_driveFileLabel(eq,category):file.name;
+  const fileName=category?_driveFileLabel(eq,category,file):file.name;
   // 【送信方式】レジューム可能アップロードは256KBずつの分割送信になるため、
   // 回線が不安定でも途中から再送できる反面、往復回数がファイルサイズに比例して増える
   // （1MBで4往復、10MBで40往復）。セッション開始の1回も加わるため、小さいファイルでは
@@ -6346,6 +6439,11 @@ async function _uploadToDrive(file,eq,category){
     headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
     body:JSON.stringify({role:'reader',type:'anyone'})
   },20000);
+  // 写真はアプリ内で表示するためサムネイルURLを返す。
+  // PDFやExcelなどの書類はサムネイルでは開けないため、Driveの閲覧用リンクを返す。
+  if(!_isImageAttachment(file)){
+    return `https://drive.google.com/file/d/${uploadedId}/view`;
+  }
   return `https://drive.google.com/thumbnail?id=${uploadedId}&sz=w800`;
 }
 
