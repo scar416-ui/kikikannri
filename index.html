@@ -35,6 +35,13 @@ body{font-family:'Segoe UI','Hiragino Sans',sans-serif;background:var(--gray-100
 .app{display:flex;flex-direction:column;height:calc(100vh - 56px)}
 .filter-bar{background:#fff;padding:10px 16px;border-bottom:2px solid var(--primary-border);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .filter-label{font-size:12px;color:var(--primary);font-weight:700;white-space:nowrap}
+/* 絞り込み欄の折り畳み。PCでは従来のラベルと同じ見た目のまま（押しても何も起きない）、
+   スマホでのみタップで開閉できる行になる。display:contents にしているのは、
+   PC・スマホともに既存のレイアウト（.filter-group が .filter-bar の直接の子として並ぶ）を
+   まったく変えずに、まとめて表示／非表示だけを切り替えるため。 */
+.filter-body{display:contents}
+.filter-toggle{background:none;border:none;padding:0;font-family:inherit;font-size:12px;color:var(--primary);font-weight:700;white-space:nowrap;display:flex;align-items:center;gap:4px;cursor:default}
+.filter-toggle-summary{display:none}
 select{border:1px solid var(--gray-300);border-radius:6px;padding:6px 28px 6px 10px;font-size:13px;color:var(--gray-700);background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 8px center;-webkit-appearance:none;appearance:none;cursor:pointer}
 select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(192,40,42,.12)}
 .filter-arrow{color:var(--primary);font-size:16px;font-weight:700;flex-shrink:0}
@@ -327,6 +334,18 @@ optgroup{font-weight:700}
   .filter-bar{flex-direction:column;align-items:stretch;gap:8px;padding:10px 12px}
   .filter-label{margin-bottom:0}
   .filter-arrow{display:none}
+
+  /* ── 絞り込み欄の折り畳み（スマホのみ） ── */
+  .filter-toggle{width:100%;cursor:pointer;font-size:13px;gap:6px;padding:4px 0;min-height:34px;-webkit-tap-highlight-color:transparent}
+  .filter-toggle-caret{display:inline-block;transition:transform .15s;font-size:11px}
+  .filter-bar.collapsed .filter-toggle-caret{transform:rotate(-90deg)}
+  /* 畳んでいる間も「今どの条件で絞り込んでいるか」が分かるように要約を出す */
+  .filter-toggle-summary{display:block;flex:1;min-width:0;text-align:right;font-weight:500;font-size:12px;color:var(--gray-500);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .filter-toggle-summary.active{color:var(--primary)}
+  .filter-bar.collapsed .filter-body{display:none}
+  .filter-bar.collapsed{gap:0;padding-top:6px;padding-bottom:6px}
+  /* 畳んだときは詳細条件パネルも一緒に隠す */
+  .filter-bar.collapsed + .adv-filter-bar{display:none!important}
   .filter-group{width:100%}
   .filter-group select{flex:1;min-width:0}
   select{padding:11px 30px 11px 12px;font-size:15px;width:100%}
@@ -408,9 +427,16 @@ optgroup{font-weight:700}
 
 <div class="app">
   <!-- FILTER BAR: 地域 › 類別 › 販社[＋] › 店舗[＋] -->
-  <div class="filter-bar">
-    <span class="filter-label">▼ 絞り込み</span>
+  <div class="filter-bar" id="filterBar">
+    <!-- スマホでは画面の上半分を絞り込み欄が占めてしまうため、タップで折り畳めるようにする。
+         PCでは従来どおり常に開いた状態（ラベルとして表示されるだけ）。 -->
+    <button class="filter-toggle" id="filterToggleBtn" onclick="toggleFilterBar()" aria-expanded="true">
+      <span class="filter-toggle-caret">▼</span>
+      <span>絞り込み</span>
+      <span class="filter-toggle-summary" id="filterToggleSummary"></span>
+    </button>
 
+    <div class="filter-body" id="filterBody">
     <div class="filter-group">
       <select id="filterRegion" onchange="onFilterRegionChange()">
         <option value="">地域 (全て)</option>
@@ -477,6 +503,7 @@ optgroup{font-weight:700}
     <div class="filter-group">
       <button class="btn-adv-toggle" id="advFilterToggleBtn" onclick="toggleAdvFilter()">🔧 詳細条件</button>
     </div>
+    </div><!-- /filter-body -->
   </div>
 
   <!-- ステータス・型式・機器名称・経過年数の組み合わせで絞り込む詳細条件パネル -->
@@ -1304,7 +1331,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-14b';
+const APP_BUILD='2026-10-14c';
 const PHOTO_MAX_DIM=2560;   // 長辺の上限（px）／Driveへ保存する本番の画質
 const PHOTO_QUALITY=0.82;   // JPEG品質
 // 撮影直後に「まず確実に保存する」ための暫定画質。銘板写真と同じく端末内で圧縮して
@@ -1926,7 +1953,58 @@ function clearFilterSearch(){
   applyFilters();
   el.focus();
 }
-function applyFilters(){renderList();}
+function applyFilters(){renderList();_updateFilterToggleSummary();}
+
+/* ════ 絞り込み欄の折り畳み（スマホ向け） ════
+   iPhoneでは絞り込み欄だけで画面の上半分を占めてしまうため、タップで畳めるようにする。
+   PC（641px以上）では従来どおり常に開いた状態のまま。 */
+function _isNarrowScreen(){
+  try{return window.matchMedia('(max-width:640px)').matches;}catch(e){return false;}
+}
+function toggleFilterBar(){
+  if(!_isNarrowScreen())return; // PCでは畳まない（ラベルとして機能するだけ）
+  const bar=document.getElementById('filterBar');if(!bar)return;
+  const collapsed=bar.classList.toggle('collapsed');
+  const btn=document.getElementById('filterToggleBtn');
+  if(btn)btn.setAttribute('aria-expanded',String(!collapsed));
+  // 次に開いたときも同じ状態で始められるように覚えておく（保存できなくても動作に支障はない）
+  try{localStorage.setItem('kk_filterCollapsed',collapsed?'1':'0');}catch(e){}
+  _updateFilterToggleSummary();
+}
+// 畳んでいる間も、今どの条件で絞り込んでいるかが一目で分かるようにする
+function _updateFilterToggleSummary(){
+  const el=document.getElementById('filterToggleSummary');if(!el)return;
+  const parts=[];
+  if(filters.region)parts.push(filters.region);
+  if(filters.category)parts.push(filters.category);
+  const c=filters.companyId?getCompany(filters.companyId):null;
+  if(c)parts.push(companyLabel(c));
+  if(filters.storeId===STORE_UNSET)parts.push('店舗未設定');
+  else if(filters.storeId&&c){
+    const st=getStore(filters.companyId,filters.storeId);
+    if(st)parts.push(storeLabel(st));
+  }
+  if(filters.q)parts.push(`「${filters.q}」`);
+  // 詳細条件は件数だけ添える（長くなりすぎないため）
+  const adv=(filters.statuses&&filters.statuses.length?1:0)+(filters.model?1:0)+(filters.eqName?1:0)
+    +((filters.elapsedYears!==''&&filters.elapsedYears!==null)?1:0);
+  if(adv)parts.push(`詳細条件${adv}件`);
+  if(filters.showRetired)parts.push('撤去済みも表示');
+  const active=parts.length>0;
+  el.textContent=active?parts.join(' / '):'条件なし';
+  el.classList.toggle('active',active);
+}
+// 起動時：スマホでは初期状態を畳んだ状態にする（前回の操作を覚えていればそれを優先）
+function _initFilterBarCollapse(){
+  const bar=document.getElementById('filterBar');if(!bar)return;
+  let saved=null;
+  try{saved=localStorage.getItem('kk_filterCollapsed');}catch(e){}
+  const collapsed=saved===null?true:saved==='1';
+  if(_isNarrowScreen()&&collapsed)bar.classList.add('collapsed');
+  const btn=document.getElementById('filterToggleBtn');
+  if(btn)btn.setAttribute('aria-expanded',String(!bar.classList.contains('collapsed')));
+  _updateFilterToggleSummary();
+}
 
 /* ════ 詳細条件（型式・機器名称・経過年数） ════ */
 // 機器名称の絞り込みは「個別の機器名称」と「リフト／車検機器などの大分類」の
@@ -6863,6 +6941,7 @@ window.addEventListener('online',()=>{
 
 /* ════ INIT ════ */
 {const _b=document.getElementById('appBuildLabel');if(_b)_b.textContent=APP_BUILD;}
+_initFilterBarCollapse();
 rebuildCompanySelect();
 rebuildEquipmentNameSelect();rebuildEqNameFilterSelect();
 rebuildStatusSelect();
