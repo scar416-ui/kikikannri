@@ -1340,7 +1340,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-14d';
+const APP_BUILD='2026-10-14e';
 const PHOTO_MAX_DIM=2560;   // 長辺の上限（px）／Driveへ保存する本番の画質
 const PHOTO_QUALITY=0.82;   // JPEG品質
 // 撮影直後に「まず確実に保存する」ための暫定画質。銘板写真と同じく端末内で圧縮して
@@ -1348,6 +1348,11 @@ const PHOTO_QUALITY=0.82;   // JPEG品質
 // Driveへの送信が完了した時点で、この暫定データは高画質のURLに置き換わって消える。
 const PHOTO_INSTANT_MAX_DIM=1200;
 const PHOTO_INSTANT_QUALITY=0.75;
+// 追加写真・保守写真は1機器に何枚も付くため、暫定データを全体写真と同じ大きさで
+// 保存すると1文書あたり約1MBの上限をすぐ超えてしまう。暫定表示用はさらに小さい
+// サムネイルにし、Driveへの送信が終わった時点で高画質のURLに置き換える。
+const PHOTO_THUMB_MAX_DIM=640;
+const PHOTO_THUMB_QUALITY=0.55;
 // この値以下のファイルは分割送信せず1回のリクエストで送る（往復回数を最小化）。
 // Google Drive APIのmultipartアップロードは5MBまで推奨。
 const DRIVE_SIMPLE_UPLOAD_MAX=4*1024*1024;
@@ -2762,10 +2767,26 @@ function triggerDetailExtraPhoto(){document.getElementById('fi_detail_extra').cl
 async function processDetailExtraPhoto(file,bulk){
   const eq=currentEq;
   const localId=_genLocalId();
-  const localUrl=await _captureAndQueuePhoto(file,eq,'extra',localId,'追加写真');
-  eq.photos.extra.push({name:file.name,data:localUrl,localId});
-  if(!bulk)showToast('📤 写真をDriveへ送信中です…','info');
+  // 編集画面の追加写真と同じく、端末内で圧縮してその場で保存を完了させる（Drive待ちにしない）
+  let prepared;
+  try{
+    prepared=await _prepareInstantPhoto(file);
+  }catch(e){
+    console.error(e);
+    showToast('⚠ 画像の処理に失敗しました','error');
+    return;
+  }
+  eq.photos=eq.photos||{'全体':null,'銘板':null,extra:[]};
+  eq.photos.extra=eq.photos.extra||[];
+  eq.photos.extra.push({name:file.name,data:prepared.thumbDataUrl,localId});
+  const ok=await _saveEqPhotosOnly(eq,'extra');
   if(currentEq===eq)renderDetail();
+  renderList();
+  if(!bulk)showToast(ok?'✅ 写真を追加しました':'⚠ 写真の保存に失敗しました',ok?'success':'error');
+  if(ok){
+    _captureAndQueuePhoto(prepared.sendFile,eq,'extra',localId,'追加写真',null,true)
+      .catch(e=>console.warn('Driveへのバックアップ登録に失敗しました（写真の保存自体は完了しています）:',e));
+  }
 }
 async function handleDetailExtraPhoto(e){
   const files=_collectFiles(e.target.files,f=>f.type.startsWith('image/'),'画像ファイルのみ追加できます');
@@ -2899,6 +2920,23 @@ function _dataUrlToFile(dataUrl,name){
   const arr=new Uint8Array(bin.length);
   for(let k=0;k<bin.length;k++)arr[k]=bin.charCodeAt(k);
   return new File([arr],name,{type:mime});
+}
+// 撮影直後の「即保存」用の共通処理。デコードは1回だけ行い、そこから
+// ・Driveへ送るファイル（圧縮済み＝送信キューでの再変換が不要）
+// ・画面表示＋暫定保存用のサムネイル（Firestoreに入れても軽い）
+// の2つを作る。元の12MPファイルをそのままキューへ入れると、端末内保存・サムネイル表示・
+// 裏側でのHEIC変換がすべて重くなり、iPhoneでは登録に時間がかかってしまう。
+async function _prepareInstantPhoto(file){
+  const sendDataUrl=await _compressImageToDataURL(file,PHOTO_INSTANT_MAX_DIM,PHOTO_INSTANT_QUALITY);
+  let thumbDataUrl;
+  try{
+    thumbDataUrl=await _recompressDataUrl(sendDataUrl,PHOTO_THUMB_MAX_DIM,PHOTO_THUMB_QUALITY);
+  }catch(e){
+    console.warn('サムネイルの作成に失敗したため、送信用の画像をそのまま表示します:',e);
+    thumbDataUrl=sendDataUrl;
+  }
+  const sendFile=_dataUrlToFile(sendDataUrl,(file.name||'photo').replace(/\.[^.]+$/,'')+'.jpg');
+  return {sendFile,thumbDataUrl};
 }
 // alreadyPrepared=true のときは、送信キューは変換処理を一切行わず、渡されたファイルを
 // そのままDriveへ送る。
@@ -3217,16 +3255,29 @@ async function processModalExtraPhoto(file,bulk){
   const targetId=currentEq?currentEq.id:pendingNewEqId;
   const refEq=currentEq||{id:targetId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
   const localId=_genLocalId();
-  const localUrl=await _captureAndQueuePhoto(file,refEq,'extra',localId,'追加写真');
+  // 全体写真・銘板写真と同じ「即保存」方式。端末内で1回だけ圧縮し、その場で登録を確定させる。
+  // Driveへの送信は裏側で行い、完了したら高画質のURLに差し替わる（暫定データは消える）。
+  let prepared;
+  try{
+    prepared=await _prepareInstantPhoto(file);
+  }catch(e){
+    console.error(e);
+    showToast('⚠ 画像の処理に失敗しました','error');
+    return;
+  }
   const stillSameTarget=document.getElementById('modalOverlay').classList.contains('show')&&
     (currentEq?currentEq.id:pendingNewEqId)===targetId;
   if(stillSameTarget){
-    modalPhotos.extra.push({name:file.name,data:localUrl,localId});
+    modalPhotos.extra.push({name:file.name,data:prepared.thumbDataUrl,localId});
     renderModalExtraGrid();
-    if(!bulk)showToast('📤 写真を追加しました（Driveへ送信中…）','info');
+    if(!bulk)showToast('✅ 写真を追加しました','success');
   }else{
-    if(!bulk)showToast('📤 写真をDriveへ送信中です…','info');
+    if(!bulk)showToast('✅ 写真を追加しました','success');
   }
+  // 送るのは「いま圧縮したばかりの画像」。元の大きなファイルを渡すと、裏側でHEIC変換と
+  // 巨大なcanvas処理をやり直すことになり、iPhoneでは応答が返らなくなることがある。
+  _captureAndQueuePhoto(prepared.sendFile,refEq,'extra',localId,'追加写真',null,true)
+    .catch(e=>console.warn('Driveへのバックアップ登録に失敗しました（写真の保存自体は完了しています）:',e));
 }
 async function handleModalExtraPhoto(e){
   const files=_collectFiles(e.target.files,f=>f.type.startsWith('image/'),'画像ファイルのみ追加できます');
@@ -3870,19 +3921,32 @@ async function processHistoryPhoto(file,bulk){
   const entryLocalId=_currentHistoryEntryLocalId;
   const localId=_genLocalId();
   const isImage=_isImageAttachment(file);
-  // 写真は従来どおり送信キュー側で圧縮する。PDF・Excelなどの書類は中身を変えてはいけないので、
-  // 変換済み（alreadyPrepared=true）として渡し、そのままDriveへ送る。
-  const localUrl=await _captureAndQueuePhoto(file,eq,'history',localId,'保守履歴添付',entryLocalId,!isImage);
+  // 写真は端末内で先に圧縮して即保存する（追加写真と同じ方式）。PDF・Excelなどの書類は
+  // 中身を変えてはいけないので、変換済み（alreadyPrepared=true）として元のままDriveへ送る。
+  let sendFile=file,thumbDataUrl='';
+  if(isImage){
+    try{
+      const prepared=await _prepareInstantPhoto(file);
+      sendFile=prepared.sendFile;
+      thumbDataUrl=prepared.thumbDataUrl;
+    }catch(e){
+      console.error(e);
+      showToast('⚠ 画像の処理に失敗しました','error');
+      return;
+    }
+  }
   const stillSameHistoryTarget=document.getElementById('historyModalOverlay').classList.contains('show')&&currentEq===eq&&_currentHistoryEntryLocalId===entryLocalId;
   const what=isImage?'写真':_attachIcon(file.name).label;
   if(stillSameHistoryTarget){
     // 書類はブラウザ内でプレビューできないため、一覧ではアイコン表示にする（data は送信完了後にDriveのリンクへ差し替わる）
-    historyPhotos.push({name:file.name,data:isImage?localUrl:'',localId});
+    historyPhotos.push({name:file.name,data:thumbDataUrl,localId});
     renderHistoryPhotoGrid();
-    if(!bulk)showToast(`📤 ${what}を追加しました（Driveへ送信中…）`,'info');
+    if(!bulk)showToast(isImage?`✅ ${what}を追加しました`:`📤 ${what}をDriveへ送信中です…`,isImage?'success':'info');
   }else{
     if(!bulk)showToast(`📤 ${what}をDriveへ送信中です…`,'info');
   }
+  _captureAndQueuePhoto(sendFile,eq,'history',localId,'保守履歴添付',entryLocalId,true)
+    .catch(e=>console.warn('Driveへのバックアップ登録に失敗しました:',e));
 }
 async function handleHistoryPhoto(e){
   const files=_collectFiles(e.target.files,_isAllowedAttachment,'写真・PDF・Excelなどのファイルのみ追加できます');
@@ -6697,7 +6761,7 @@ async function _uploadWithFallback(file,eq,category){
 async function _shrinkOversizedPhotos(eq){
   const LIMIT=950000; // Firestore上限に対する安全マージン
   const isBase64Photo=v=>typeof v==='string'&&v.startsWith('data:image');
-  for(let pass=0;pass<3;pass++){
+  for(let pass=0;pass<12;pass++){
     let size;
     try{size=new Blob([JSON.stringify(eq)]).size;}catch(e){return;}
     if(size<=LIMIT)return;
@@ -6707,14 +6771,31 @@ async function _shrinkOversizedPhotos(eq){
       if(isBase64Photo(eq.photos['全体']))candidates.push(['全体',eq.photos['全体']]);
       (eq.photos.extra||[]).forEach((p,i)=>{if(p&&isBase64Photo(p.data))candidates.push([`extra:${i}`,p.data]);});
     }
+    // 保守履歴の添付写真も暫定データ（base64）で保持されるため、ここでの退避対象に含める
+    (eq.maintenance||[]).forEach((h,hi)=>{
+      (h&&h.photos||[]).forEach((p,pi)=>{if(p&&isBase64Photo(p.data))candidates.push([`hist:${hi}:${pi}`,p.data]);});
+    });
     if(candidates.length===0)return; // これ以上圧縮できる写真が無い
     // 一番大きいものから順に、緊急退避としてさらに圧縮する
     candidates.sort((a,b)=>b[1].length-a[1].length);
     const [target,dataUrl]=candidates[0];
     try{
-      const shrunk=await _recompressDataUrl(dataUrl,900,0.6);
+      // 既に小さいサムネイル（追加写真・保守写真の暫定データ）を大きい値で作り直すと
+      // かえって増えてしまうため、必ず今より小さくなる条件で作り直す。
+      const step=Math.max(0,Math.min(3,pass));
+      const dim=[900,640,480,360][step];
+      const q=[0.6,0.5,0.45,0.4][step];
+      const shrunk=await _recompressDataUrl(dataUrl,dim,q);
+      if(shrunk.length>=dataUrl.length){
+        if(step>=3)return; // これ以上小さくできない
+        continue;          // 次のパスでより小さい値を試す
+      }
       if(target==='銘板')eq.photos['銘板']=shrunk;
       else if(target==='全体')eq.photos['全体']=shrunk;
+      else if(target.startsWith('hist:')){
+        const [,hi,pi]=target.split(':');
+        eq.maintenance[Number(hi)].photos[Number(pi)].data=shrunk;
+      }
       else eq.photos.extra[Number(target.split(':')[1])].data=shrunk;
     }catch(e){
       console.warn('写真の追加圧縮に失敗しました:',e);
