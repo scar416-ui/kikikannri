@@ -289,15 +289,23 @@ textarea.form-input{resize:vertical;min-height:72px}
 /* ── MISC ── */
 .sync-banner{display:none;background:#fef3c7;color:#92400e;padding:7px 16px;font-size:12px;font-weight:600;align-items:center;gap:8px;border-bottom:1px solid #fde68a}
 .sync-banner.show{display:flex}
-.lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:500;align-items:center;justify-content:center;flex-direction:column;gap:12px}
+.lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:500;align-items:center;justify-content:center;flex-direction:column;gap:8px;padding:10px}
 .lightbox.show{display:flex}
-.lightbox-imgwrap{position:relative;max-width:92vw;max-height:80vh;overflow:hidden;display:flex;align-items:center;justify-content:center;touch-action:none}
-.lightbox img{max-width:90vw;max-height:80vh;border-radius:8px;object-fit:contain;transform-origin:center center;transition:transform .15s ease;cursor:zoom-in;user-select:none;-webkit-user-drag:none}
+/* 【写真をできるだけ大きく表示する】
+   以前は画像を 90vw/80vh で固定したうえ、閉じるボタン・見出し・リンク・操作説明が
+   上下に積まれていたため、実際の表示サイズは画面の6割程度しかなかった。
+   見出しやリンクは画像の上に重ねる配置にし、残りの領域をすべて画像に割り当てる。 */
+.lightbox>*{flex:0 0 auto;max-width:100%}
+.lightbox-close-row{position:absolute;top:12px;right:16px;z-index:3;display:flex;justify-content:flex-end}
+.lightbox-imgwrap{position:relative;flex:1 1 auto;min-height:0;width:100%;overflow:hidden;display:flex;align-items:center;justify-content:center;touch-action:none}
+.lightbox img{max-width:100%;max-height:100%;width:auto;height:auto;border-radius:8px;object-fit:contain;transform-origin:center center;transition:transform .15s ease;cursor:zoom-in;user-select:none;-webkit-user-drag:none}
 .lightbox img.zoomed{cursor:grab}
 .lightbox img.dragging{cursor:grabbing;transition:none}
 .lightbox-close{background:rgba(255,255,255,.15);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center}
-.lightbox-label{color:#fff;font-size:14px;font-weight:600}
-.lightbox-zoomhint{color:rgba(255,255,255,.55);font-size:11px}
+/* 写真に重ねても読めるように、薄い影を付ける */
+.lightbox-label{position:absolute;top:18px;left:64px;right:64px;z-index:2;text-align:center;color:#fff;font-size:14px;font-weight:600;text-shadow:0 1px 4px rgba(0,0,0,.9);pointer-events:none}
+.lightbox-zoomhint{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:2;white-space:nowrap;color:rgba(255,255,255,.65);font-size:11px;text-shadow:0 1px 4px rgba(0,0,0,.9);pointer-events:none}
+#lightboxOriginalLink{position:absolute;left:50%;bottom:36px;transform:translateX(-50%);z-index:2}
 .confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:300;align-items:center;justify-content:center;padding:20px}
 .confirm-overlay.show{display:flex}
 .confirm-box{background:#fff;border-radius:12px;padding:24px;max-width:400px;width:100%;box-shadow:var(--shadow-md);border-top:4px solid var(--primary)}
@@ -1205,7 +1213,7 @@ optgroup{font-weight:700}
 
 <!-- ════ ライトボックス ════ -->
 <div class="lightbox" id="lightbox" onclick="closeLightbox()">
-  <div style="display:flex;justify-content:flex-end;width:90vw">
+  <div class="lightbox-close-row">
     <button class="lightbox-close" onclick="closeLightbox()">✕</button>
   </div>
   <div class="lightbox-label" id="lightboxLabel"></div>
@@ -1221,7 +1229,7 @@ optgroup{font-weight:700}
      ダウンロード直後にアプリ側で正しいプレビューを表示し、ユーザーが
      「この写真で間違いないか」を確認してから追加できるようにする。 -->
 <div class="lightbox" id="driveConfirmOverlay" style="z-index:600" onclick="_driveConfirmCancel()">
-  <div style="display:flex;justify-content:flex-end;width:90vw">
+  <div class="lightbox-close-row">
     <button class="lightbox-close" onclick="_driveConfirmCancel()">✕</button>
   </div>
   <div class="lightbox-label" id="driveConfirmLabel"></div>
@@ -1340,7 +1348,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-14e';
+const APP_BUILD='2026-10-14f';
 const PHOTO_MAX_DIM=2560;   // 長辺の上限（px）／Driveへ保存する本番の画質
 const PHOTO_QUALITY=0.82;   // JPEG品質
 // 撮影直後に「まず確実に保存する」ための暫定画質。銘板写真と同じく端末内で圧縮して
