@@ -23,7 +23,14 @@
   --shadow-md:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI','Hiragino Sans',sans-serif;background:var(--gray-100);color:var(--gray-800);min-height:100vh}
+/* 【iPhoneでのスクロール不具合対策】
+   iOSの 100vh は「アドレスバーが隠れている状態」の高さを指すため、バーが見えている間は
+   実際の表示領域より大きくなる。その結果ページ全体がわずかにスクロールできる状態になり、
+   モーダルを下まで送ったあとの指の動きがページ側に取られて、上に戻れなくなっていた。
+   dvh（実際に見えている高さ）を使い、未対応の端末では従来の vh にそのまま戻る。 */
+body{font-family:'Segoe UI','Hiragino Sans',sans-serif;background:var(--gray-100);color:var(--gray-800);min-height:100vh;min-height:100dvh}
+/* モーダルを開いている間は背面のページを動かさない（指の動きが背面に取られないように） */
+body.modal-open{overflow:hidden}
 
 /* ── HEADER ── */
 .header{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 60%,var(--primary-mid) 100%);color:#fff;padding:0 20px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(192,40,42,.4)}
@@ -32,7 +39,7 @@ body{font-family:'Segoe UI','Hiragino Sans',sans-serif;background:var(--gray-100
 .cloud-dot{width:7px;height:7px;border-radius:50%;background:#86efac}
 
 /* ── LAYOUT ── */
-.app{display:flex;flex-direction:column;height:calc(100vh - 56px)}
+.app{display:flex;flex-direction:column;height:calc(100vh - 56px);height:calc(100dvh - 56px)}
 .filter-bar{background:#fff;padding:10px 16px;border-bottom:2px solid var(--primary-border);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .filter-label{font-size:12px;color:var(--primary);font-weight:700;white-space:nowrap}
 /* 絞り込み欄の折り畳み。PCでは従来のラベルと同じ見た目のまま（押しても何も起きない）、
@@ -245,13 +252,15 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 /* ── MODALS ── */
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;align-items:flex-end;justify-content:center}
 .modal-overlay.show{display:flex}
-.modal{background:#fff;width:100%;max-width:600px;max-height:92vh;border-radius:16px 16px 0 0;overflow:hidden;display:flex;flex-direction:column;animation:slideUp .25s ease}
+.modal{background:#fff;width:100%;max-width:600px;max-height:92vh;max-height:92dvh;border-radius:16px 16px 0 0;overflow:hidden;display:flex;flex-direction:column;animation:slideUp .25s ease}
 @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .modal-header{padding:16px 20px;border-bottom:2px solid var(--primary-border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0;background:var(--primary-light)}
 .modal-title{font-size:16px;font-weight:700;color:var(--primary)}
 .btn-close{background:#fff;border:1px solid var(--primary-border);width:32px;height:32px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--primary)}
 .btn-close:hover{background:var(--primary-border)}
-.modal-body{padding:20px;overflow-y:auto;flex:1}
+/* overscroll-behavior:contain ＝ 中身の端まで来ても、その指の動きを背面のページへ渡さない。
+   これが無いと、下まで送った勢いが背面に移ってしまい、モーダル内を上に戻せなくなる。 */
+.modal-body{padding:20px;overflow-y:auto;flex:1;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .modal-footer{padding:14px 20px;border-top:2px solid var(--primary-border);display:flex;gap:10px;justify-content:flex-end;flex-shrink:0;background:#fff}
 
 /* ── FORM ── */
@@ -1331,7 +1340,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-14c';
+const APP_BUILD='2026-10-14d';
 const PHOTO_MAX_DIM=2560;   // 長辺の上限（px）／Driveへ保存する本番の画質
 const PHOTO_QUALITY=0.82;   // JPEG品質
 // 撮影直後に「まず確実に保存する」ための暫定画質。銘板写真と同じく端末内で圧縮して
@@ -6938,6 +6947,24 @@ window.addEventListener('online',()=>{
   showToast('📶 通信が復帰しました','success');
   _processPendingQueue();
 });
+
+/* ════ モーダル表示中は背面のページを固定する ════
+   モーダルやライトボックスを開いている間、背面のページがスクロールできる状態だと、
+   モーダル内を下まで送ったあとの指の動きが背面に取られ、中身を上に戻せなくなる
+   （iPhoneで「一番下まで行くと上に戻れない」症状の原因）。
+   開閉の関数は十数か所あるため、個別に書き換えるのではなく表示状態の変化を監視して
+   自動で切り替える。こうすれば今後モーダルを追加しても対応漏れが起きない。 */
+function _syncModalOpenState(){
+  const anyOpen=!!document.querySelector('.modal-overlay.show,.confirm-overlay.show,.photo-overlay.show,.lightbox.show');
+  document.body.classList.toggle('modal-open',anyOpen);
+}
+(function _watchOverlays(){
+  const targets=document.querySelectorAll('.modal-overlay,.confirm-overlay,.photo-overlay,.lightbox');
+  if(!targets.length||typeof MutationObserver!=='function')return;
+  const ob=new MutationObserver(_syncModalOpenState);
+  targets.forEach(el=>ob.observe(el,{attributes:true,attributeFilter:['class']}));
+  _syncModalOpenState();
+})();
 
 /* ════ INIT ════ */
 {const _b=document.getElementById('appBuildLabel');if(_b)_b.textContent=APP_BUILD;}
