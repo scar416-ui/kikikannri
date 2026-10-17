@@ -303,6 +303,13 @@ textarea.form-input{resize:vertical;min-height:72px}
 .lightbox img{max-width:100%;max-height:100%;width:auto;height:auto;border-radius:8px;object-fit:contain;transform-origin:center center;transition:transform .15s ease;cursor:zoom-in;user-select:none;-webkit-user-drag:none}
 .lightbox img.zoomed{cursor:grab}
 .lightbox img.dragging{cursor:grabbing;transition:none}
+/* 写真を切り替えた直後、新しい画像の読み込みが終わるまでの一瞬、
+   <img>要素が使い回しのため前に開いていた写真がそのまま表示されてしまう問題への対応。
+   新しい写真を開く際はいったんこのクラスで非表示にし、読み込み完了（またはエラー）後に
+   表示へ戻すことで、前回の写真が一瞬見えてしまうのを防ぐ。 */
+.lightbox img.loading{opacity:0}
+.lightbox-spinner{display:none;position:absolute;width:32px;height:32px;border:3px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:photoUploadSpin .7s linear infinite;z-index:1}
+.lightbox-spinner.show{display:block}
 .lightbox-close{background:rgba(255,255,255,.15);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center}
 /* 写真に重ねても読めるように、薄い影を付ける */
 .lightbox-label{position:absolute;top:18px;left:64px;right:64px;z-index:2;text-align:center;color:#fff;font-size:14px;font-weight:600;text-shadow:0 1px 4px rgba(0,0,0,.9);pointer-events:none}
@@ -1220,7 +1227,8 @@ optgroup{font-weight:700}
   </div>
   <div class="lightbox-label" id="lightboxLabel"></div>
   <div class="lightbox-imgwrap" id="lightboxImgWrap" onclick="event.stopPropagation()">
-    <img id="lightboxImg" src="" alt="拡大写真" onerror="_photoRetry(this)">
+    <div class="lightbox-spinner" id="lightboxSpinner"></div>
+    <img id="lightboxImg" src="" alt="拡大写真" onload="_lightboxImgLoaded()" onerror="_photoRetry(this);_lightboxImgLoaded()">
   </div>
   <a id="lightboxOriginalLink" href="#" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="display:none;color:#fff;background:rgba(255,255,255,.15);padding:8px 16px;border-radius:20px;font-size:13px;text-decoration:none;margin-top:10px">🔗 Driveで元画質を見る</a>
   <div class="lightbox-zoomhint" id="lightboxZoomHint">🔍 ダブルタップ／ピンチ／ホイールでさらに拡大できます</div>
@@ -3336,10 +3344,7 @@ function renderModalExtraGrid(){
 }
 function openModalExtraLightbox(i){
   const p=modalPhotos.extra[i];if(!p)return;
-  document.getElementById('lightboxImg').src=_hiresLightboxUrl(p.data);
-  _setLightboxOriginalLink(p.data);
-  document.getElementById('lightboxLabel').textContent=p.name;
-  document.getElementById('lightbox').classList.add('show');
+  _openLightboxImg(_hiresLightboxUrl(p.data),p.name);
 }
 // 銘板写真は元のまま保存するとスマホ写真で数MB〜数十MBになり、
 // Firestoreの1ドキュメントあたりのフィールドサイズ上限（約1MB）を超えて
@@ -3731,29 +3736,43 @@ function updateModalPhotoSlot(key){
 function openModalLightbox(key,e){
   e.stopPropagation();
   if(!modalPhotos[key])return;
-  document.getElementById('lightboxImg').src=_hiresLightboxUrl(modalPhotos[key]);
-  _setLightboxOriginalLink(modalPhotos[key]);
-  document.getElementById('lightboxLabel').textContent=key+'写真';
-  document.getElementById('lightbox').classList.add('show');
+  _openLightboxImg(_hiresLightboxUrl(modalPhotos[key]),key+'写真');
 }
 
 /* ════ LIGHTBOX ════ */
 function openLightbox(key,e){
   if(e)e.stopPropagation();
   const eq=currentEq;if(!eq||!eq.photos[key])return;
-  document.getElementById('lightboxImg').src=_hiresLightboxUrl(eq.photos[key]);
-  _setLightboxOriginalLink(eq.photos[key]);
-  document.getElementById('lightboxLabel').textContent=key+'写真';
-  document.getElementById('lightbox').classList.add('show');
+  _openLightboxImg(_hiresLightboxUrl(eq.photos[key]),key+'写真');
 }
 function openLightboxExtra(i){
   const eq=currentEq;if(!eq||!eq.photos.extra[i])return;
-  document.getElementById('lightboxImg').src=_hiresLightboxUrl(eq.photos.extra[i].data);
-  _setLightboxOriginalLink(eq.photos.extra[i].data);
-  document.getElementById('lightboxLabel').textContent=eq.photos.extra[i].name;
-  document.getElementById('lightbox').classList.add('show');
+  _openLightboxImg(_hiresLightboxUrl(eq.photos.extra[i].data),eq.photos.extra[i].name);
 }
 function closeLightbox(){document.getElementById('lightbox').classList.remove('show');if(window._lightboxResetZoom)_lightboxResetZoom();}
+/* 写真を拡大表示する共通処理。<img id="lightboxImg">は全ての写真表示で使い回すため、
+   新しい写真のsrcを設定してから読み込みが終わるまでの間、古い写真がそのまま一瞬
+   表示されてしまう問題があった（読み込み中もimgは前のsrcの画像を表示し続けるため）。
+   ここでいったんloadingクラスで非表示にし、読み込み完了時（onload／onerror経由の
+   _lightboxImgLoaded()）に表示へ戻すことで、前回開いた写真が一瞬見えるのを防ぐ。 */
+function _openLightboxImg(url,label){
+  const img=document.getElementById('lightboxImg');
+  // 同じ写真を開き直した場合（src不変）はonloadが発火しないブラウザがあるため、
+  // そのときだけloading状態にしない（しないとスピナーが出たままになってしまう）。
+  if(!(img.src===url&&img.complete)){
+    img.classList.add('loading');
+    document.getElementById('lightboxSpinner').classList.add('show');
+  }
+  if(window._lightboxResetZoom)_lightboxResetZoom();
+  img.src=url;
+  _setLightboxOriginalLink(url);
+  document.getElementById('lightboxLabel').textContent=label;
+  document.getElementById('lightbox').classList.add('show');
+}
+function _lightboxImgLoaded(){
+  document.getElementById('lightboxImg').classList.remove('loading');
+  document.getElementById('lightboxSpinner').classList.remove('show');
+}
 
 /* ════ ライトボックス：さらに拡大（ピンチ／ホイール／ダブルタップ／ドラッグ） ════ */
 (function(){
@@ -3991,10 +4010,7 @@ function _openAttachment(p){
     window.open(p.data,'_blank','noopener');
     return;
   }
-  document.getElementById('lightboxImg').src=_hiresLightboxUrl(p.data);
-  _setLightboxOriginalLink(p.data);
-  document.getElementById('lightboxLabel').textContent=p.name;
-  document.getElementById('lightbox').classList.add('show');
+  _openLightboxImg(_hiresLightboxUrl(p.data),p.name);
 }
 function openHistoryPhotoLightbox(i){
   _openAttachment(historyPhotos[i]);
