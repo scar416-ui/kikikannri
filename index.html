@@ -2403,7 +2403,7 @@ function renderDetail(){
       <div class="info-grid">
         <div class="info-item">
           <div class="info-item-label">地域 / 類別</div>
-          <div class="info-item-value">${c?c.region+' / '+c.category:'—'}</div>
+          <div class="info-item-value">${c?(c.region||'未設定')+' / '+(c.category||'未設定'):'—'}</div>
         </div>
         <div class="info-item">
           <div class="info-item-label">販社</div>
@@ -5054,7 +5054,7 @@ function renderCompanyManageList(){
   el.innerHTML=masterData.companies.map(c=>
     `<div class="manage-item">
       <div class="manage-item-name">${companyLabel(c)}</div>
-      <div class="manage-item-meta">${c.region} / ${c.category}</div>
+      <div class="manage-item-meta">${c.region||'未設定'} / ${c.category||'未設定'}</div>
       <button class="btn-edit-item" onclick="editCompany('${c.id}')" title="編集">✏️</button>
       <button class="btn-del-item" onclick="confirmDeleteCompany('${c.id}')" title="削除">🗑</button>
     </div>`
