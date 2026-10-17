@@ -651,14 +651,14 @@ optgroup{font-weight:700}
         </div>
         <div class="form-group">
           <label class="form-label">型式 <span class="required">*</span></label>
-          <input type="text" class="form-input" id="f_model" placeholder="例：HLC-3500A" oninput="markNameplateFieldTouched('model')">
+          <input type="text" class="form-input" id="f_model" placeholder="例：HLC-3500A" oninput="markNameplateFieldTouched('model')" onblur="_normHalfWidthOnBlur(this)">
           <div class="error-msg" id="err_model" style="display:none">⚠ 読み取り失敗 — 手動入力</div>
         </div>
       </div>
 
       <div class="form-group">
         <label class="form-label">製造番号 <span class="required">*</span></label>
-        <input type="text" class="form-input" id="f_serial" placeholder="例：SN-2024-0831-001" oninput="markNameplateFieldTouched('serial')">
+        <input type="text" class="form-input" id="f_serial" placeholder="例：SN-2024-0831-001" oninput="markNameplateFieldTouched('serial')" onblur="_normHalfWidthOnBlur(this)">
         <div class="error-msg" id="err_serial" style="display:none">⚠ 読み取り失敗 — 手動入力</div>
       </div>
 
@@ -700,7 +700,7 @@ optgroup{font-weight:700}
         <div class="form-group" id="f_bay_num_group" style="display:none">
           <label class="form-label">ベイ番号</label>
           <div class="bay-num-wrap">
-            <input type="text" class="form-input" id="f_bay_num" maxlength="10" placeholder="例：3、A など" oninput="const p=this.selectionStart;this.value=_toHalfWidthDigits(this.value);this.setSelectionRange(p,p);">
+            <input type="text" class="form-input" id="f_bay_num" maxlength="10" placeholder="例：3、A など" oninput="const p=this.selectionStart;this.value=_toHalfWidthAlnum(this.value);this.setSelectionRange(p,p);">
           </div>
         </div>
       </div>
@@ -823,7 +823,7 @@ optgroup{font-weight:700}
       </div>
       <div class="form-group">
         <label class="form-label">識別コード</label>
-        <input type="text" class="form-input" id="ac_code" placeholder="例：3501A8">
+        <input type="text" class="form-input" id="ac_code" placeholder="例：3501A8" onblur="_normHalfWidthOnBlur(this)">
         <div style="font-size:11px;color:var(--gray-400);margin-top:4px">表示形式：販社名（識別コード）</div>
       </div>
       <div style="display:flex;gap:8px">
@@ -891,7 +891,7 @@ optgroup{font-weight:700}
       </div>
       <div class="form-group">
         <label class="form-label">識別コード</label>
-        <input type="text" class="form-input" id="as_code" placeholder="例：GF01">
+        <input type="text" class="form-input" id="as_code" placeholder="例：GF01" onblur="_normHalfWidthOnBlur(this)">
         <div style="font-size:11px;color:var(--gray-400);margin-top:4px">表示形式：店舗名（識別コード）</div>
       </div>
       <div class="form-group">
@@ -901,11 +901,11 @@ optgroup{font-weight:700}
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">店舗TEL <span class="optional-tag">任意</span></label>
-          <input type="tel" class="form-input" id="as_tel" placeholder="例：058-000-0000">
+          <input type="tel" class="form-input" id="as_tel" placeholder="例：058-000-0000" onblur="_normHalfWidthOnBlur(this)">
         </div>
         <div class="form-group">
           <label class="form-label">店舗FAX <span class="optional-tag">任意</span></label>
-          <input type="tel" class="form-input" id="as_fax" placeholder="例：058-000-0001">
+          <input type="tel" class="form-input" id="as_fax" placeholder="例：058-000-0001" onblur="_normHalfWidthOnBlur(this)">
         </div>
       </div>
       <div class="form-group">
@@ -954,7 +954,7 @@ optgroup{font-weight:700}
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">携帯番号 <span class="optional-tag">任意</span></label>
-          <input type="tel" class="form-input" id="mg_mobile" placeholder="例：090-0000-0000">
+          <input type="tel" class="form-input" id="mg_mobile" placeholder="例：090-0000-0000" onblur="_normHalfWidthOnBlur(this)">
         </div>
         <div class="form-group">
           <label class="form-label">登録年月 <span class="optional-tag">任意</span></label>
@@ -963,7 +963,7 @@ optgroup{font-weight:700}
       </div>
       <div class="form-group">
         <label class="form-label">メールアドレス <span class="optional-tag">任意</span></label>
-        <input type="email" class="form-input" id="mg_email" placeholder="例：taro_yamada@example.co.jp">
+        <input type="email" class="form-input" id="mg_email" placeholder="例：taro_yamada@example.co.jp" onblur="_normHalfWidthOnBlur(this)">
       </div>
       <div class="form-group">
         <label class="form-label">配属先店舗（複数選択可＝兼任）</label>
@@ -1464,6 +1464,20 @@ function _escRe(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
 // 入力時に全角数字→半角数字へ自動変換し、常に半角数字だけが保存されるようにする。
 function _toHalfWidthDigits(s){
   return String(s||'').replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+}
+// 数字に加えて英字（全角Ａ-Ｚ／ａ-ｚ）も半角化する版。
+// 識別コード・型式・製造番号・電話番号・メールアドレスなど、
+// 数字・英字が入力される項目をその場で半角に統一するために使う。
+function _toHalfWidthAlnum(s){
+  return _toHalfWidthDigits(String(s||''))
+    .replace(/[Ａ-Ｚａ-ｚ]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+}
+// input/textarea要素のblur（入力を終えて他へフォーカスが移った）時に、
+// その場で値を半角数字・半角英字に統一する共通ハンドラ。
+function _normHalfWidthOnBlur(el){
+  if(!el)return;
+  const v=_toHalfWidthAlnum(el.value);
+  if(v!==el.value)el.value=v;
 }
 // 各種「管理」モーダル（工場長・店舗・販社・機器名称など）は、上部に一覧、その下に
 // 新規追加／編集フォームが続く構成になっている。一覧が長くスクロールされていると、
