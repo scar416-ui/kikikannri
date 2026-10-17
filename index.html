@@ -161,6 +161,8 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .manage-item{display:flex;align-items:center;gap:8px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:6px;padding:8px 10px}
 .manage-item-name{flex:1;font-size:13px;font-weight:600;color:var(--gray-800)}
 .manage-item-meta{font-size:11px;color:var(--gray-400);white-space:nowrap}
+.manage-group-title{font-size:11px;font-weight:700;color:var(--primary);margin:10px 0 4px}
+.manage-group-title:first-child{margin-top:0}
 /* 編集・削除ボタン：以前はpadding 2px 5pxで実質24×18px程度しかタップ領域がなく、
    スマートフォン（特にiPhone）では指が少しずれると反応せず「押しても編集できない」状態になりやすかった。
    見た目の余白と合わせてタップ領域を44px角に近づけ、誤タップ・反応漏れを防ぐ。 */
@@ -5253,6 +5255,24 @@ function _moveMasterItem(arr,id,dir){
   const tmp=arr[idx];arr[idx]=arr[newIdx];arr[newIdx]=tmp;
   return true;
 }
+/* カテゴリ内だけで順序を入れ替える版。機器名称は分類（リフト／車検機器…）ごとに
+   機器登録フォームのセレクトへ反映されるため、配列全体での隣接入れ替えだと
+   他カテゴリの項目を挟んで何度もボタンを押さないと目的の位置に動かせない。
+   同カテゴリの項目だけを対象に1つ分move（配列上の実位置を直接入れ替え）することで、
+   項目管理の表示順＝機器登録時の表示順を1クリックで直感的に変更できるようにする。 */
+function _moveMasterItemInGroup(arr,id,dir,groupKeyFn){
+  const idx=arr.findIndex(x=>x.id===id);
+  if(idx===-1)return false;
+  const key=groupKeyFn(arr[idx]);
+  const groupIdxs=[];
+  arr.forEach((x,i)=>{if(groupKeyFn(x)===key)groupIdxs.push(i);});
+  const posInGroup=groupIdxs.indexOf(idx);
+  const newPos=posInGroup+dir;
+  if(newPos<0||newPos>=groupIdxs.length)return false;
+  const otherIdx=groupIdxs[newPos];
+  const tmp=arr[idx];arr[idx]=arr[otherIdx];arr[otherIdx]=tmp;
+  return true;
+}
 
 /* --- 機器名称 --- */
 function renderEqNameManageList(){
@@ -5260,18 +5280,24 @@ function renderEqNameManageList(){
   if(!masterData.equipmentNames.length){
     el.innerHTML='<div class="manage-empty">機器名称が登録されていません</div>';return;
   }
-  el.innerHTML=masterData.equipmentNames.map((e,i)=>
-    `<div class="manage-item">
-      <div class="reorder-btns">
-        <button class="btn-reorder-item" onclick="moveEquipmentName('${e.id}',-1)" title="上へ移動"${i===0?' disabled':''}>▲</button>
-        <button class="btn-reorder-item" onclick="moveEquipmentName('${e.id}',1)" title="下へ移動"${i===masterData.equipmentNames.length-1?' disabled':''}>▼</button>
-      </div>
-      <div class="manage-item-name">${e.name}</div>
-      <div class="manage-item-meta">${e.category}</div>
-      <button class="btn-edit-item" onclick="editEquipmentName('${e.id}')" title="編集">✏️</button>
-      <button class="btn-del-item" onclick="confirmDeleteEquipmentName('${e.id}')" title="削除">🗑</button>
-    </div>`
-  ).join('');
+  /* 機器登録フォームのセレクト（rebuildEquipmentNameSelect）と同じ「分類ごとにグループ化」
+     した見え方で一覧表示することで、ここでの表示順＝機器登録時の表示順であることが
+     分かるようにする。▲▼は同じ分類内でのみ移動する。 */
+  const categories=[...new Set(masterData.equipmentNames.map(e=>e.category))];
+  el.innerHTML=categories.map(cat=>{
+    const items=masterData.equipmentNames.filter(e=>e.category===cat);
+    return `<div class="manage-group-title">${cat}</div>`+items.map((e,i)=>
+      `<div class="manage-item">
+        <div class="reorder-btns">
+          <button class="btn-reorder-item" onclick="moveEquipmentName('${e.id}',-1)" title="上へ移動"${i===0?' disabled':''}>▲</button>
+          <button class="btn-reorder-item" onclick="moveEquipmentName('${e.id}',1)" title="下へ移動"${i===items.length-1?' disabled':''}>▼</button>
+        </div>
+        <div class="manage-item-name">${e.name}</div>
+        <button class="btn-edit-item" onclick="editEquipmentName('${e.id}')" title="編集">✏️</button>
+        <button class="btn-del-item" onclick="confirmDeleteEquipmentName('${e.id}')" title="削除">🗑</button>
+      </div>`
+    ).join('');
+  }).join('');
 }
 function editEquipmentName(id){
   const e=masterData.equipmentNames.find(x=>x.id===id);if(!e)return;
@@ -5328,7 +5354,7 @@ function executeDeleteEquipmentName(id){
   showToast('🗑 機器名称を削除しました','');
 }
 function moveEquipmentName(id,dir){
-  if(!_moveMasterItem(masterData.equipmentNames,id,dir))return;
+  if(!_moveMasterItemInGroup(masterData.equipmentNames,id,dir,x=>x.category))return;
   _saveMd();
   rebuildEquipmentNameSelect();rebuildEqNameFilterSelect();
   renderEqNameManageList();
