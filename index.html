@@ -323,8 +323,13 @@ textarea.form-input{resize:vertical;min-height:72px}
 .confirm-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
 .btn-danger{background:var(--primary);color:#fff;border:none;padding:9px 20px;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer}
 .btn-danger:hover{background:var(--primary-dark)}
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--gray-900);color:#fff;padding:12px 20px;border-radius:8px;font-size:13px;font-weight:600;z-index:999;transition:transform .3s;white-space:nowrap;box-shadow:var(--shadow-md)}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--gray-900);color:#fff;padding:12px 20px;border-radius:8px;font-size:13px;font-weight:600;z-index:999;transition:transform .3s,bottom .2s;white-space:nowrap;box-shadow:var(--shadow-md)}
 .toast.show{transform:translateX(-50%) translateY(0)}
+/* スマホでは機器登録などのモーダルが画面下から立ち上がり、保存ボタンが画面最下部に
+   固定表示される（.modal-footer）。保存完了時のトースト通知もbottom:24pxで画面最下部に
+   出るため、モーダルを開いたまま保存すると保存ボタンの真上にトーストが重なってしまい、
+   ボタンが隠れて見づらかった。モーダル表示中はトーストをその分だけ高く出す。 */
+.toast.above-modal{bottom:110px}
 .toast-success{background:#065f46}
 .toast-error{background:var(--primary)}
 /* 写真アップロード中インジケーター：完了するまで消えない常駐表示（toastは自動で消えるため別要素にする） */
@@ -5605,7 +5610,11 @@ function simulateCloudSync(){
 /* ════ TOAST ════ */
 function showToast(msg,type=''){
   const t=document.getElementById('toast');
-  t.textContent=msg;t.className='toast'+(type?' toast-'+type:'')+' show';
+  // モーダル（機器登録・販社/店舗管理など）を開いたまま保存した場合、画面下部に固定された
+  // 保存ボタンとトーストが重ならないよう、その間はトーストの表示位置を上げる。
+  const modalOpen=!!document.querySelector('.modal-overlay.show');
+  t.textContent=msg;
+  t.className='toast'+(type?' toast-'+type:'')+(modalOpen?' above-modal':'')+' show';
   setTimeout(()=>t.classList.remove('show'),3500);
 }
 
