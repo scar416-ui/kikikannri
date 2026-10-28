@@ -1364,7 +1364,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-15a';
+const APP_BUILD='2026-10-28a';
 const PHOTO_MAX_DIM=2560;   // 長辺の上限（px）／Driveへ保存する本番の画質
 const PHOTO_QUALITY=0.82;   // JPEG品質
 // 撮影直後に「まず確実に保存する」ための暫定画質。銘板写真と同じく端末内で圧縮して
@@ -1377,6 +1377,16 @@ const PHOTO_INSTANT_QUALITY=0.75;
 // サムネイルにし、Driveへの送信が終わった時点で高画質のURLに置き換える。
 const PHOTO_THUMB_MAX_DIM=640;
 const PHOTO_THUMB_QUALITY=0.55;
+// 【Driveへ保存する写真の高画質化（2026-10-28）】
+// 上の「即保存」の仕組みはそのままに、裏側でDriveへ送る画像だけを高画質（長辺3024px）にする。
+// 送信待ちには、まず従来どおり1200pxの画像を入れておき、元の写真も一緒に端末内へ保存しておく。
+// 送信キューが送る直前に元の写真から高画質版を作って差し替える。作成に失敗・時間切れ・
+// 端末内の容量不足などが起きた場合は、従来どおり1200pxの画像を送る（今より悪くならない）。
+// ★元の仕様（Driveにも1200pxで保存）に戻したい場合は、下の値を false にするだけでよい。
+const PHOTO_HIRES_ENABLED=true;
+const PHOTO_HIRES_MAX_DIM=3024;
+const PHOTO_HIRES_QUALITY=0.85;
+const PHOTO_HIRES_TIMEOUT_MS=45000;
 // この値以下のファイルは分割送信せず1回のリクエストで送る（往復回数を最小化）。
 // Google Drive APIのmultipartアップロードは5MBまで推奨。
 const DRIVE_SIMPLE_UPLOAD_MAX=4*1024*1024;
@@ -2785,7 +2795,7 @@ async function processDetailPhoto(file,key){
   if(ok){
     // 編集画面と同様、圧縮済みの画像をそのままDriveへ送る（変換をやり直さない）
     const sendFile=_dataUrlToFile(dataUrl,(file.name||'photo').replace(/\.[^.]+$/,'')+'.jpg');
-    _captureAndQueuePhoto(sendFile,eq,'main',key,`${key}写真`,null,true)
+    _captureAndQueuePhoto(sendFile,eq,'main',key,`${key}写真`,null,true,file)
       .catch(e=>console.warn('Driveへのバックアップ登録に失敗しました（写真の保存自体は完了しています）:',e));
   }
 }
@@ -2822,7 +2832,7 @@ async function processDetailExtraPhoto(file,bulk){
   renderList();
   if(!bulk)showToast(ok?'✅ 写真を追加しました':'⚠ 写真の保存に失敗しました',ok?'success':'error');
   if(ok){
-    _captureAndQueuePhoto(prepared.sendFile,eq,'extra',localId,'追加写真',null,true)
+    _captureAndQueuePhoto(prepared.sendFile,eq,'extra',localId,'追加写真',null,true,file)
       .catch(e=>console.warn('Driveへのバックアップ登録に失敗しました（写真の保存自体は完了しています）:',e));
   }
 }
@@ -2909,6 +2919,15 @@ async function _updatePendingPhoto(id,changes){
     tx.onerror=()=>reject(tx.error);
   });
 }
+async function _getPendingPhoto(id){
+  const db=await _openPendingDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(PENDING_STORE,'readonly');
+    const req=tx.objectStore(PENDING_STORE).get(id);
+    req.onsuccess=()=>resolve(req.result||null);
+    req.onerror=()=>reject(req.error);
+  });
+}
 async function _getAllPendingPhotos(){
   const db=await _openPendingDB();
   return new Promise((resolve,reject)=>{
@@ -2978,7 +2997,9 @@ async function _prepareInstantPhoto(file){
 }
 // alreadyPrepared=true のときは、送信キューは変換処理を一切行わず、渡されたファイルを
 // そのままDriveへ送る。
-async function _captureAndQueuePhoto(file,eqSnapshot,slotType,slotKey,category,entryLocalId,alreadyPrepared){
+// hiresSource：高画質版の作成元になる元の写真（任意）。指定された場合は送信待ちに一緒に保存し、
+// 送信キューが送る直前に高画質版（PHOTO_HIRES_MAX_DIM）を作ってから送る。
+async function _captureAndQueuePhoto(file,eqSnapshot,slotType,slotKey,category,entryLocalId,alreadyPrepared,hiresSource){
   // HEIC変換や画質調整（_prepareForDriveUpload）は数秒かかることがあり、ここで
   // 待ってしまうと「撮ってからサムネイルが出るまで」が遅く感じられてしまう。
   // iPhoneの「Googleドライブに保存」と同じ体感速度にするため、画面には撮った
@@ -2988,11 +3009,24 @@ async function _captureAndQueuePhoto(file,eqSnapshot,slotType,slotKey,category,e
     // 全体写真などの単一スロットは、撮り直した場合に古い送信待ちを消しておく
     await _cancelPendingPhotosFor(eqSnapshot.id,slotType,slotKey);
   }
-  await _addPendingPhoto({
+  const record={
     eqId:eqSnapshot.id,slotType,slotKey,entryLocalId:entryLocalId||null,
     fileName:file.name,category,blob:file,prepared:!!alreadyPrepared,eqSnapshot,
     status:'pending',driveUrl:null,createdAt:Date.now(),lastAttempt:0
-  });
+  };
+  const useHires=PHOTO_HIRES_ENABLED&&alreadyPrepared&&hiresSource&&(hiresSource.type||'').startsWith('image/');
+  if(useHires){
+    try{
+      await _addPendingPhoto({...record,hiresSource,hiresDone:false});
+    }catch(e){
+      // 元の写真ごと保存できなかった場合（端末内の容量不足など）でも、送信自体は必ず行えるよう
+      // 従来どおり1200pxの画像だけで送信待ちに入れ直す（高画質化はあきらめる）。
+      console.warn('高画質版の元写真を端末内に保存できなかったため、従来の画質で送信します:',e);
+      await _addPendingPhoto(record);
+    }
+  }else{
+    await _addPendingPhoto(record);
+  }
   _pendingPhotoKeys.add(_pendingKeyOf(eqSnapshot.id,slotType,slotKey));
   _updatePhotoUploadIndicator();
   _processPendingQueue();
@@ -3059,6 +3093,29 @@ async function _processPendingQueue(){
             }
             await _updatePendingPhoto(item.id,{blob:prepared,prepared:true});
             item.blob=prepared;item.prepared=true;
+          }
+          // 【高画質版への差し替え】送信待ちに元の写真が保存されていれば、ここで高画質版を作って送る。
+          // 成功・失敗にかかわらず1回で終わりにする（毎回失敗して送信が進まない、を防ぐ）。
+          // 失敗した場合は、すでに入っている1200pxの画像をそのまま送る。
+          if(item.hiresSource&&!item.hiresDone){
+            let hires=null;
+            if(PHOTO_HIRES_ENABLED){
+              try{
+                hires=await _withTimeout(_makeHiresJpeg(item.hiresSource,item.fileName),PHOTO_HIRES_TIMEOUT_MS,'高画質版の作成');
+              }catch(e){
+                console.warn('高画質版の作成に失敗したため、従来の画質で送信します:',e);
+              }
+            }
+            const changes={hiresDone:true,hiresSource:null}; // 元の写真は不要になるので端末内から消す
+            if(hires&&hires.size>(item.blob&&item.blob.size||0))changes.blob=hires;
+            await _updatePendingPhoto(item.id,changes);
+            Object.assign(item,changes);
+            // 高画質版を作っている間に、同じ欄へ撮り直した・写真を削除した等で送信待ちが
+            // 取り消されていた場合は送らない（古い写真で上書きしてしまうのを防ぐ）
+            if(!(await _getPendingPhoto(item.id))){
+              console.log('[写真送信キュー] 送信待ちが取り消されたため送信しません:',item.id);
+              continue;
+            }
           }
           // _uploadToDrive内部のfetchには個々にタイムアウトがあるが、想定外の要因で
           // 応答が返らなくなった場合に備え、全体にも上限を設けてキューが永久に
@@ -3314,7 +3371,7 @@ async function processModalExtraPhoto(file,bulk){
   }
   // 送るのは「いま圧縮したばかりの画像」。元の大きなファイルを渡すと、裏側でHEIC変換と
   // 巨大なcanvas処理をやり直すことになり、iPhoneでは応答が返らなくなることがある。
-  _captureAndQueuePhoto(prepared.sendFile,refEq,'extra',localId,'追加写真',null,true)
+  _captureAndQueuePhoto(prepared.sendFile,refEq,'extra',localId,'追加写真',null,true,file)
     .catch(e=>console.warn('Driveへのバックアップ登録に失敗しました（写真の保存自体は完了しています）:',e));
 }
 async function handleModalExtraPhoto(e){
@@ -3424,6 +3481,24 @@ function _drawScaledToCanvas(img,maxDim){
 async function _compressImageToDataURL(file,maxDim,quality){
   const{img}=await _loadImageViaDataUrl(file);
   return _drawScaledToCanvas(img,maxDim).toDataURL('image/jpeg',quality);
+}
+// Driveへ保存する高画質版（長辺PHOTO_HIRES_MAX_DIM）を元の写真から作る。
+// iPhoneで実績のあるFileReader方式で読み込む。元の写真が即保存用の画像（1200px）より
+// 大きくない場合は、作り直しても画質は上がらないためnullを返す（呼び出し側は従来の画像を送る）。
+// iPhoneはcanvasのメモリ上限が厳しいため、使い終わったcanvasはすぐに解放する。
+async function _makeHiresJpeg(file,name){
+  const{img}=await _loadImageViaDataUrl(file);
+  const w=img.naturalWidth||img.width,h=img.naturalHeight||img.height;
+  if(Math.max(w,h)<=PHOTO_INSTANT_MAX_DIM+50){img.src='';return null;}
+  const canvas=_drawScaledToCanvas(img,PHOTO_HIRES_MAX_DIM);
+  try{
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',PHOTO_HIRES_QUALITY));
+    if(!blob)throw new Error('高画質版の画像を作成できませんでした');
+    const base=(name||'photo').replace(/\.[^.]+$/,'');
+    return new File([blob],`${base}.jpg`,{type:'image/jpeg'});
+  }finally{
+    canvas.width=0;canvas.height=0;img.src='';
+  }
 }
 // 既にdata:image形式のbase64になっている画像を、さらに小さく再圧縮する
 // （Firestoreの1文書あたりの上限（約1MB）に近づいた場合の緊急退避用）。
@@ -3543,6 +3618,16 @@ async function processModalPhoto(file,key){
     }
     _applyModalPhotoResult(targetId,key,dataUrl,'銘板写真を追加しました');
     autoFillFromNameplate(dataUrl);
+    // 【2026-10-28】銘板写真もDriveへ高画質で送る（詳細画面からの登録と同じ扱いにする）。
+    // 以前は登録画面の銘板写真だけDriveへ送っておらず、1400pxの画像がデータベースに
+    // 直接入ったまま積み上がり、起動時の読み込みが重くなる原因になっていた。
+    // 写真の保存・自動読み取りは上で完了しているので、ここは待たない。
+    if(PHOTO_HIRES_ENABLED){
+      const refEq=currentEq||{id:targetId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
+      const sendFile=_dataUrlToFile(dataUrl,(file.name||'photo').replace(/\.[^.]+$/,'')+'.jpg');
+      _captureAndQueuePhoto(sendFile,refEq,'main','銘板','銘板写真',null,true,file)
+        .catch(e=>console.warn('Driveへのバックアップ登録に失敗しました（写真の保存自体は完了しています）:',e));
+    }
   }else{
     // 【全体写真も銘板写真と同じ「即保存」方式にする】
     // 以前は、Driveへの送信が完了するまで写真が確定しない作りだった。そのためDrive・通信・
@@ -3567,7 +3652,7 @@ async function processModalPhoto(file,key){
     // 既に圧縮済みの数百KBの画像を渡せば、変換は不要で送信も1往復で済む。
     const refEq=currentEq||{id:targetId,name:document.getElementById('f_name')?.value||'新規設備',companyId:document.getElementById('f_company')?.value||'',storeId:document.getElementById('f_store')?.value||'',bay:(typeof buildBay==='function'?buildBay():'')};
     const sendFile=_dataUrlToFile(dataUrl,(file.name||'photo').replace(/\.[^.]+$/,'')+'.jpg');
-    _captureAndQueuePhoto(sendFile,refEq,'main',key,`${key}写真`,null,true)
+    _captureAndQueuePhoto(sendFile,refEq,'main',key,`${key}写真`,null,true,file)
       .catch(e=>console.warn('Driveへのバックアップ登録に失敗しました（写真の保存自体は完了しています）:',e));
   }
 }
@@ -3779,6 +3864,29 @@ function _lightboxImgLoaded(){
   document.getElementById('lightboxImg').classList.remove('loading');
   document.getElementById('lightboxSpinner').classList.remove('show');
 }
+// 【拡大したときだけ、さらに高解像度で読み直す（2026-10-28）】
+// 最初は表示の速い sz=w2000 で開き、ピンチ等で拡大した時点で sz=w4000（Driveが元画像の
+// 大きさまで返す）を裏で読み込み、読み終わってから差し替える。差し替えるまでは今の画像を
+// 表示したままなので、画面がちらついたり消えたりすることはない。元の写真が2000pxより
+// 小さい場合（従来の1200px保存の写真など）は、読み直しても変わらないので何もしない。
+let _lightboxUpgradingFor=null;
+function _lightboxUpgradeRes(){
+  const el=document.getElementById('lightboxImg');
+  if(!el||!el.src||el.classList.contains('loading'))return;
+  const cur=el.src;
+  if(!cur.includes('drive.google.com/thumbnail')||!/[?&]sz=w2000/.test(cur))return;
+  if((el.naturalWidth||0)<1990)return;
+  if(_lightboxUpgradingFor===cur)return;
+  _lightboxUpgradingFor=cur;
+  const hi=cur.replace(/([?&]sz=)w2000/,'$1w4000');
+  const pre=new Image();
+  pre.onload=()=>{
+    // 読み込み中に別の写真へ切り替わっていたら差し替えない
+    if(el.src===cur&&document.getElementById('lightbox').classList.contains('show'))el.src=hi;
+  };
+  pre.onerror=()=>{_lightboxUpgradingFor=null;};
+  pre.src=hi;
+}
 
 /* ════ ライトボックス：さらに拡大（ピンチ／ホイール／ダブルタップ／ドラッグ） ════ */
 (function(){
@@ -3793,6 +3901,7 @@ function _lightboxImgLoaded(){
     const el=img();if(!el)return;
     el.style.transform=`translate(${tx}px,${ty}px) scale(${scale})`;
     el.classList.toggle('zoomed',scale>1.01);
+    if(scale>1.01)_lightboxUpgradeRes();
   }
   function resetZoom(){
     scale=1;tx=0;ty=0;
@@ -3994,7 +4103,7 @@ async function processHistoryPhoto(file,bulk){
   }else{
     if(!bulk)showToast(`📤 ${what}をDriveへ送信中です…`,'info');
   }
-  _captureAndQueuePhoto(sendFile,eq,'history',localId,'保守履歴添付',entryLocalId,true)
+  _captureAndQueuePhoto(sendFile,eq,'history',localId,'保守履歴添付',entryLocalId,true,isImage?file:null)
     .catch(e=>console.warn('Driveへのバックアップ登録に失敗しました:',e));
 }
 async function handleHistoryPhoto(e){
@@ -7101,6 +7210,11 @@ window.addEventListener('offline',()=>{
 window.addEventListener('online',()=>{
   showToast('📶 通信が復帰しました','success');
   _processPendingQueue();
+});
+// iPhoneでは別のアプリに切り替えたり画面をロックしたりすると処理が一時停止する。
+// アプリの画面に戻ってきた瞬間に、写真の送信待ちをすぐ再開する（30秒ごとの再試行を待たない）。
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible')_processPendingQueue();
 });
 
 /* ════ モーダル表示中は背面のページを固定する ════
