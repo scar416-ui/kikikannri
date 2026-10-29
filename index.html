@@ -1397,7 +1397,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-29i';
+const APP_BUILD='2026-10-29j';
 // 【新表示の試験運用】写真のDrive保存状態の表示と、通知の出し方を新しくしたもの。
 // まず利用者の端末だけで試すため、URLに ?beta=1 を付けて開いた端末でのみ有効にする
 // （以後その端末では記憶される。?beta=0 で元の表示に戻る）。問題なければ全員に有効化する。
@@ -7289,6 +7289,70 @@ async function _driveGet(path,params={}){
   return r.json();
 }
 
+/* ════ 機器ごとのフォルダー（2026-10-29 B案） ════
+   以前は「機器ID_機器名」（例：1793270807124712_コンビテスター）で作っていたため、長い数字で
+   何のフォルダーか分からず、機器名を選ぶ前に撮影すると名前が空のまま作られていた。
+   ・フォルダー名を「ベイ_機器名_型式_製造番号」（空の項目は省く）にする
+   ・フォルダーの目印として機器IDをフォルダーの隠し情報（appProperties.kkEqId）に持たせ、名前ではなく
+     この目印で探す。機器の情報を変えた場合は、次に写真を送るときにフォルダー名を自動で付け直し、
+     販社・店舗を変えた場合はフォルダーごと新しい店舗の下へ移す（中の写真のリンクは変わらない）
+   ・旧方式の名前のフォルダーが見つかった場合は、それを使い続け、目印と新しい名前を付ける */
+function _eqFolderName(eq){
+  const clean=v=>String(v==null?'':v).replace(/[\\/:*?"<>|\r\n\t]/g,' ').replace(/\s+/g,' ').trim();
+  const parts=[eq&&eq.bay,eq&&eq.name,eq&&eq.model,eq&&eq.serial].map(clean).filter(Boolean);
+  return parts.length?parts.join('_'):`機器ID_${eq&&eq.id}`;
+}
+const _eqFolderCache={};
+async function _findOrCreateEqFolder(eq,storeFId){
+  const key=String(eq.id);
+  const desired=_eqFolderName(eq);
+  const token=await _getDriveToken();
+  let c=_eqFolderCache[key];
+  if(!c){
+    const q=`appProperties has { key='kkEqId' and value='${key}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    let resp=await _driveGet('/files',{q,fields:'files(id,name,parents)',pageSize:5});
+    let f=resp.files&&resp.files[0];
+    let fromLegacy=false;
+    if(!f){
+      // 旧方式（「機器ID_機器名」）のフォルダーを探す
+      const q2=`name contains '${key.padStart(4,'0')}' and mimeType='application/vnd.google-apps.folder' and '${storeFId}' in parents and trashed=false`;
+      const r2=await _driveGet('/files',{q:q2,fields:'files(id,name,parents)',pageSize:10});
+      f=(r2.files||[]).find(x=>String(x.name).startsWith(key.padStart(4,'0')+'_'))||null;
+      fromLegacy=!!f;
+    }
+    if(f){
+      c={id:f.id,name:f.name,parents:f.parents||[],needProps:fromLegacy};
+    }else{
+      const r=await _fetchWithTimeout('https://www.googleapis.com/drive/v3/files?fields=id,name,parents',{
+        method:'POST',
+        headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
+        body:JSON.stringify({name:desired,mimeType:'application/vnd.google-apps.folder',parents:[storeFId],appProperties:{kkEqId:key}})
+      },20000);
+      const created=await r.json();
+      if(!created||!created.id)throw new Error('機器のフォルダーを作成できませんでした');
+      c={id:created.id,name:created.name||desired,parents:created.parents||[storeFId],needProps:false};
+    }
+    _eqFolderCache[key]=c;
+  }
+  // 名前の付け直し・店舗の移動・目印の付与（失敗しても写真の送信は止めない）
+  const patch={};
+  if(c.name!==desired)patch.name=desired;
+  if(c.needProps)patch.appProperties={kkEqId:key};
+  const move=storeFId&&!c.parents.includes(storeFId);
+  if(Object.keys(patch).length||move){
+    try{
+      const qs=['fields=id,name,parents'];
+      if(move){qs.push('addParents='+encodeURIComponent(storeFId));if(c.parents.length)qs.push('removeParents='+encodeURIComponent(c.parents.join(',')));}
+      const r=await _fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${c.id}?${qs.join('&')}`,{
+        method:'PATCH',
+        headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
+        body:JSON.stringify(patch)
+      },20000);
+      if(r.ok){const u=await r.json();c.name=u.name||c.name;c.parents=u.parents||c.parents;c.needProps=false;}
+    }catch(e){console.warn('機器フォルダーの名前の付け直し・移動に失敗しました（写真の送信は続けます）:',e);}
+  }
+  return c.id;
+}
 async function _findOrCreateFolder(name,parentId){
   const key=`${parentId}::${name}`;
   if(_folderCache[key])return _folderCache[key];
@@ -7336,12 +7400,11 @@ async function _uploadToDrive(file,eq,category){
   const store=getStore(eq.companyId,eq.storeId);
   const companyName=company?company.name:'未分類';
   const storeName=store?store.name:'未分類';
-  const eqFolderName=`${String(eq.id).padStart(4,'0')}_${eq.name}`;
   // フォルダ構造を作成
   const rootId=await _findOrCreateFolder('設備機器管理','root');
   const companyFId=await _findOrCreateFolder(companyName,rootId);
   const storeFId=await _findOrCreateFolder(storeName,companyFId);
-  const eqFId=await _findOrCreateFolder(eqFolderName,storeFId);
+  const eqFId=await _findOrCreateEqFolder(eq,storeFId);
   // ファイルをアップロード（写真の種類が分かるファイル名にする）
   const fileName=category?_driveFileLabel(eq,category,file):file.name;
   // 【送信方式】レジューム可能アップロードは256KBずつの分割送信になるため、
