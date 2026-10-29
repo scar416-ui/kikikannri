@@ -221,6 +221,25 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 .photo-extra-del{position:absolute;top:3px;right:3px;background:rgba(0,0,0,.55);color:#fff;border:none;width:20px;height:20px;border-radius:50%;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .2s}
 .photo-extra-item:hover .photo-extra-del{opacity:1}
 .photo-pending-badge{position:absolute;left:4px;bottom:4px;background:rgba(0,0,0,.65);color:#fff;font-size:10px;font-weight:700;padding:3px 7px;border-radius:10px;display:flex;align-items:center;gap:4px;z-index:2;pointer-events:none}
+/* 【2026-10-29 新表示（PHOTO_UI_V2）】写真ごとのDrive保存状態マーク */
+.pbadge{position:absolute;left:4px;bottom:4px;color:#fff;background:rgba(0,0,0,.65);font-size:10px;font-weight:700;padding:3px 7px;border-radius:10px;z-index:2;pointer-events:none;white-space:nowrap}
+.pbadge:empty{display:none}
+.pbadge.ok{background:rgba(22,101,52,.88)}
+.pbadge.sending{background:rgba(146,64,14,.9)}
+.pbadge.making{background:rgba(30,58,138,.9)}
+.pbadge.held{background:#b91c1c}
+.pbadge.unsaved{background:rgba(75,85,99,.88)}
+/* 画面上部の保存状態の帯：画面に重ねず、内容を押し下げる形で表示する（保存ボタン等を隠さない） */
+.photo-status-bar{display:none;align-items:center;gap:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;border-bottom:1px solid transparent;line-height:1.4}
+.photo-status-bar.show{display:flex}
+.photo-status-bar .psb-more{margin-left:auto;font-size:11px;font-weight:600;opacity:.75;white-space:nowrap}
+.photo-status-bar.psb-making{background:#dbeafe;color:#1e3a8a;border-color:#bfdbfe}
+.photo-status-bar.psb-pending{background:#fef3c7;color:#92400e;border-color:#fde68a}
+.photo-status-bar.psb-held{background:#fee2e2;color:#991b1b;border-color:#fecaca}
+.photo-status-bar.psb-done{background:#dcfce7;color:#166534;border-color:#bbf7d0}
+/* 新表示のトースト：画面上部に出し、指の操作を妨げない（タップは下の画面にそのまま届く） */
+.toast.toast-top{top:calc(64px + env(safe-area-inset-top,0px));bottom:auto;transform:translateX(-50%) translateY(-200%);pointer-events:none;white-space:normal;max-width:min(92vw,520px);text-align:center}
+.toast.toast-top.show{transform:translateX(-50%) translateY(0)}
 .photo-pending-badge .spinner{width:9px;height:9px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:photoUploadSpin .7s linear infinite;flex-shrink:0}
 .btn-add-photo{background:var(--gray-50);border:2px dashed var(--gray-300);border-radius:6px;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;cursor:pointer;font-size:12px;color:var(--gray-500);font-weight:600;width:100%;transition:border-color .2s,color .2s;font-family:inherit}
 .btn-add-photo:hover{border-color:var(--primary);color:var(--primary)}
@@ -458,6 +477,8 @@ optgroup{font-weight:700}
 <div class="sync-banner" id="syncBanner"></div>
 
 <div class="app">
+  <!-- 写真のDrive保存状態（新表示のみ）。内容の上に重ねず、ここに差し込んで下を押し下げる -->
+  <div class="photo-status-bar" onclick="_showPendingPhotoBreakdown()"></div>
   <!-- FILTER BAR: 地域 › 類別 › 販社[＋] › 店舗[＋] -->
   <div class="filter-bar" id="filterBar">
     <!-- スマホでは画面の上半分を絞り込み欄が占めてしまうため、タップで折り畳めるようにする。
@@ -598,6 +619,7 @@ optgroup{font-weight:700}
       <div class="modal-title" id="modalTitle">機器を追加</div>
       <button class="btn-close" onclick="closeModal()">✕</button>
     </div>
+    <div class="photo-status-bar" onclick="_showPendingPhotoBreakdown()"></div>
     <div class="modal-body">
 
       <!-- ── 写真セクション（モーダル内） ── -->
@@ -747,6 +769,7 @@ optgroup{font-weight:700}
       <div class="modal-title" id="historyModalTitle">🔧 保守履歴を追加</div>
       <button class="btn-close" onclick="closeHistoryModal()">✕</button>
     </div>
+    <div class="photo-status-bar" onclick="_showPendingPhotoBreakdown()"></div>
     <div class="modal-body">
       <div class="form-group">
         <label class="form-label">修理内容 <span class="required">*</span></label>
@@ -1297,6 +1320,14 @@ optgroup{font-weight:700}
 <div class="status-quick-menu" id="statusQuickMenu"></div>
 
 <div class="toast" id="toast"></div>
+<!-- 機器の保存時に、写真がDriveへ高画質で保存されるまで待つ画面（新表示のみ） -->
+<div class="confirm-overlay" id="driveWaitOverlay" style="z-index:450">
+  <div class="confirm-box" style="max-width:440px">
+    <div class="confirm-title" id="dwTitle">☁️ Driveに保存中…</div>
+    <div class="confirm-msg" id="dwMsg"></div>
+    <div class="confirm-actions" id="dwActions" style="flex-wrap:wrap"></div>
+  </div>
+</div>
 <div class="photo-upload-indicator" id="photoUploadIndicator" style="display:none"><span class="spinner" id="photoUploadIndicatorSpinner"></span><span id="photoUploadIndicatorText">写真を保存中…</span><span class="photo-upload-indicator-close" id="photoUploadIndicatorClose" style="display:none" onclick="_dismissPhotoUploadIndicator(event)">✕</span></div>
 
 <!-- ════ ログイン画面 ════ -->
@@ -1364,7 +1395,17 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-29c';
+const APP_BUILD='2026-10-29e';
+// 【新表示の試験運用】写真のDrive保存状態の表示と、通知の出し方を新しくしたもの。
+// まず利用者の端末だけで試すため、URLに ?beta=1 を付けて開いた端末でのみ有効にする
+// （以後その端末では記憶される。?beta=0 で元の表示に戻る）。問題なければ全員に有効化する。
+const PHOTO_UI_V2=(()=>{
+  try{
+    const q=new URLSearchParams(location.search);
+    if(q.has('beta'))localStorage.setItem('kk_photo_ui_v2',q.get('beta')==='0'?'0':'1');
+    return localStorage.getItem('kk_photo_ui_v2')==='1';
+  }catch(e){return false;}
+})();
 const PHOTO_MAX_DIM=2560;   // 長辺の上限（px）／Driveへ保存する本番の画質
 const PHOTO_QUALITY=0.82;   // JPEG品質
 // 撮影直後に「まず確実に保存する」ための暫定画質。銘板写真と同じく端末内で圧縮して
@@ -2357,7 +2398,7 @@ function renderDetail(){
     return`<div class="photo-slot${hasP?' has-photo':''}" id="${id}">
       ${hasP
         ?`<img src="${eq.photos[key]}" alt="${key}" onclick="openLightbox('${key}',event)" onerror="_photoRetry(this)">
-          ${pending?'<span class="photo-pending-badge"><span class="spinner"></span>送信中</span>':''}
+          ${_photoBadgeHtml(eq.id,'main',key,eq.photos[key])}
           <div class="photo-overlay">
             <button onclick="openLightbox('${key}',event)">🔍 拡大</button>
           </div>`
@@ -2379,7 +2420,7 @@ function renderDetail(){
   const extraPhotos=(eq.photos.extra||[]).map((p,i)=>
     `<div class="photo-extra-item" onclick="openLightboxExtra(${i})">
       <img src="${p.data}" alt="${p.name}" onerror="_photoRetry(this)">
-      ${p.localId&&_isPendingPhoto(eq.id,'extra',p.localId)?'<span class="photo-pending-badge"><span class="spinner"></span>送信中</span>':''}
+      ${_photoBadgeHtml(eq.id,'extra',p.localId,p.data)}
     </div>`).join('');
 
   const maintenanceHTML=(eq.maintenance||[]).length===0
@@ -2389,7 +2430,7 @@ function renderDetail(){
         const historyPhotosHTML=(h.photos&&h.photos.length)?`<div class="photo-extra-grid" style="grid-template-columns:repeat(4,1fr);margin-top:8px">${h.photos.map((p,pi)=>
           `<div class="photo-extra-item" onclick="openSavedHistoryPhotoLightbox(${i},${pi})">
             ${_attachTileInner(p)}
-            ${p.localId&&_isPendingPhoto(eq.id,'history',p.localId)?'<span class="photo-pending-badge"><span class="spinner"></span>送信中</span>':''}
+            ${_photoBadgeHtml(eq.id,'history',p.localId,p.data)}
           </div>`).join('')}</div>`:'';
         return`<div class="history-card">
           <div class="history-card-top">
@@ -3154,7 +3195,8 @@ async function _processPendingQueue(){
     console.log(`[写真送信キュー] 対象件数：${items.length}`,items.map(it=>({id:it.id,status:it.status,failCount:it.failCount||0,lastAttempt:it.lastAttempt})));
     // 失敗を繰り返している写真は後回しにし、まだ試していない写真を先に送る
     // （1件の詰まりで、後ろの写真がいつまでも送られない状態を防ぐ）
-    items.sort((a,b)=>((a.failCount||0)-(b.failCount||0))||((a.id||0)-(b.id||0)));
+    // 保存完了を待っている機器の写真を最優先。次に、失敗の少ないもの・古いものから
+    items.sort((a,b)=>((b.eqId===_queuePriorityEqId)-(a.eqId===_queuePriorityEqId))||((a.failCount||0)-(b.failCount||0))||((a.id||0)-(b.id||0)));
     for(const item of items){
       if(item.status==='pending'){
         if(Date.now()-(item.lastAttempt||0)<15000)continue; // 直近失敗した分は少し間隔を空けてリトライ
@@ -3208,7 +3250,18 @@ async function _processPendingQueue(){
               await _updatePendingPhoto(item.id,changes);
               Object.assign(item,changes);
             }catch(e){
-              const msg=`高画質の元写真を読み込めないため保留中です（10分後に再試行）：${(e&&e.message)||e}`;
+              // 【2026-10-29d】iPhoneのSafariでは、端末内に保存した元写真の中身が消えて
+              // 「The object can not be found here.」（NotFoundError）になることがある。これは
+              // 再試行しても戻らないので、すぐに「撮り直してください」の扱いにする（一覧に機器名を出す）。
+              const em=String((e&&e.message)||e||'');
+              const gone=(e&&e.name==='NotFoundError')||/can ?not be found|could not be found|not found/i.test(em);
+              if(gone){
+                const msg='元写真がiPhone内で見つからないため、Driveへ高画質を送れません（撮り直してください）';
+                await _updatePendingPhoto(item.id,{hiresSource:null,noHires:true,lastError:msg});
+                _lastQueueErrorMsg=msg;
+                continue;
+              }
+              const msg=`高画質の元写真を読み込めないため保留中です（10分後に再試行）：${em}`;
               console.warn('[写真送信キュー]',msg);
               await _updatePendingPhoto(item.id,{lastError:msg,lastAttempt:Date.now()+10*60*1000});
               _lastQueueErrorMsg=msg;
@@ -3359,7 +3412,107 @@ async function _tryApplyPendingPhoto(item){
   renderList();
   return true;
 }
+/* ════ 写真のDrive保存状態の表示（新表示：PHOTO_UI_V2） ════
+   現場を離れる前に「Driveへ高画質で保存できたか」を確認できるようにする。
+   ・写真ごとに「✓ Drive」「⏳ 送信中」「📷 作成中」「⚠ 撮り直し」「Drive未保存」を表示
+   ・画面上部（ヘッダーの下／入力画面の見出しの下）の帯に、未保存の枚数や撮り直しが必要な枚数を表示
+     （画面に重ねず、内容を押し下げる形なので保存ボタン等を隠さない）
+   ・Driveへ送れない写真が出たら、その場で機器名つきで知らせる */
+const _pendingKindMap=new Map(); // 送信待ちキー → _pendingQualityKind の結果
+const _heldNotified=new Set();
+let _psbRefreshTimer=null,_psbHadPending=false,_psbDoneUntil=0;
+function _isDriveUrl(u){return typeof u==='string'&&u.includes('drive.google.com');}
+function _photoBadgeState(pk,url){
+  if(_pendingPhotoKeys.has(pk)){
+    const kind=_pendingKindMap.get(pk);
+    if(kind==='held')return['held','⚠ 撮り直し'];
+    if(kind==='making'||kind==='legacy')return['making','📷 作成中'];
+    return['sending','⏳ 送信中'];
+  }
+  if(_isDriveUrl(url))return['ok','✓ Drive'];
+  if(typeof url==='string'&&url.startsWith('data:'))return['unsaved','Drive未保存'];
+  return['',''];
+}
+// 写真の上に重ねる保存状態マーク。旧表示では従来どおり「送信中」のみ。
+function _photoBadgeHtml(eqId,slotType,slotKey,url){
+  const pk=_pendingKeyOf(eqId,slotType,slotKey);
+  if(!PHOTO_UI_V2){
+    return (slotKey!=null&&eqId!=null&&_isPendingPhoto(eqId,slotType,slotKey))
+      ?'<span class="photo-pending-badge"><span class="spinner"></span>送信中</span>':'';
+  }
+  const [cls,text]=_photoBadgeState(pk,url);
+  const safePk=String(pk).replace(/"/g,'&quot;');
+  return `<span class="pbadge ${cls}" data-pk="${safePk}" data-drive="${_isDriveUrl(url)?1:0}" data-temp="${typeof url==='string'&&url.startsWith('data:')?1:0}">${text}</span>`;
+}
+function _refreshBadgesInDom(){
+  document.querySelectorAll('.pbadge[data-pk]').forEach(b=>{
+    const url=b.dataset.drive==='1'?'drive.google.com':(b.dataset.temp==='1'?'data:':'');
+    const [cls,text]=_photoBadgeState(b.dataset.pk,url);
+    b.className=`pbadge ${cls}`;b.textContent=text;
+  });
+}
+function _eqNameOf(it){const eq=equipments.find(e=>e.id===it.eqId);return eq?eq.name:((it.eqSnapshot&&it.eqSnapshot.name)||'不明な機器');}
+// 端末内の送信待ちを読み直して、帯と写真のマークを最新にする（呼び出しが重なっても0.3秒にまとめる）
+function _schedulePhotoStatusRefresh(){
+  if(!PHOTO_UI_V2)return;
+  clearTimeout(_psbRefreshTimer);
+  _psbRefreshTimer=setTimeout(_refreshPhotoStatus,300);
+}
+async function _refreshPhotoStatus(){
+  let items=[];
+  try{items=await _getAllPendingPhotos();}catch(e){return;}
+  _pendingKindMap.clear();
+  _pendingPhotoKeys.clear();
+  const newlyHeld=[];
+  for(const it of items){
+    const pk=_pendingKeyOf(it.eqId,it.slotType,it.slotKey);
+    const kind=_pendingQualityKind(it);
+    _pendingKindMap.set(pk,kind);
+    _pendingPhotoKeys.add(pk);
+    if(kind==='held'&&!_heldNotified.has(pk)){_heldNotified.add(pk);newlyHeld.push(it);}
+  }
+  _refreshBadgesInDom();
+  _renderPhotoStatusBar(items);
+  if(newlyHeld.length){
+    const names=[...new Set(newlyHeld.map(it=>`${_eqNameOf(it)}（${it.category||it.slotType}）`))];
+    showToast(`⚠ Driveに高画質を保存できない写真があります：${names.slice(0,3).join('、')}${names.length>3?` ほか${names.length-3}件`:''}　撮り直してください`,'error');
+  }
+}
+function _renderPhotoStatusBar(items){
+  const bars=document.querySelectorAll('.photo-status-bar');
+  const making=(typeof _hiresScheduled!=='undefined')?_hiresScheduled.size:0;
+  const kinds=items.map(_pendingQualityKind);
+  const held=kinds.filter(k=>k==='held').length;
+  const waiting=items.length-held; // 作成中・送信中・反映待ち
+  let cls='',html='';
+  if(making>0){
+    cls='psb-making';
+    html=`📷 高画質版を作成中（${making}枚）…この表示が消えるまでアプリを閉じないでください`;
+  }else if(held>0){
+    cls='psb-held';
+    html=`⚠ Driveに保存できない写真 ${held}枚（撮り直しが必要）${waiting?`／送信中 ${waiting}枚`:''}<span class="psb-more">タップで一覧</span>`;
+  }else if(waiting>0){
+    cls='psb-pending';
+    html=`⏳ Drive未保存 ${waiting}枚（送信中）${_lastQueueErrorMsg?'／直近のエラーあり':''}<span class="psb-more">タップで内訳</span>`;
+  }else if(_psbHadPending||Date.now()<_psbDoneUntil){
+    if(_psbHadPending)_psbDoneUntil=Date.now()+5000;
+    cls='psb-done';html='✓ すべての写真をDriveに保存しました';
+    setTimeout(()=>_renderPhotoStatusBar([]),5200);
+  }
+  _psbHadPending=items.length>0||making>0;
+  bars.forEach(b=>{
+    b.className='photo-status-bar'+(cls?' show '+cls:'');
+    b.innerHTML=html;
+  });
+}
 function _updatePhotoUploadIndicator(){
+  if(PHOTO_UI_V2){
+    // 新表示では画面下に浮かぶ通知は使わず、上部の帯と写真ごとのマークで知らせる
+    const old=document.getElementById('photoUploadIndicator');
+    if(old)old.style.display='none';
+    _schedulePhotoStatusRefresh();
+    return;
+  }
   const el=document.getElementById('photoUploadIndicator');
   if(!el)return;
   const n=_pendingPhotoKeys.size;
@@ -3566,7 +3719,7 @@ function renderModalExtraGrid(){
   const items=modalPhotos.extra.map((p,i)=>
     `<div class="photo-extra-item" onclick="openModalExtraLightbox(${i})">
       <img src="${p.data}" alt="${p.name}" onerror="_photoRetry(this)">
-      ${p.localId&&_isPendingPhoto(targetId,'extra',p.localId)?'<span class="photo-pending-badge"><span class="spinner"></span>送信中</span>':''}
+      ${_photoBadgeHtml(targetId,'extra',p.localId,p.data)}
       <button class="photo-extra-del" onclick="event.stopPropagation();deleteModalExtraPhoto(${i})">✕</button>
     </div>`).join('');
   grid.innerHTML=items+`<button class="btn-add-photo" onclick="triggerModalExtraPhoto()">
@@ -3962,7 +4115,7 @@ function updateModalPhotoSlot(key){
   const data=modalPhotos[key];
   if(data){
     const targetId=currentEq?currentEq.id:pendingNewEqId;
-    const pendingBadge=_isPendingPhoto(targetId,'main',key)?'<span class="photo-pending-badge"><span class="spinner"></span>送信中</span>':'';
+    const pendingBadge=_photoBadgeHtml(targetId,'main',key,data);
     slot.classList.add('has-photo');
     slot.innerHTML=`<img src="${data}" alt="${key}" onclick="openModalLightbox('${key}',event)" onerror="_photoRetry(this)">
       ${pendingBadge}
@@ -4232,7 +4385,7 @@ function renderHistoryPhotoGrid(){
   const items=historyPhotos.map((p,i)=>
     `<div class="photo-extra-item" onclick="openHistoryPhotoLightbox(${i})">
       ${_attachTileInner(p)}
-      ${p.localId&&eqId!=null&&_isPendingPhoto(eqId,'history',p.localId)?'<span class="photo-pending-badge"><span class="spinner"></span>送信中</span>':''}
+      ${eqId!=null?_photoBadgeHtml(eqId,'history',p.localId,p.data):''}
       <button class="photo-extra-del" onclick="event.stopPropagation();deleteHistoryPhoto(${i})">✕</button>
     </div>`).join('');
   grid.innerHTML=items+`<button class="btn-add-photo" onclick="triggerHistoryPhoto()">
@@ -4936,6 +5089,70 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 else _populateMfgSelects();
 
 /* ════ SAVE EQUIPMENT ════ */
+/* ════ 機器の保存時に、写真がDriveへ高画質で保存されるまで待つ（新表示：PHOTO_UI_V2） ════
+   現場の写真は撮り直しが大変なため、「Driveに高画質で入ったこと」を確認してから登録を完了する。
+   ・この機器の送信待ちが無くなる（Driveへ保存→機器データへ反映）まで「保存中 n/N枚」を表示して待つ
+   ・高画質版を作れなかった写真があれば、その場で「撮り直す」を案内する
+   ・30秒たっても終わらない／電波が切れた場合だけ「あとで送る」を選べる（端末に高画質版を残し、自動で送る）
+   戻り値：'done'（すべて保存済み）／'later'（あとで送る）／'retake'（撮り直す） */
+const DRIVE_WAIT_LATER_MS=30000;
+let _queuePriorityEqId=null;
+function _driveWaitShow(title,msg,buttons){
+  document.getElementById('dwTitle').textContent=title;
+  document.getElementById('dwMsg').innerHTML=msg;
+  const box=document.getElementById('dwActions');
+  box.innerHTML='';
+  buttons.forEach(b=>{
+    const el=document.createElement('button');
+    el.className=b.primary?'btn-save':'btn-cancel';
+    el.textContent=b.label;el.onclick=b.onClick;
+    box.appendChild(el);
+  });
+  document.getElementById('driveWaitOverlay').classList.add('show');
+}
+function _driveWaitHide(){document.getElementById('driveWaitOverlay').classList.remove('show');}
+async function _waitForDriveSave(eqId){
+  const mine=async()=>(await _getAllPendingPhotos().catch(()=>[])).filter(it=>it.eqId===eqId);
+  let items=await mine();
+  if(items.length===0)return 'done';
+  const total=items.length;
+  const startedAt=Date.now();
+  _queuePriorityEqId=eqId; // この機器の写真を先に送る
+  return await new Promise(resolve=>{
+    let finished=false,timer=null;
+    const finish=r=>{if(finished)return;finished=true;clearInterval(timer);_queuePriorityEqId=null;_driveWaitHide();resolve(r);};
+    const later={label:'あとで送る',onClick:()=>finish('later')};
+    const tick=async()=>{
+      if(finished)return;
+      items=await mine();
+      if(items.length===0){finish('done');return;}
+      const kinds=items.map(_pendingQualityKind);
+      const held=items.filter((it,i)=>kinds[i]==='held');
+      const done=Math.max(0,total-items.length);
+      if(held.length&&held.length===items.length){
+        const what=[...new Set(held.map(it=>it.category||it.slotType))].join('、');
+        _driveWaitShow('⚠ 撮り直しが必要な写真があります',
+          `高画質版を作れなかったため、Driveに保存できない写真があります：<strong>${what}</strong><br>撮り直してください（機器の内容は保存済みです）。`,
+          [{label:'撮り直す',primary:true,onClick:()=>finish('retake')},{label:'閉じる',onClick:()=>finish('later')}]);
+        return;
+      }
+      const making=kinds.filter(k=>k==='making'||k==='legacy').length;
+      const offline=!navigator.onLine;
+      const slow=Date.now()-startedAt>=DRIVE_WAIT_LATER_MS;
+      const lines=[`保存済み <strong>${done}</strong> / ${total} 枚`];
+      if(making)lines.push(`📷 高画質版を作成中：${making}枚`);
+      if(held.length)lines.push(`⚠ 撮り直しが必要：${held.length}枚`);
+      if(offline)lines.push('📴 電波が届いていません');
+      else if(slow)lines.push('電波が弱いため時間がかかっています');
+      lines.push('<span style="font-size:12px;color:var(--gray-500)">Driveに高画質で保存されたことを確認してから登録を完了します。</span>');
+      _driveWaitShow('☁️ Driveに保存中…',lines.join('<br>'),
+        (offline||slow)?[{...later,label:'あとで送る（この端末に残して自動で送信）'}]:[]);
+      if(!_processingQueue)_processPendingQueue();
+    };
+    tick();
+    timer=setInterval(tick,1000);
+  });
+}
 async function saveEquipment(ev){
   const btn=(ev&&ev.target)?ev.target.closest('button'):document.querySelector('.btn-save');
   const name=document.getElementById('f_name').value;
@@ -4982,7 +5199,13 @@ async function saveEquipment(ev){
         Object.assign(currentEq,backup);
         return;
       }
-      showToast('✅ 機器情報を更新しました','success');
+      if(PHOTO_UI_V2){
+        const r=await _waitForDriveSave(currentEq.id);
+        if(r==='retake'){showToast('写真を撮り直してください（機器の内容は保存済みです）','info');renderDetail();renderList();return;}
+        showToast(r==='done'?'✅ 機器情報を更新し、写真をDriveに保存しました':'✅ 機器情報を更新しました（写真は電波が戻ったらDriveへ送ります）',r==='done'?'success':'info');
+      }else{
+        showToast('✅ 機器情報を更新しました','success');
+      }
       renderDetail();renderList();
     }else{
       const eq={id:pendingNewEqId||_genEquipmentId(),name,status,maker,model,serial,
@@ -5003,7 +5226,22 @@ async function saveEquipment(ev){
       // 自動的にequipmentsを最新状態に置き換えるため、ここでもpushすると
       // 同じ機器が2件表示される重複バグの原因になっていた。
       pendingNewEqId=null;
-      showToast('✅ 機器を登録しました','success');renderList();
+      if(PHOTO_UI_V2){
+        renderList();
+        const r=await _waitForDriveSave(eq.id);
+        if(r==='retake'){
+          // 機器は登録済み。編集画面として開き直し、写真を撮り直してもらう
+          showToast('写真を撮り直してください（機器は登録済みです）','info');
+          await closeModal();
+          showDetail(eq.id);
+          if(currentEq&&currentEq.id===eq.id)openEditModal();
+          return;
+        }
+        showToast(r==='done'?'✅ 機器を登録し、写真をDriveに保存しました':'✅ 機器を登録しました（写真は電波が戻ったらDriveへ送ります）',r==='done'?'success':'info');
+      }else{
+        showToast('✅ 機器を登録しました','success');
+      }
+      renderList();
     }
     simulateCloudSync();closeModal();
   }finally{
@@ -5896,6 +6134,14 @@ function showToast(msg,type=''){
   // 保存ボタンとトーストが重ならないよう、その間はトーストの表示位置を上げる。
   const modalOpen=!!document.querySelector('.modal-overlay.show');
   t.textContent=msg;
+  if(PHOTO_UI_V2){
+    // 新表示：画面上部に出し、指の操作を妨げない（保存ボタンや入力欄に重ならない）。
+    // 連続して出た場合も前の表示を置き換えるだけで、重なって残らない。
+    t.className='toast toast-top'+(type?' toast-'+type:'')+' show';
+    clearTimeout(t._hideTimer);
+    t._hideTimer=setTimeout(()=>t.classList.remove('show'),type==='error'?6000:3000);
+    return;
+  }
   t.className='toast'+(type?' toast-'+type:'')+(modalOpen?' above-modal':'')+' show';
   setTimeout(()=>t.classList.remove('show'),3500);
 }
