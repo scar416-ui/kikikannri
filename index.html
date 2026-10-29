@@ -1397,7 +1397,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-29h';
+const APP_BUILD='2026-10-29i';
 // 【新表示の試験運用】写真のDrive保存状態の表示と、通知の出し方を新しくしたもの。
 // まず利用者の端末だけで試すため、URLに ?beta=1 を付けて開いた端末でのみ有効にする
 // （以後その端末では記憶される。?beta=0 で元の表示に戻る）。問題なければ全員に有効化する。
@@ -3218,8 +3218,9 @@ async function _processPendingQueue(){
       if(item.status==='pending'){
         // 前の版で「元写真を読み込めない（The object can not be found here.）」と記録された送信待ちは、
         // 再試行しても戻らないので、待たずにすぐ「撮り直し」扱いにする（下の保留処理で機器に印を付けて外す）
+        // ※iPhoneのSafariでは、中身の消えた画像を含む記録は「書き換え」に失敗する（エラーがnullになる）。
+        //   そのため、ここでは記録を書き換えず、機器に印を付けてから記録ごと削除する（削除は成功する）。
         if(item.hiresSource&&/can ?not be found|could not be found|見つから/i.test(String(item.lastError||''))){
-          await _updatePendingPhoto(item.id,{hiresSource:null,noHires:true,lastAttempt:0});
           item.hiresSource=null;item.noHires=true;item.lastAttempt=0;
         }
         if(Date.now()-(item.lastAttempt||0)<15000)continue; // 直近失敗した分は少し間隔を空けてリトライ
@@ -3228,23 +3229,57 @@ async function _processPendingQueue(){
         if(item.awaitingHires){
           if(_hiresScheduled.has(item.id)||Date.now()-(item.createdAt||0)<PHOTO_HIRES_STALE_MS)continue;
           const msg='高画質版を作る前にアプリが閉じられたため、送信を保留しています（撮り直し推奨）';
-          await _updatePendingPhoto(item.id,{awaitingHires:false,noHires:true,lastError:msg});
+          await _updatePendingPhoto(item.id,{awaitingHires:false,noHires:true,lastError:msg}).catch(()=>{});
           item.awaitingHires=false;item.noHires=true;item.lastError=msg;
         }
         // 10-28aで端末内に保存された元写真が残っている送信待ちは、そこから高画質版を作って送る
-        const needsLegacyHires=PHOTO_HIRES_ENABLED&&item.hiresSource&&!item.hiresOk&&!item.hiresSmall;
+        let needsLegacyHires=PHOTO_HIRES_ENABLED&&item.hiresSource&&!item.hiresOk&&!item.hiresSmall;
+        if(needsLegacyHires){
+          // 記録を書き換える前に、元写真が読めるか確かめる（読めない＝中身が消えている記録は書き換えられない）
+          let src=null,readErr=null;
+          try{src=await _readBlobToMemory(item.hiresSource,item.fileName,'高画質の元写真の読み込み');}catch(e){readErr=e;}
+          if(!src){
+            const em=String((readErr&&readErr.message)||(readErr&&readErr.name)||readErr||'');
+            const gone=(readErr&&readErr.name==='NotFoundError')||/can ?not be found|could not be found|not found/i.test(em);
+            if(gone){
+              item.hiresSource=null;item.noHires=true;needsLegacyHires=false; // 下の保留処理で機器に印を付けて記録を削除
+            }else{
+              const msg=`高画質の元写真を読み込めないため保留中です（10分後に再試行）：${em}`;
+              await _updatePendingPhoto(item.id,{lastError:msg,lastAttempt:Date.now()+10*60*1000}).catch(()=>{});
+              _lastQueueErrorMsg=msg;
+              continue;
+            }
+          }else{
+            // 読めた：高画質版を作り、古い記録（壊れた画像を含む可能性がある）は書き換えずに新しい記録へ移す
+            try{
+              const hires=await _withTimeout(_makeHiresJpeg(src,item.fileName),PHOTO_HIRES_TIMEOUT_MS,'高画質版の作成');
+              const fresh={eqId:item.eqId,slotType:item.slotType,slotKey:item.slotKey,entryLocalId:item.entryLocalId||null,
+                fileName:item.fileName,category:item.category,eqSnapshot:item.eqSnapshot,prepared:true,status:'pending',driveUrl:null,
+                createdAt:item.createdAt||Date.now(),lastAttempt:0,
+                blob:hires||src,...(await _hiresFileToStored(hires||src)),hiresOk:true,hiresSmall:!hires};
+              const newId=await _addPendingPhoto(fresh);
+              if(hires)_hiresMemFiles.set(newId,hires);
+              await _deletePendingPhoto(item.id).catch(()=>{});
+              _queueRerunRequested=true;
+            }catch(e){
+              console.warn('[写真送信キュー] 旧版の送信待ちの高画質化に失敗:',e);
+              await _updatePendingPhoto(item.id,{lastError:`高画質版を作れませんでした（10分後に再試行）：${(e&&e.message)||e}`,lastAttempt:Date.now()+10*60*1000}).catch(()=>{});
+            }
+            continue;
+          }
+        }
         // 高画質が保証されない写真は、Driveへ低画質のまま送らずに保留する（内訳から送る指示があれば送る）
         if(!needsLegacyHires&&!_pendingSendable(item)){
           // Driveへ高画質を送れない写真：送信待ちに残してもエラーが出続けるだけなので、
           // 機器に「撮り直しが必要」の印を残してから送信待ちを外す（アプリ内の写真は残る）
           const marked=await _markRetakeNeeded(item);
           if(marked){
-            await _deletePendingPhoto(item.id);
+            await _deletePendingPhoto(item.id).catch(e=>console.warn('送信待ちの削除に失敗:',e));
             _pendingPhotoKeys.delete(_pendingKeyOf(item.eqId,item.slotType,item.slotKey));
             if(_lastQueueErrorMsg&&(!item.lastError||_lastQueueErrorMsg===item.lastError||/撮り直し|見つからない|保留/.test(_lastQueueErrorMsg)))_lastQueueErrorMsg=null;
             _retakeMarkedThisSession=true;
           }else if(!item.noHires){
-            await _updatePendingPhoto(item.id,{noHires:true,lastError:'高画質の元写真がないため送信を保留しています（撮り直し推奨）'});
+            await _updatePendingPhoto(item.id,{noHires:true,lastError:'高画質の元写真がないため送信を保留しています（撮り直し推奨）'}).catch(()=>{});
           }
           continue;
         }
@@ -3335,8 +3370,8 @@ async function _processPendingQueue(){
         }catch(e){
           console.warn('写真のバックグラウンドアップロードに失敗しました（後で再試行します）:',e);
           const failCount=(item.failCount||0)+1;
-          const msg=(e&&e.message)||String(e)||'不明なエラー';
-          await _updatePendingPhoto(item.id,{failCount,lastError:msg});
+          const msg=(e&&e.message)||(e&&e.name)||(e==null?'端末内の送信待ちを更新できませんでした':String(e))||'不明なエラー';
+          await _updatePendingPhoto(item.id,{failCount,lastError:msg}).catch(()=>{});
           _lastQueueErrorMsg=msg;
           // 何度も失敗が続く場合は、原因が分かるようトースト（ただし連投を防ぐため
           // 直近2分以内に表示済みならスキップ）でユーザーに知らせる。
