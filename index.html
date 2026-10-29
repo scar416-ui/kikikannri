@@ -1364,7 +1364,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-29a';
+const APP_BUILD='2026-10-29c';
 const PHOTO_MAX_DIM=2560;   // 長辺の上限（px）／Driveへ保存する本番の画質
 const PHOTO_QUALITY=0.82;   // JPEG品質
 // 撮影直後に「まず確実に保存する」ための暫定画質。銘板写真と同じく端末内で圧縮して
@@ -1383,15 +1383,20 @@ const PHOTO_THUMB_QUALITY=0.55;
 // 送信キューが送る直前に元の写真から高画質版を作って差し替える。作成に失敗・時間切れ・
 // 端末内の容量不足などが起きた場合は、従来どおり1200pxの画像を送る（今より悪くならない）。
 // ★元の仕様（Driveにも1200pxで保存）に戻したい場合は、下の値を false にするだけでよい。
-// 【2026-10-29 停止】iPhone（iPhone Duo）実機で、送信待ちが「写真のアップロードがタイムアウト
-// （600秒応答なし）」で進まなくなった（30件滞留、1件目が3回失敗し後続が止まる）。高画質版の
-// 作成に端末内保存の元写真を読む処理がiPhoneで応答しなくなり、その後の送信まで巻き込んで
-// 止まったとみられるため停止した。false の間は、溜まっている送信待ちの元写真は読まずに
-// 削除し、従来どおり1200pxの画像を送る。再開する場合は iPhone 実機での検証が必須。
-const PHOTO_HIRES_ENABLED=false;
+// 【2026-10-29b 作り直し】★Driveには必ず高画質を保存する（アプリ内の写真は確認用なので粗くてよい）。
+// 10-28aでは「元写真（撮影したファイル）そのもの」を端末内（IndexedDB）へ保存していたが、iPhoneの
+// Safariではこれが原因とみられる不具合で、送信待ちの画像が読めなくなり送信が10分応答せず止まった。
+// そこで、元写真は端末内へ保存せず、撮影直後（まだメモリ上にある間）に高画質版（3024px）を作り、
+// それを送信待ちの画像として差し替える（10/27まで実績のある「アプリで作った画像を保存する」方式）。
+// 高画質版が無い写真（作成に失敗・作成前にアプリを閉じた等）は、Driveへは送らない（低画質は保存しない）。
+// 内訳に「撮り直してください」と対象の機器を表示する。高画質版は端末内にArrayBufferで保存する。
+// ★false にすると、高画質版を作らず従来どおり1200pxをそのまま送る（低画質でも送る）動きに戻る。
+const PHOTO_HIRES_ENABLED=true;
 const PHOTO_HIRES_MAX_DIM=3024;
 const PHOTO_HIRES_QUALITY=0.85;
-const PHOTO_HIRES_TIMEOUT_MS=45000;
+const PHOTO_HIRES_TIMEOUT_MS=60000;
+// 高画質版の作成待ちのまま、この時間を過ぎた送信待ちは「作成前にアプリが閉じられた」とみなす
+const PHOTO_HIRES_STALE_MS=10*60*1000;
 // この値以下のファイルは分割送信せず1回のリクエストで送る（往復回数を最小化）。
 // Google Drive APIのmultipartアップロードは5MBまで推奨。
 const DRIVE_SIMPLE_UPLOAD_MAX=4*1024*1024;
@@ -2900,6 +2905,7 @@ async function _addPendingPhoto(record){
   });
 }
 async function _deletePendingPhoto(id){
+  if(typeof _hiresMemFiles!=='undefined')_hiresMemFiles.delete(id);
   const db=await _openPendingDB();
   return new Promise((resolve,reject)=>{
     const tx=db.transaction(PENDING_STORE,'readwrite');
@@ -2923,6 +2929,84 @@ async function _updatePendingPhoto(id,changes){
     tx.oncomplete=()=>resolve();
     tx.onerror=()=>reject(tx.error);
   });
+}
+// 送信待ちのBlobを、送る直前にメモリ上へ読み出す（読めるかどうかの確認も兼ねる）。
+// iPhoneのSafariでは端末内（IndexedDB）の画像が読めなくなることがあり、そのまま送ると通信が
+// 始まらないまま10分待ってタイムアウトしていた。読めなければ20秒であきらめてエラーにする
+// （送信待ちは消さずに残し、次の写真へ進む）。
+async function _readBlobToMemory(blob,name,label){
+  const buf=await _withTimeout(blob.arrayBuffer(),20000,label||'端末内の画像の読み込み');
+  if(!buf||buf.byteLength===0)throw new Error('端末内の画像が空でした');
+  return new File([buf],name||'photo.jpg',{type:(blob&&blob.type)||'image/jpeg'});
+}
+// 送る画像を用意する。このタブで作った高画質版がメモリに残っていればそれを使い、
+// 無ければ端末内に保存した高画質版のデータ（ArrayBuffer）から作る。書類などはBlobを読み出す。
+async function _readPendingBlobForUpload(item){
+  const mem=_hiresMemFiles.get(item.id);
+  if(mem)return mem;
+  const base=(item.fileName||'photo').replace(/\.[^.]+$/,'');
+  if(item.hiresData&&item.hiresData.byteLength>0){
+    return new File([item.hiresData],`${base}.jpg`,{type:item.hiresType||'image/jpeg'});
+  }
+  try{
+    return await _readBlobToMemory(item.blob,item.fileName);
+  }catch(e){
+    throw new Error(`端末内の画像を読み込めません（${(e&&e.message)||e}）`);
+  }
+}
+// 【高画質版の作成（撮影直後）】撮影したファイルがまだメモリ上にあるうちに高画質版を作り、
+// 送信待ちの画像を差し替える。iPhoneの負荷を抑えるため1枚ずつ順番に作る。
+// 作れた高画質版はこのタブの間はメモリにも置いておき、送信時に端末内を読まずに済ませる。
+const _hiresMemFiles=new Map();
+const _hiresScheduled=new Set(); // このタブで高画質版の作成を予約・実行中の送信待ちID
+let _hiresJobChain=Promise.resolve();
+function _scheduleHiresAttach(pendingId,srcFile,name,instantFile){
+  _hiresScheduled.add(pendingId);
+  _updatePhotoUploadIndicator();
+  _hiresJobChain=_hiresJobChain
+    .then(()=>_attachHiresToPending(pendingId,srcFile,name,instantFile))
+    .catch(e=>console.warn('高画質版の作成処理でエラー:',e))
+    .finally(()=>{_hiresScheduled.delete(pendingId);_updatePhotoUploadIndicator();});
+  return _hiresJobChain;
+}
+// 高画質版は、Blob（画像ファイル）ではなくArrayBuffer（ただのデータ）として端末内に保存する。
+// iPhoneのSafariは端末内に保存した画像ファイル（Blob）が読めなくなる不具合が起きうる一方、
+// ArrayBufferはデータベース本体に直接書き込まれるため、この不具合の影響を受けにくい。
+async function _hiresFileToStored(file){
+  return {hiresData:await file.arrayBuffer(),hiresType:file.type||'image/jpeg'};
+}
+// 作成のやり直し：1回目・2回目は3024px、それでもだめなら2560px（それでも十分な高画質）で作る
+const PHOTO_HIRES_ATTEMPT_DIMS=[PHOTO_HIRES_MAX_DIM,PHOTO_HIRES_MAX_DIM,2560];
+async function _attachHiresToPending(pendingId,srcFile,name,instantFile){
+  let hires=null,lastErr=null,small=false;
+  for(let attempt=0;attempt<PHOTO_HIRES_ATTEMPT_DIMS.length&&!hires&&!small;attempt++){
+    if(attempt>0)await new Promise(r=>setTimeout(r,3000));
+    try{
+      hires=await _withTimeout(_makeHiresJpeg(srcFile,name,PHOTO_HIRES_ATTEMPT_DIMS[attempt]),PHOTO_HIRES_TIMEOUT_MS,'高画質版の作成');
+      if(!hires)small=true; // 元の写真が小さく、即保存用の画像で元画質と同じ
+    }catch(e){lastErr=e;console.warn(`高画質版の作成に失敗しました（${attempt+1}回目）:`,e);}
+  }
+  const rec=await _getPendingPhoto(pendingId).catch(()=>null);
+  if(!rec)return; // 撮り直し・削除などで送信待ちが取り消された
+  if(hires){
+    _hiresMemFiles.set(pendingId,hires);
+    await _updatePendingPhoto(pendingId,{...(await _hiresFileToStored(hires)),hiresOk:true,awaitingHires:false,lastError:null});
+  }else if(small){
+    // 元の写真が小さく、即保存用の画像がそのまま元画質。これも端末内にはArrayBufferで持つ。
+    const stored=instantFile?await _hiresFileToStored(instantFile):{};
+    await _updatePendingPhoto(pendingId,{...stored,hiresOk:!!instantFile,hiresSmall:true,awaitingHires:false});
+  }else{
+    await _updatePendingPhoto(pendingId,{awaitingHires:false,noHires:true,
+      lastError:`高画質版を作成できませんでした（撮り直し推奨）：${(lastErr&&lastErr.message)||lastErr}`});
+  }
+  _processPendingQueue();
+}
+// この送信待ちをDriveへ送ってよいか（＝高画質が保証されているか）。低画質は送らない。
+function _pendingSendable(item){
+  if(!PHOTO_HIRES_ENABLED)return true;               // 高画質化を止めている間は従来どおり送る
+  const isImage=((item.blob&&item.blob.type)||'').startsWith('image/');
+  if(!isImage)return true;                            // PDF・Excel等の書類は原本のまま送る
+  return !!((item.hiresOk&&item.hiresData)||item.hiresSmall);
 }
 async function _getPendingPhoto(id){
   const db=await _openPendingDB();
@@ -3002,8 +3086,8 @@ async function _prepareInstantPhoto(file){
 }
 // alreadyPrepared=true のときは、送信キューは変換処理を一切行わず、渡されたファイルを
 // そのままDriveへ送る。
-// hiresSource：高画質版の作成元になる元の写真（任意）。指定された場合は送信待ちに一緒に保存し、
-// 送信キューが送る直前に高画質版（PHOTO_HIRES_MAX_DIM）を作ってから送る。
+// hiresSource：高画質版の作成元になる元の写真（任意）。端末内には保存せず、撮影直後のメモリ上の
+// ファイルから高画質版（PHOTO_HIRES_MAX_DIM）を作って送信待ちの画像を差し替える。
 async function _captureAndQueuePhoto(file,eqSnapshot,slotType,slotKey,category,entryLocalId,alreadyPrepared,hiresSource){
   // HEIC変換や画質調整（_prepareForDriveUpload）は数秒かかることがあり、ここで
   // 待ってしまうと「撮ってからサムネイルが出るまで」が遅く感じられてしまう。
@@ -3019,19 +3103,12 @@ async function _captureAndQueuePhoto(file,eqSnapshot,slotType,slotKey,category,e
     fileName:file.name,category,blob:file,prepared:!!alreadyPrepared,eqSnapshot,
     status:'pending',driveUrl:null,createdAt:Date.now(),lastAttempt:0
   };
+  // 【2026-10-29b】元写真（hiresSource）は端末内へ保存しない（iPhoneで送信が止まった原因とみられるため）。
+  // 送信待ちにはまず即保存用の画像を入れ「高画質版の作成待ち」にしておき、撮影したファイルが
+  // メモリ上にある今のうちに高画質版を作って差し替える。作成待ちの間、送信キューはこの写真を送らない。
   const useHires=PHOTO_HIRES_ENABLED&&alreadyPrepared&&hiresSource&&(hiresSource.type||'').startsWith('image/');
-  if(useHires){
-    try{
-      await _addPendingPhoto({...record,hiresSource,hiresDone:false});
-    }catch(e){
-      // 元の写真ごと保存できなかった場合（端末内の容量不足など）でも、送信自体は必ず行えるよう
-      // 従来どおり1200pxの画像だけで送信待ちに入れ直す（高画質化はあきらめる）。
-      console.warn('高画質版の元写真を端末内に保存できなかったため、従来の画質で送信します:',e);
-      await _addPendingPhoto(record);
-    }
-  }else{
-    await _addPendingPhoto(record);
-  }
+  const pendingId=await _addPendingPhoto(useHires?{...record,awaitingHires:true}:record);
+  if(useHires)_scheduleHiresAttach(pendingId,hiresSource,file.name,file);
   _pendingPhotoKeys.add(_pendingKeyOf(eqSnapshot.id,slotType,slotKey));
   _updatePhotoUploadIndicator();
   _processPendingQueue();
@@ -3048,6 +3125,7 @@ function _withTimeout(promise,ms,label){
   });
 }
 let _processingQueue=false;
+let _queueRerunRequested=false;
 let _queueStartedAt=0;
 // 個々の処理にはタイムアウトを設けているが、それでも想定外の箇所で処理が止まった場合に、
 // 「処理中」フラグが立ちっぱなしになって二度とキューが動かなくなるのを防ぐための最後の保険。
@@ -3061,7 +3139,7 @@ let _dismissedQueueErrorMsg=null; // ユーザーが✕で閉じたエラー内�
 // 送信待ちキューを順番に処理する。同時に複数呼ばれても多重実行しないようにする。
 async function _processPendingQueue(){
   if(_processingQueue){
-    if(Date.now()-_queueStartedAt<QUEUE_WATCHDOG_MS)return;
+    if(Date.now()-_queueStartedAt<QUEUE_WATCHDOG_MS){_queueRerunRequested=true;return;}
     // 前回の処理が長時間終わっていない＝どこかで止まっている。このまま待っても復帰しないため、
     // 処理中フラグを解除して新しく開始し直す。
     console.warn('[写真送信キュー] 前回の処理が終了していないため、中断して再開します');
@@ -3074,9 +3152,29 @@ async function _processPendingQueue(){
     let items;
     try{items=await _getAllPendingPhotos();}catch(e){console.warn('保留中の写真の取得に失敗しました:',e);return;}
     console.log(`[写真送信キュー] 対象件数：${items.length}`,items.map(it=>({id:it.id,status:it.status,failCount:it.failCount||0,lastAttempt:it.lastAttempt})));
+    // 失敗を繰り返している写真は後回しにし、まだ試していない写真を先に送る
+    // （1件の詰まりで、後ろの写真がいつまでも送られない状態を防ぐ）
+    items.sort((a,b)=>((a.failCount||0)-(b.failCount||0))||((a.id||0)-(b.id||0)));
     for(const item of items){
       if(item.status==='pending'){
         if(Date.now()-(item.lastAttempt||0)<15000)continue; // 直近失敗した分は少し間隔を空けてリトライ
+        // 高画質版の作成待ち：作り終わるまで送らない。このタブで作成を予約していないのに長時間
+        // 作成待ちのままなら、作成前にアプリが閉じられたとみなす（低画質のまま送らずに保留）。
+        if(item.awaitingHires){
+          if(_hiresScheduled.has(item.id)||Date.now()-(item.createdAt||0)<PHOTO_HIRES_STALE_MS)continue;
+          const msg='高画質版を作る前にアプリが閉じられたため、送信を保留しています（撮り直し推奨）';
+          await _updatePendingPhoto(item.id,{awaitingHires:false,noHires:true,lastError:msg});
+          item.awaitingHires=false;item.noHires=true;item.lastError=msg;
+        }
+        // 10-28aで端末内に保存された元写真が残っている送信待ちは、そこから高画質版を作って送る
+        const needsLegacyHires=PHOTO_HIRES_ENABLED&&item.hiresSource&&!item.hiresOk&&!item.hiresSmall;
+        // 高画質が保証されない写真は、Driveへ低画質のまま送らずに保留する（内訳から送る指示があれば送る）
+        if(!needsLegacyHires&&!_pendingSendable(item)){
+          if(!item.noHires){
+            await _updatePendingPhoto(item.id,{noHires:true,lastError:'高画質の元写真がないため送信を保留しています（撮り直し推奨）'});
+          }
+          continue;
+        }
         try{
           await _updatePendingPhoto(item.id,{lastAttempt:Date.now()});
           // HEIC変換・画質調整はここ（バックグラウンドの送信キュー）でまとめて行う。
@@ -3099,29 +3197,30 @@ async function _processPendingQueue(){
             await _updatePendingPhoto(item.id,{blob:prepared,prepared:true});
             item.blob=prepared;item.prepared=true;
           }
-          // 【高画質版への差し替え】送信待ちに元の写真が保存されていれば、ここで高画質版を作って送る。
-          // 成功・失敗にかかわらず1回で終わりにする（毎回失敗して送信が進まない、を防ぐ）。
-          // 失敗した場合は、すでに入っている1200pxの画像をそのまま送る。
-          if(item.hiresSource&&!item.hiresDone){
-            let hires=null;
-            if(PHOTO_HIRES_ENABLED){
-              try{
-                hires=await _withTimeout(_makeHiresJpeg(item.hiresSource,item.fileName),PHOTO_HIRES_TIMEOUT_MS,'高画質版の作成');
-              }catch(e){
-                console.warn('高画質版の作成に失敗したため、従来の画質で送信します:',e);
-              }
+          // 【10-28aの送信待ち】端末内に保存された元写真から高画質版を作る。読めない場合は
+          // 元写真を消さずに残して10分後にまた試す（低画質のまま送ることはしない）。
+          if(needsLegacyHires){
+            try{
+              const src=await _readBlobToMemory(item.hiresSource,item.fileName,'高画質の元写真の読み込み');
+              const hires=await _withTimeout(_makeHiresJpeg(src,item.fileName),PHOTO_HIRES_TIMEOUT_MS,'高画質版の作成');
+              const changes=hires?{...(await _hiresFileToStored(hires)),hiresOk:true,noHires:false,lastError:null}:{hiresSmall:true};
+              if(hires)_hiresMemFiles.set(item.id,hires);
+              await _updatePendingPhoto(item.id,changes);
+              Object.assign(item,changes);
+            }catch(e){
+              const msg=`高画質の元写真を読み込めないため保留中です（10分後に再試行）：${(e&&e.message)||e}`;
+              console.warn('[写真送信キュー]',msg);
+              await _updatePendingPhoto(item.id,{lastError:msg,lastAttempt:Date.now()+10*60*1000});
+              _lastQueueErrorMsg=msg;
+              continue;
             }
-            const changes={hiresDone:true,hiresSource:null}; // 元の写真は不要になるので端末内から消す
-            if(hires&&hires.size>(item.blob&&item.blob.size||0))changes.blob=hires;
-            await _updatePendingPhoto(item.id,changes);
-            Object.assign(item,changes);
-            // 高画質版を作っている間に、同じ欄へ撮り直した・写真を削除した等で送信待ちが
-            // 取り消されていた場合は送らない（古い写真で上書きしてしまうのを防ぐ）
+            // 作っている間に撮り直し・削除で送信待ちが取り消されていたら送らない
             if(!(await _getPendingPhoto(item.id))){
               console.log('[写真送信キュー] 送信待ちが取り消されたため送信しません:',item.id);
               continue;
             }
           }
+          if(!_pendingSendable(item))continue; // 念のため（高画質が無いものは送らない）
           // _uploadToDrive内部のfetchには個々にタイムアウトがあるが、想定外の要因で
           // 応答が返らなくなった場合に備え、全体にも上限を設けてキューが永久に
           // 止まらないようにする。レジューム可能アップロードは通信が不安定な場合、
@@ -3136,8 +3235,15 @@ async function _processPendingQueue(){
           // 別の機器の写真が混ざったように見える状態になっていた。
           // 送信の直前に最新の機器データを引き直し、存在する場合はそちらを優先する。
           const latestEq=equipments.find(e=>e.id===item.eqId)||item.eqSnapshot;
-          const url=await _withTimeout(_uploadToDrive(item.blob,latestEq,item.category),600000,'写真のアップロード');
-          await _updatePendingPhoto(item.id,{status:'uploaded',driveUrl:url,lastError:null});
+          // 【2026-10-29 送信が10分応答せず進まなくなる不具合の対策】
+          // iPhone（Safari）では、端末内（IndexedDB）に保存した画像が読めなくなることがあり、その画像を
+          // そのまま送ると、通信が始まらないまま毎回10分待ってタイムアウトしていた（しかも毎回この1件で
+          // つかえて、後ろの写真の順番が回ってこない）。送る前に一度読み出してメモリ上へ写し、
+          // 読めなければ20秒でエラーにして次の写真へ進む。
+          const sendBlob=await _readPendingBlobForUpload(item);
+          const url=await _withTimeout(_uploadToDrive(sendBlob,latestEq,item.category),600000,'写真のアップロード');
+          await _updatePendingPhoto(item.id,{status:'uploaded',driveUrl:url,lastError:null,hiresSource:null,hiresData:null});
+          _hiresMemFiles.delete(item.id);
           item.status='uploaded';item.driveUrl=url;
           // ここではDriveへのアップロード自体は成功しただけで、機器データへの反映
           // （下のif(item.status==='uploaded')ブロック）がまだ済んでいないため、
@@ -3208,6 +3314,8 @@ async function _processPendingQueue(){
   }finally{
     _processingQueue=false;
     _updatePhotoUploadIndicator();
+    // 処理中に新しく送れる写真ができた（高画質版の作成が終わった等）場合は、30秒待たずにすぐ続ける
+    if(_queueRerunRequested){_queueRerunRequested=false;setTimeout(()=>_processPendingQueue(),500);}
   }
 }
 // アップロード済みの写真を、対象機器の実データへ反映して保存する。
@@ -3258,6 +3366,16 @@ function _updatePhotoUploadIndicator(){
   const closeEl=document.getElementById('photoUploadIndicatorClose');
   const textEl=document.getElementById('photoUploadIndicatorText');
   if(!textEl)return;
+  // 高画質版を作っている間にアプリを閉じると、Driveへ高画質を残せなくなる。作成中は必ず表示する。
+  const making=(typeof _hiresScheduled!=='undefined')?_hiresScheduled.size:0;
+  if(making>0){
+    el.style.display='flex';
+    el.classList.remove('has-error');
+    el.onclick=_showPendingPhotoBreakdown;
+    if(closeEl)closeEl.style.display='none';
+    textEl.textContent=`📷 高画質版を作成中（${making}枚）…アプリを閉じないでください`;
+    return;
+  }
   if(n>0&&_lastQueueErrorMsg&&_lastQueueErrorMsg===_dismissedQueueErrorMsg){
     // 同じ内容のエラーをユーザーが✕で閉じた直後は再表示しない（内容が変われば自動的にまた出す）
     el.style.display='none';
@@ -3305,6 +3423,30 @@ function _dismissPhotoUploadIndicator(ev){
 // 「送信中」件数が想定より多く見える場合に、実際に何が溜まっているかを
 // その場で確認できるようにするための診断表示（インジケーターをタップすると表示）。
 // 対象機器が見つからない＝古い/孤立した送信待ちである可能性が高い項目も分かるようにする。
+// 送信待ちの画質の種類（内訳表示用）
+function _pendingQualityKind(it){
+  if(it.status==='uploaded')return 'uploaded';
+  const isImage=((it.blob&&it.blob.type)||'').startsWith('image/');
+  if(!isImage)return 'doc';
+  if(!PHOTO_HIRES_ENABLED)return 'plain';
+  if(it.hiresOk&&it.hiresData)return 'hires';
+  if(it.hiresSmall)return 'original';
+  if(it.awaitingHires)return 'making';
+  if(it.hiresSource)return 'legacy';
+  return 'held';
+}
+function _pendingStageLabel(it){
+  switch(_pendingQualityKind(it)){
+    case 'uploaded':return 'Drive送信済→機器へ反映待ち';
+    case 'doc':return '書類→Drive送信待ち';
+    case 'plain':return it.prepared?'画像変換済→Drive送信待ち':'画像変換待ち';
+    case 'hires':return '高画質（3024px）→Drive送信待ち';
+    case 'original':return '元画質→Drive送信待ち';
+    case 'making':return '高画質版を作成中';
+    case 'legacy':return '高画質の元写真あり→高画質版の作成待ち';
+    default:return '⚠ 高画質の元写真なし→Driveへは送りません（撮り直してください）';
+  }
+}
 async function _showPendingPhotoBreakdown(){
   let items;
   try{items=await _getAllPendingPhotos();}catch(e){showToast('⚠ 送信待ちの一覧を取得できませんでした','error');return;}
@@ -3314,25 +3456,50 @@ async function _showPendingPhotoBreakdown(){
     const eqName=eq?eq.name:(it.eqSnapshot&&it.eqSnapshot.name?`${it.eqSnapshot.name}（見つかりません）`:`機器ID:${it.eqId}（見つかりません）`);
     const ageMin=Math.round((Date.now()-(it.createdAt||0))/60000);
     const ageStr=ageMin<60?`${ageMin}分前`:ageMin<1440?`${Math.round(ageMin/60)}時間前`:`${Math.round(ageMin/1440)}日前`;
-    const sizeMB=it.blob&&it.blob.size?(it.blob.size/1024/1024).toFixed(1)+'MB':'?';
+    const sz=(it.hiresData&&it.hiresData.byteLength)||(it.blob&&it.blob.size)||0;
+    const sizeMB=sz?(sz/1024/1024).toFixed(1)+'MB':'?';
     const failInfo=it.failCount?`失敗${it.failCount}回`:'';
-    const stage=it.status==='uploaded'?'Drive送信済→機器へ反映待ち':(it.prepared?'画像変換済→Drive送信待ち':'画像変換待ち');
+    const stage=_pendingStageLabel(it);
     const errInfo=it.lastError?`\n   直近のエラー：${it.lastError}`:'';
     return `・${eqName}／${it.category||it.slotType}\n   状態：${stage}／${ageStr}／${sizeMB}${failInfo?'／'+failInfo:''}${errInfo}`;
   });
+  const qc={hires:0,making:0,legacy:0,held:0};
+  items.forEach(it=>{const k=_pendingQualityKind(it);if(k in qc)qc[k]++;});
+  const qualitySummary=PHOTO_HIRES_ENABLED
+    ?`高画質で送信待ち：${qc.hires}件／高画質版を作成中：${qc.making}件\n元写真から高画質版を作成待ち：${qc.legacy}件\n高画質の元写真なし（Driveへは送らない）：${qc.held}件\n`
+    :'';
   // 不具合調査用：Driveの接続状態も併せて表示する
   const driveState=(typeof _driveToken!=='undefined'&&_driveToken)?'接続済み':'未接続';
   const orphanCount=items.filter(it=>!equipments.find(e=>e.id===it.eqId)).length;
-  let msg=`Driveへバックアップ待ちの写真：全${items.length}件\n（写真そのものは保存済みです）\n版数：${APP_BUILD}／Drive：${driveState}\n\n${lines.join('\n')}`;
+  let msg=`Driveへバックアップ待ちの写真：全${items.length}件\n（写真そのものは保存済みです）\n版数：${APP_BUILD}／Drive：${driveState}\n${qualitySummary}\n${lines.join('\n')}`;
   if(orphanCount>0){
     msg+=`\n\n※「見つかりません」の${orphanCount}件は対象の機器が見当たらない送信待ちです。3日経過すると自動的に整理されます。`;
   }
   alert(msg);
+  // 高画質の元写真が無い写真はDriveへ送らない（低画質は保存しない方針）。送信待ちに残しても
+  // 送られることは無いので、一覧から外せるようにする（アプリ内の確認用の写真はそのまま残る）。
+  const heldItems=items.filter(it=>_pendingQualityKind(it)==='held');
+  if(heldItems.length>0){
+    const names=[...new Set(heldItems.map(it=>{const eq=equipments.find(e=>e.id===it.eqId);return eq?eq.name:((it.eqSnapshot&&it.eqSnapshot.name)||'不明な機器');}))];
+    const ok=confirm(`高画質の元写真が無いため、Driveへ送れない写真が${heldItems.length}件あります（低画質はDriveに保存しません）。\n\n対象の機器：${names.join('、')}\n\nこれらは撮り直してください。送信待ちの一覧から外しますか？\n\n※アプリ内の確認用の写真は消えません。\n※「キャンセル」なら一覧に残します。`);
+    if(ok){
+      for(const it of heldItems){
+        try{await _deletePendingPhoto(it.id);_pendingPhotoKeys.delete(_pendingKeyOf(it.eqId,it.slotType,it.slotKey));}catch(e){console.warn(e);}
+      }
+      _lastQueueErrorMsg=null;
+      _updatePhotoUploadIndicator();
+      showToast(`${heldItems.length}件を一覧から外しました。撮り直しをお願いします`,'info');
+      return;
+    }
+  }
   // 送信に繰り返し失敗している、または一定時間以上動きがない項目は「行き詰まっている」とみなし、
   // ユーザーの明示的な操作でその場から削除できるようにする（この端末に溜まったキューのみが対象）。
   // 削除するとその写真データ自体が失われるため、必ず確認を挟む。
+  // 【2026-10-29b】高画質版（または高画質の元写真）を持っている送信待ちは、取りやめると
+  // Driveに高画質を残す手段が無くなるため、ここでの取りやめ対象から外す。
   const STUCK_AGE_MS=10*60*1000;
-  const stuckItems=items.filter(it=>(it.failCount||0)>0||(Date.now()-(it.createdAt||0))>STUCK_AGE_MS);
+  const stuckItems=items.filter(it=>!['hires','making','legacy','original','held'].includes(_pendingQualityKind(it))&&
+    ((it.failCount||0)>0||(Date.now()-(it.createdAt||0))>STUCK_AGE_MS));
   if(stuckItems.length===0)return;
   const doDelete=confirm(`このうち、送信が進んでいない${stuckItems.length}件のDriveバックアップを取りやめますか？\n\n※写真そのものは撮影時点で既に保存済みです。取りやめても機器の写真は消えません。\n※取りやめるのは「Driveへの控えの保存」だけです。`);
   if(!doDelete)return;
@@ -3491,11 +3658,11 @@ async function _compressImageToDataURL(file,maxDim,quality){
 // iPhoneで実績のあるFileReader方式で読み込む。元の写真が即保存用の画像（1200px）より
 // 大きくない場合は、作り直しても画質は上がらないためnullを返す（呼び出し側は従来の画像を送る）。
 // iPhoneはcanvasのメモリ上限が厳しいため、使い終わったcanvasはすぐに解放する。
-async function _makeHiresJpeg(file,name){
+async function _makeHiresJpeg(file,name,maxDim){
   const{img}=await _loadImageViaDataUrl(file);
   const w=img.naturalWidth||img.width,h=img.naturalHeight||img.height;
   if(Math.max(w,h)<=PHOTO_INSTANT_MAX_DIM+50){img.src='';return null;}
-  const canvas=_drawScaledToCanvas(img,PHOTO_HIRES_MAX_DIM);
+  const canvas=_drawScaledToCanvas(img,maxDim||PHOTO_HIRES_MAX_DIM);
   try{
     const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',PHOTO_HIRES_QUALITY));
     if(!blob)throw new Error('高画質版の画像を作成できませんでした');
