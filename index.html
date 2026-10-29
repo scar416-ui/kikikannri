@@ -1364,7 +1364,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-28a';
+const APP_BUILD='2026-10-29a';
 const PHOTO_MAX_DIM=2560;   // 長辺の上限（px）／Driveへ保存する本番の画質
 const PHOTO_QUALITY=0.82;   // JPEG品質
 // 撮影直後に「まず確実に保存する」ための暫定画質。銘板写真と同じく端末内で圧縮して
@@ -1383,7 +1383,12 @@ const PHOTO_THUMB_QUALITY=0.55;
 // 送信キューが送る直前に元の写真から高画質版を作って差し替える。作成に失敗・時間切れ・
 // 端末内の容量不足などが起きた場合は、従来どおり1200pxの画像を送る（今より悪くならない）。
 // ★元の仕様（Driveにも1200pxで保存）に戻したい場合は、下の値を false にするだけでよい。
-const PHOTO_HIRES_ENABLED=true;
+// 【2026-10-29 停止】iPhone（iPhone Duo）実機で、送信待ちが「写真のアップロードがタイムアウト
+// （600秒応答なし）」で進まなくなった（30件滞留、1件目が3回失敗し後続が止まる）。高画質版の
+// 作成に端末内保存の元写真を読む処理がiPhoneで応答しなくなり、その後の送信まで巻き込んで
+// 止まったとみられるため停止した。false の間は、溜まっている送信待ちの元写真は読まずに
+// 削除し、従来どおり1200pxの画像を送る。再開する場合は iPhone 実機での検証が必須。
+const PHOTO_HIRES_ENABLED=false;
 const PHOTO_HIRES_MAX_DIM=3024;
 const PHOTO_HIRES_QUALITY=0.85;
 const PHOTO_HIRES_TIMEOUT_MS=45000;
