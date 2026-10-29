@@ -1397,7 +1397,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-29g';
+const APP_BUILD='2026-10-29h';
 // 【新表示の試験運用】写真のDrive保存状態の表示と、通知の出し方を新しくしたもの。
 // まず利用者の端末だけで試すため、URLに ?beta=1 を付けて開いた端末でのみ有効にする
 // （以後その端末では記憶される。?beta=0 で元の表示に戻る）。問題なければ全員に有効化する。
@@ -1405,8 +1405,10 @@ const PHOTO_UI_V2=(()=>{
   try{
     const q=new URLSearchParams(location.search);
     if(q.has('beta'))localStorage.setItem('kk_photo_ui_v2',q.get('beta')==='0'?'0':'1');
-    return localStorage.getItem('kk_photo_ui_v2')==='1';
-  }catch(e){return false;}
+    // 【2026-10-29h】全端末で新表示を標準にした（画面下に浮かぶ通知が作業の邪魔になるため）。
+    // ?beta=0 で開いた端末だけ旧表示に戻せる。
+    return localStorage.getItem('kk_photo_ui_v2')!=='0';
+  }catch(e){return true;}
 })();
 const PHOTO_MAX_DIM=2560;   // 長辺の上限（px）／Driveへ保存する本番の画質
 const PHOTO_QUALITY=0.82;   // JPEG品質
@@ -3214,6 +3216,12 @@ async function _processPendingQueue(){
     items.sort((a,b)=>((b.eqId===_queuePriorityEqId)-(a.eqId===_queuePriorityEqId))||((a.failCount||0)-(b.failCount||0))||((a.id||0)-(b.id||0)));
     for(const item of items){
       if(item.status==='pending'){
+        // 前の版で「元写真を読み込めない（The object can not be found here.）」と記録された送信待ちは、
+        // 再試行しても戻らないので、待たずにすぐ「撮り直し」扱いにする（下の保留処理で機器に印を付けて外す）
+        if(item.hiresSource&&/can ?not be found|could not be found|見つから/i.test(String(item.lastError||''))){
+          await _updatePendingPhoto(item.id,{hiresSource:null,noHires:true,lastAttempt:0});
+          item.hiresSource=null;item.noHires=true;item.lastAttempt=0;
+        }
         if(Date.now()-(item.lastAttempt||0)<15000)continue; // 直近失敗した分は少し間隔を空けてリトライ
         // 高画質版の作成待ち：作り終わるまで送らない。このタブで作成を予約していないのに長時間
         // 作成待ちのままなら、作成前にアプリが閉じられたとみなす（低画質のまま送らずに保留）。
