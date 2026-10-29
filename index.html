@@ -224,6 +224,8 @@ select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(
 /* 【2026-10-29 新表示（PHOTO_UI_V2）】写真ごとのDrive保存状態マーク */
 .pbadge{position:absolute;left:4px;bottom:4px;color:#fff;background:rgba(0,0,0,.65);font-size:10px;font-weight:700;padding:3px 7px;border-radius:10px;z-index:2;pointer-events:none;white-space:nowrap}
 .pbadge:empty{display:none}
+.retake-tag{background:#fee2e2;color:#991b1b;border:1px solid #fecaca;margin-left:6px;font-weight:700}
+.retake-banner{display:flex;gap:10px;align-items:center;justify-content:space-between;background:#fee2e2;color:#991b1b;border:1px solid #fecaca;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:13px;line-height:1.5}
 .pbadge.ok{background:rgba(22,101,52,.88)}
 .pbadge.sending{background:rgba(146,64,14,.9)}
 .pbadge.making{background:rgba(30,58,138,.9)}
@@ -1395,7 +1397,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-29e';
+const APP_BUILD='2026-10-29g';
 // 【新表示の試験運用】写真のDrive保存状態の表示と、通知の出し方を新しくしたもの。
 // まず利用者の端末だけで試すため、URLに ?beta=1 を付けて開いた端末でのみ有効にする
 // （以後その端末では記憶される。?beta=0 で元の表示に戻る）。問題なければ全員に有効化する。
@@ -2345,7 +2347,7 @@ function renderList(){
         ${thumbUrl?`<img class="card-thumb" src="${thumbUrl}" alt="${eq.name}" loading="lazy" onerror="_photoRetry(this)">`:`<div class="card-thumb-placeholder">📷</div>`}
         <div class="card-main">
           <div class="card-top"><div class="card-name">${eq.name}${eq.bay?`<span class="card-bay-inline">🔧 ${eq.bay}</span>`:''}</div>${eq.retired?`<span class="badge badge-gray">🗑 撤去済み</span>`:''}<button class="btn-edit-item" onclick="editEquipmentFromList(${eq.id},event)" title="編集">✏️</button></div>
-          <div class="card-status-row"><span class="badge badge-wrap ${s.cls}${eq.retired?'':' badge-status-click'}" ${eq.retired?'':`onclick="openStatusQuickChange(${eq.id},event)"`} title="${eq.retired?'':'クリックでステータスを変更'}">${s.label}</span></div>
+          <div class="card-status-row"><span class="badge badge-wrap ${s.cls}${eq.retired?'':' badge-status-click'}" ${eq.retired?'':`onclick="openStatusQuickChange(${eq.id},event)"`} title="${eq.retired?'':'クリックでステータスを変更'}">${s.label}</span>${(()=>{const r=_effectiveRetakes(eq);return r.length?`<span class="badge badge-wrap retake-tag">⚠ 写真の撮り直しが必要（${_retakeSummary(r)}）</span>`:'';})()}</div>
           <div class="card-meta"><span>メーカー: ${eq.maker}</span><span>型式: ${eq.model}</span>${eq.serial?`<span>製造番号: ${eq.serial}</span>`:''}${eq.nextcheck?`<span>製造年月: ${_ymLabel(eq.nextcheck)}</span>`:''}</div>
           <div class="card-info-row">
             <div class="card-location">
@@ -2430,7 +2432,7 @@ function renderDetail(){
         const historyPhotosHTML=(h.photos&&h.photos.length)?`<div class="photo-extra-grid" style="grid-template-columns:repeat(4,1fr);margin-top:8px">${h.photos.map((p,pi)=>
           `<div class="photo-extra-item" onclick="openSavedHistoryPhotoLightbox(${i},${pi})">
             ${_attachTileInner(p)}
-            ${_photoBadgeHtml(eq.id,'history',p.localId,p.data)}
+            ${_photoBadgeHtml(eq.id,'history',p.localId,p.data,h._localId)}
           </div>`).join('')}</div>`:'';
         return`<div class="history-card">
           <div class="history-card-top">
@@ -2451,6 +2453,11 @@ function renderDetail(){
   document.getElementById('detailBody').innerHTML=`
     <div class="section">
       <div class="section-title"><span class="section-title-label">📷 写真</span></div>
+      ${(()=>{const r=_effectiveRetakes(eq);return r.length?`<div class="retake-banner">
+        <div><strong>⚠ 写真の撮り直しが必要です：${_retakeSummary(r)}</strong><br>
+        <span style="font-size:12px">高画質の写真をDriveに保存できませんでした。編集画面から撮り直してください（Driveに保存されると、この表示は自動で消えます）。</span></div>
+        <button class="btn-cancel" style="flex-shrink:0;font-size:12px;padding:6px 10px" onclick="clearRetakeMarks(${eq.id},event)">撮り直さない</button>
+      </div>`:'';})()}
       <div class="photo-section-grid">
         ${detailPhotoSlot('全体','📷',false)}
         ${detailPhotoSlot('銘板','🏷️',true)}
@@ -3148,7 +3155,14 @@ async function _captureAndQueuePhoto(file,eqSnapshot,slotType,slotKey,category,e
   // 送信待ちにはまず即保存用の画像を入れ「高画質版の作成待ち」にしておき、撮影したファイルが
   // メモリ上にある今のうちに高画質版を作って差し替える。作成待ちの間、送信キューはこの写真を送らない。
   const useHires=PHOTO_HIRES_ENABLED&&alreadyPrepared&&hiresSource&&(hiresSource.type||'').startsWith('image/');
-  const pendingId=await _addPendingPhoto(useHires?{...record,awaitingHires:true}:record);
+  let pendingId;
+  try{
+    pendingId=await _addPendingPhoto(useHires?{...record,awaitingHires:true}:record);
+  }catch(e){
+    // 送信待ちに入れられないと、この写真はDriveへ送られない。その場で知らせて撮り直してもらう。
+    showToast(`⚠ 写真をDriveへ送る準備に失敗しました。もう一度撮影してください（${(e&&e.message)||e}）`,'error');
+    throw e;
+  }
   if(useHires)_scheduleHiresAttach(pendingId,hiresSource,file.name,file);
   _pendingPhotoKeys.add(_pendingKeyOf(eqSnapshot.id,slotType,slotKey));
   _updatePhotoUploadIndicator();
@@ -3167,6 +3181,7 @@ function _withTimeout(promise,ms,label){
 }
 let _processingQueue=false;
 let _queueRerunRequested=false;
+let _retakeMarkedThisSession=false;
 let _queueStartedAt=0;
 // 個々の処理にはタイムアウトを設けているが、それでも想定外の箇所で処理が止まった場合に、
 // 「処理中」フラグが立ちっぱなしになって二度とキューが動かなくなるのを防ぐための最後の保険。
@@ -3212,7 +3227,15 @@ async function _processPendingQueue(){
         const needsLegacyHires=PHOTO_HIRES_ENABLED&&item.hiresSource&&!item.hiresOk&&!item.hiresSmall;
         // 高画質が保証されない写真は、Driveへ低画質のまま送らずに保留する（内訳から送る指示があれば送る）
         if(!needsLegacyHires&&!_pendingSendable(item)){
-          if(!item.noHires){
+          // Driveへ高画質を送れない写真：送信待ちに残してもエラーが出続けるだけなので、
+          // 機器に「撮り直しが必要」の印を残してから送信待ちを外す（アプリ内の写真は残る）
+          const marked=await _markRetakeNeeded(item);
+          if(marked){
+            await _deletePendingPhoto(item.id);
+            _pendingPhotoKeys.delete(_pendingKeyOf(item.eqId,item.slotType,item.slotKey));
+            if(_lastQueueErrorMsg&&(!item.lastError||_lastQueueErrorMsg===item.lastError||/撮り直し|見つからない|保留/.test(_lastQueueErrorMsg)))_lastQueueErrorMsg=null;
+            _retakeMarkedThisSession=true;
+          }else if(!item.noHires){
             await _updatePendingPhoto(item.id,{noHires:true,lastError:'高画質の元写真がないため送信を保留しています（撮り直し推奨）'});
           }
           continue;
@@ -3369,6 +3392,11 @@ async function _processPendingQueue(){
     _updatePhotoUploadIndicator();
     // 処理中に新しく送れる写真ができた（高画質版の作成が終わった等）場合は、30秒待たずにすぐ続ける
     if(_queueRerunRequested){_queueRerunRequested=false;setTimeout(()=>_processPendingQueue(),500);}
+    if(_retakeMarkedThisSession){
+      _retakeMarkedThisSession=false;
+      try{renderList();if(currentEq&&!document.getElementById('modalOverlay').classList.contains('show'))renderDetail();}catch(e){}
+      showToast('⚠ Driveに高画質を保存できなかった写真があります。一覧で「撮り直し」と表示された機器を撮り直してください','error');
+    }
   }
 }
 // アップロード済みの写真を、対象機器の実データへ反映して保存する。
@@ -3422,6 +3450,69 @@ const _pendingKindMap=new Map(); // 送信待ちキー → _pendingQualityKind �
 const _heldNotified=new Set();
 let _psbRefreshTimer=null,_psbHadPending=false,_psbDoneUntil=0;
 function _isDriveUrl(u){return typeof u==='string'&&u.includes('drive.google.com');}
+/* ════ 撮り直しが必要な写真の印（2026-10-29f） ════
+   Driveへ高画質を保存できなかった写真（高画質版を作れなかった・元写真が消えた等）は、
+   送信待ちからは外し（エラー表示を出し続けないため）、代わりに機器のデータへ
+   photoRetake['main:全体' / 'extra:<id>' / 'history:<履歴id>:<id>'] として印を残す。
+   印は「その写真がまだDriveに保存されていない（アプリ内の確認用画像のまま）」間だけ有効で、
+   撮り直してDriveに保存されれば自動的に表示されなくなる。 */
+function _retakeKeyOf(slotType,slotKey,entryLocalId){
+  if(slotType==='main')return `main:${slotKey}`;
+  if(slotType==='extra')return `extra:${slotKey}`;
+  if(slotType==='history')return `history:${entryLocalId||''}:${slotKey}`;
+  return `${slotType}:${slotKey}`;
+}
+function _isTempPhoto(u){return typeof u==='string'&&u.startsWith('data:image');}
+function _effectiveRetakes(eq){
+  const out=[];const map=eq&&eq.photoRetake;if(!map||typeof map!=='object')return out;
+  for(const [k,v] of Object.entries(map)){
+    if(!v)continue;
+    const parts=k.split(':');const type=parts[0];
+    let cur=null,label='';
+    if(type==='main'){const key=parts.slice(1).join(':');cur=eq.photos&&eq.photos[key];label=`${key}写真`;}
+    else if(type==='extra'){const id=parts.slice(1).join(':');const ph=((eq.photos&&eq.photos.extra)||[]).find(x=>x&&x.localId===id);cur=ph&&ph.data;label='追加写真';}
+    else if(type==='history'){const entry=parts[1],id=parts.slice(2).join(':');const h=(eq.maintenance||[]).find(x=>x&&x._localId===entry);const ph=h&&(h.photos||[]).find(x=>x&&x.localId===id);cur=ph&&ph.data;label='保守履歴の写真';}
+    // 撮り直した写真をこの端末から送信中の間は、撮り直し済みとして扱う
+    const slotId=type==='main'?parts.slice(1).join(':'):parts[parts.length-1];
+    if(_pendingPhotoKeys.has(_pendingKeyOf(eq.id,type,slotId)))continue;
+    if(_isTempPhoto(cur))out.push({key:k,label});
+  }
+  return out;
+}
+function _retakeSummary(list){
+  const cnt={};list.forEach(r=>{cnt[r.label]=(cnt[r.label]||0)+1;});
+  return Object.entries(cnt).map(([l,n])=>n>1?`${l}${n}枚`:l).join('・');
+}
+function _hasRetake(eqId,slotType,slotKey,entryLocalId,url){
+  if(!_isTempPhoto(url))return false;
+  const eq=equipments.find(e=>e.id===eqId);
+  return !!(eq&&eq.photoRetake&&eq.photoRetake[_retakeKeyOf(slotType,slotKey,entryLocalId)]);
+}
+// 送信待ちの写真に「撮り直しが必要」の印を機器データへ残す（成功したらtrue）
+async function _markRetakeNeeded(item){
+  const eq=equipments.find(e=>e.id===item.eqId);
+  if(!eq)return false; // 機器がまだ保存されていない等：次回に持ち越す
+  const key=_retakeKeyOf(item.slotType,item.slotKey,item.entryLocalId);
+  const val={at:Date.now(),reason:item.lastError||'高画質の元写真がないためDriveへ保存できませんでした'};
+  try{
+    await _withTimeout(db.collection('equipments').doc(String(eq.id)).update(new firebase.firestore.FieldPath('photoRetake',key),val),20000,'撮り直しの印の保存');
+  }catch(e){console.warn('撮り直しの印を保存できませんでした（次回に再試行）:',e);return false;}
+  eq.photoRetake=eq.photoRetake||{};eq.photoRetake[key]=val;
+  return true;
+}
+// 撮り直さないと決めた場合に、機器の撮り直し表示を消す
+async function clearRetakeMarks(eqId,ev){
+  if(ev)ev.stopPropagation();
+  const eq=equipments.find(e=>e.id===eqId);if(!eq)return;
+  if(!confirm('この機器の「撮り直しが必要」の表示を消しますか？\n\n※撮り直した写真は、Driveに保存されると自動で表示が消えます。撮り直さない場合だけ消してください。'))return;
+  try{
+    await _withTimeout(db.collection('equipments').doc(String(eq.id)).update({photoRetake:firebase.firestore.FieldValue.delete()}),20000,'撮り直し表示の削除');
+    delete eq.photoRetake;
+    if(currentEq&&currentEq.id===eq.id)renderDetail();
+    renderList();
+    showToast('撮り直しの表示を消しました','success');
+  }catch(e){showToast(`⚠ 表示を消せませんでした：${(e&&e.message)||e}`,'error');}
+}
 function _photoBadgeState(pk,url){
   if(_pendingPhotoKeys.has(pk)){
     const kind=_pendingKindMap.get(pk);
@@ -3434,8 +3525,11 @@ function _photoBadgeState(pk,url){
   return['',''];
 }
 // 写真の上に重ねる保存状態マーク。旧表示では従来どおり「送信中」のみ。
-function _photoBadgeHtml(eqId,slotType,slotKey,url){
+function _photoBadgeHtml(eqId,slotType,slotKey,url,entryLocalId){
   const pk=_pendingKeyOf(eqId,slotType,slotKey);
+  if(!_pendingPhotoKeys.has(pk)&&_hasRetake(eqId,slotType,slotKey,entryLocalId,url)){
+    return '<span class="pbadge held">⚠ 撮り直し</span>';
+  }
   if(!PHOTO_UI_V2){
     return (slotKey!=null&&eqId!=null&&_isPendingPhoto(eqId,slotType,slotKey))
       ?'<span class="photo-pending-badge"><span class="spinner"></span>送信中</span>':'';
@@ -4385,7 +4479,7 @@ function renderHistoryPhotoGrid(){
   const items=historyPhotos.map((p,i)=>
     `<div class="photo-extra-item" onclick="openHistoryPhotoLightbox(${i})">
       ${_attachTileInner(p)}
-      ${eqId!=null?_photoBadgeHtml(eqId,'history',p.localId,p.data):''}
+      ${eqId!=null?_photoBadgeHtml(eqId,'history',p.localId,p.data,_currentHistoryEntryLocalId):''}
       <button class="photo-extra-del" onclick="event.stopPropagation();deleteHistoryPhoto(${i})">✕</button>
     </div>`).join('');
   grid.innerHTML=items+`<button class="btn-add-photo" onclick="triggerHistoryPhoto()">
@@ -5112,10 +5206,11 @@ function _driveWaitShow(title,msg,buttons){
 }
 function _driveWaitHide(){document.getElementById('driveWaitOverlay').classList.remove('show');}
 async function _waitForDriveSave(eqId){
-  const mine=async()=>(await _getAllPendingPhotos().catch(()=>[])).filter(it=>it.eqId===eqId);
+  // 端末内の送信待ちを読めなかった場合は null（＝確認できない）。空とみなして「保存済み」と誤って伝えない。
+  const mine=async()=>{try{return (await _getAllPendingPhotos()).filter(it=>it.eqId===eqId);}catch(e){console.warn('送信待ちの確認に失敗:',e);return null;}};
   let items=await mine();
-  if(items.length===0)return 'done';
-  const total=items.length;
+  if(items&&items.length===0)return 'done';
+  let total=items?items.length:0;
   const startedAt=Date.now();
   _queuePriorityEqId=eqId; // この機器の写真を先に送る
   return await new Promise(resolve=>{
@@ -5125,7 +5220,25 @@ async function _waitForDriveSave(eqId){
     const tick=async()=>{
       if(finished)return;
       items=await mine();
-      if(items.length===0){finish('done');return;}
+      if(items===null){
+        _driveWaitShow('⚠ 保存状態を確認できません',
+          '端末内の送信待ちを確認できませんでした。自動で確認し直しています。<br>閉じた場合も、写真は端末内に残っていれば自動で送信されます。上部の表示で保存状態を確認してください。',
+          [{label:'閉じる（あとで確認）',onClick:()=>finish('later')}]);
+        return;
+      }
+      if(!total)total=items.length;
+      if(items.length===0){
+        const eqNow=equipments.find(e=>e.id===eqId);
+        const r=_effectiveRetakes(eqNow);
+        if(r.length){
+          _driveWaitShow('⚠ 撮り直しが必要な写真があります',
+            `高画質版を作れなかったため、Driveに保存できない写真があります：<strong>${_retakeSummary(r)}</strong><br>撮り直してください（機器の内容は保存済みです）。`,
+            [{label:'撮り直す',primary:true,onClick:()=>finish('retake')},{label:'閉じる',onClick:()=>finish('later')}]);
+          clearInterval(timer);
+          return;
+        }
+        finish('done');return;
+      }
       const kinds=items.map(_pendingQualityKind);
       const held=items.filter((it,i)=>kinds[i]==='held');
       const done=Math.max(0,total-items.length);
