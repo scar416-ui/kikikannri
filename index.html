@@ -737,7 +737,7 @@ optgroup{font-weight:700}
         <div class="form-group" id="f_bay_num_group" style="display:none">
           <label class="form-label">ベイ番号</label>
           <div class="bay-num-wrap">
-            <input type="text" class="form-input" id="f_bay_num" maxlength="10" placeholder="例：3、A など" oninput="const p=this.selectionStart;this.value=_toHalfWidthAlnum(this.value);this.setSelectionRange(p,p);">
+            <input type="text" class="form-input" id="f_bay_num" maxlength="10" placeholder="例：3、A など" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" onblur="_normHalfWidthOnBlur(this)">
           </div>
         </div>
       </div>
@@ -1397,7 +1397,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-10-30a';
+const APP_BUILD='2026-11-05a';
 // 【新表示の試験運用】写真のDrive保存状態の表示と、通知の出し方を新しくしたもの。
 // まず利用者の端末だけで試すため、URLに ?beta=1 を付けて開いた端末でのみ有効にする
 // （以後その端末では記憶される。?beta=0 で元の表示に戻る）。問題なければ全員に有効化する。
@@ -1591,7 +1591,7 @@ function buildBay(){
   if(!type)return'';
   const bt=getBayTypeByName(type);
   if(_bayTypeAcceptsNum(bt)){
-    const n=_toHalfWidthDigits(document.getElementById('f_bay_num').value.trim());
+    const n=_toHalfWidthAlnum(document.getElementById('f_bay_num').value.trim());
     if(!n)return type;
     // 【仕様変更】入力した番号に「番」を自動で付けるのをやめた（例：3 → 「整備ベイ 3」）。
     // 以前は数字を入れると勝手に「3番」になっていた。
