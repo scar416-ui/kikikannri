@@ -1397,7 +1397,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-11-05a';
+const APP_BUILD='2026-11-16a';
 // 【新表示の試験運用】写真のDrive保存状態の表示と、通知の出し方を新しくしたもの。
 // まず利用者の端末だけで試すため、URLに ?beta=1 を付けて開いた端末でのみ有効にする
 // （以後その端末では記憶される。?beta=0 で元の表示に戻る）。問題なければ全員に有効化する。
@@ -2841,7 +2841,20 @@ async function pasteImageFromClipboard(scope,key){
   }
 }
 
-function triggerDetailPhoto(key){document.getElementById(`fi_detail_${key}`).click();}
+// 【2026-11-16】写真を選ぶ画面（カメラ）を開く共通処理。
+// 編集画面の「📷 変更」ボタンは写真枠の中にあり、ボタンと写真枠の両方が反応して
+// 1回のタップで選択画面を開く命令が2回出ていた。iPhoneではこれで撮影した写真が
+// 受け取られず「撮影できたのに添付されない」原因になっていたため、
+// 短時間に同じ選択画面を2回開こうとした場合は2回目を無視する。
+const _filePickerLastOpen={};
+function _openFilePicker(id){
+  const now=Date.now();
+  if(_filePickerLastOpen[id]&&now-_filePickerLastOpen[id]<1500)return;
+  _filePickerLastOpen[id]=now;
+  const el=document.getElementById(id);
+  if(el)el.click();
+}
+function triggerDetailPhoto(key){_openFilePicker(`fi_detail_${key}`);}
 async function processDetailPhoto(file,key){
   // 編集画面と同じく、まず端末内で圧縮してその場で保存を完了させる（Drive待ちにしない）。
   const eq=currentEq;
@@ -2874,7 +2887,7 @@ async function handleDetailPhoto(e,key){
     showToast(`⚠ 写真の追加に失敗しました：${(err&&err.message)||err}`,'error');
   }
 }
-function triggerDetailExtraPhoto(){document.getElementById('fi_detail_extra').click();}
+function triggerDetailExtraPhoto(){_openFilePicker('fi_detail_extra');}
 async function processDetailExtraPhoto(file,bulk){
   const eq=currentEq;
   const localId=_genLocalId();
@@ -3808,8 +3821,8 @@ async function _showPendingPhotoBreakdown(){
 }
 
 /* ════ MODAL PHOTOS ════ */
-function triggerModalPhoto(key){document.getElementById(`fi_modal_${key}`).click();}
-function triggerModalExtraPhoto(){document.getElementById('fi_modal_extra').click();}
+function triggerModalPhoto(key){_openFilePicker(`fi_modal_${key}`);}
+function triggerModalExtraPhoto(){_openFilePicker('fi_modal_extra');}
 async function processModalExtraPhoto(file,bulk){
   // 撮影開始時点で編集対象だった機器を固定しておく（詳細はキュー処理欄のコメント参照）
   const targetId=currentEq?currentEq.id:pendingNewEqId;
@@ -4261,7 +4274,7 @@ function updateModalPhotoSlot(key){
       ${pendingBadge}
       <div class="photo-overlay">
         <button onclick="openModalLightbox('${key}',event)">🔍 拡大</button>
-        <button onclick="triggerModalPhoto('${key}')">📷 変更</button>
+        <button onclick="event.stopPropagation();triggerModalPhoto('${key}')">📷 変更</button>
         <button onclick="event.stopPropagation();pasteImageFromClipboard('modal','${key}')">📋 貼り付け</button>
         <button onclick="event.stopPropagation();pickFromGoogleDrive('modal','${key}')">📁 Drive</button>
       </div>`;
@@ -4536,7 +4549,7 @@ function renderHistoryPhotoGrid(){
     <span style="font-size:20px">📁</span><span>Driveから選択</span>
   </button>`;
 }
-function triggerHistoryPhoto(){document.getElementById('fi_history').click();}
+function triggerHistoryPhoto(){_openFilePicker('fi_history');}
 // bulk=true は「複数まとめて追加している最中」。1件ごとのトーストは出さず、
 // 最後に _addFilesSequentially が件数をまとめて知らせる。
 async function processHistoryPhoto(file,bulk){
