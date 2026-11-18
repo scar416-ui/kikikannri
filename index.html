@@ -1397,7 +1397,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-11-17a';
+const APP_BUILD='2026-11-18a';
 // 【新表示の試験運用】写真のDrive保存状態の表示と、通知の出し方を新しくしたもの。
 // まず利用者の端末だけで試すため、URLに ?beta=1 を付けて開いた端末でのみ有効にする
 // （以後その端末では記憶される。?beta=0 で元の表示に戻る）。問題なければ全員に有効化する。
@@ -3423,7 +3423,25 @@ async function _processPendingQueue(){
           // 一定期間（3日）経っても反映できない場合は、これ以上リトライしても無駄と
           // 判断し、キューから自動的に削除する。
           const ageMs=Date.now()-(item.createdAt||0);
-          if(ageMs>3*24*60*60*1000){
+          // 新規登録の入力中（まだ保存していない）は、機器が見つからないのは当然なので、
+          // 失敗として数えず、警告も出さない。保存されたら次の処理で自動的に反映される。
+          const _entering=!!pendingNewEqId&&item.eqId===pendingNewEqId&&document.getElementById('modalOverlay').classList.contains('show');
+          if(_entering){
+            // 【入力中でも保存を進める】送信が終わった写真は、入力画面の写真欄をDriveの高画質URLに
+            // 差し替えておく。こうすると「保存」を押した時点で写真はすでにDrive保存済みで、
+            // 保存後に送信完了を待たずに済む。送信待ちの記録は残し、保存後に機器データへ自動反映される
+            // （追加写真は目印のlocalIdを残すので、反映時に重複しない）。
+            try{
+              if(item.slotType==='main'&&modalPhotos[item.slotKey]!==item.driveUrl){
+                modalPhotos[item.slotKey]=item.driveUrl;updateModalPhotoSlot(item.slotKey);
+              }else if(item.slotType==='extra'&&modalPhotos.extra){
+                const mi=modalPhotos.extra.findIndex(p=>p&&p.localId===item.slotKey);
+                if(mi>=0&&modalPhotos.extra[mi].data!==item.driveUrl){
+                  modalPhotos.extra[mi]={name:item.fileName,data:item.driveUrl,localId:item.slotKey};renderModalExtraGrid();
+                }
+              }
+            }catch(e){console.warn('入力画面の写真欄の更新に失敗:',e);}
+          }else if(ageMs>3*24*60*60*1000){
             console.warn('[写真送信キュー] 反映先の機器が長期間見つからないため、送信待ちから自動的に削除します:',item);
             await _deletePendingPhoto(item.id);
             _pendingPhotoKeys.delete(_pendingKeyOf(item.eqId,item.slotType,item.slotKey));
@@ -7407,6 +7425,67 @@ async function _findOrCreateEqFolder(eq,storeFId){
   }
   return c.id;
 }
+// 機器を保存したときに、Drive上の機器フォルダーの名前を最新の「ベイ_機器名_型式_製造番号」に直す。
+// 写真を先に撮ると機器名が未入力のまま「新規設備」などの名前でフォルダーが作られ、次に写真を送るまで
+// 名前が古いままになるため。フォルダーが無い機器では何もしない（新しく作らない）。失敗しても保存は止めない。
+// フォルダー内の写真のファイル名を「ベイ_機器名_写真の種類_日時」の最新の形に付け直す。
+// 名前の付け方は _driveFileLabel と同じ。写真の種類（全体・銘板など）と日時は今のファイル名から読み取って残し、
+// 読み取れない名前（書類など）は触らない。中身とリンクは変わらない。失敗しても保存には影響しない。
+const _PHOTO_NAME_CATS=['全体','銘板','銘板写真','追加写真','保守履歴添付'];
+async function _syncEqPhotoNames(eq,folderId,token){
+  try{
+    const q=`'${folderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed=false`;
+    const resp=await _driveGet('/files',{q,fields:'files(id,name)',pageSize:100});
+    const files=(resp&&resp.files)||[];
+    const base=cat=>[eq.bay,eq.name,cat].filter(Boolean).join('_').replace(/[\\/:*?"<>|]/g,'_');
+    for(const f of files){
+      const m=String(f.name).match(/^(.*)_(\d{8}_\d{6})(\.jpe?g)$/i);
+      if(!m)continue;
+      const cat=_PHOTO_NAME_CATS.find(cn=>m[1]===cn||m[1].endsWith('_'+cn));
+      if(!cat)continue;
+      const want=`${base(cat)}_${m[2]}${m[3]}`;
+      if(want===f.name)continue;
+      const r=await _fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${f.id}?fields=id,name`,{
+        method:'PATCH',
+        headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
+        body:JSON.stringify({name:want})
+      },20000);
+      if(!r.ok)console.warn('写真ファイル名の付け直しに失敗:',f.id,r.status);
+    }
+  }catch(e){console.warn('写真ファイル名の付け直しに失敗しました（保存には影響しません）:',e);}
+}
+const _eqFolderSyncing={};
+async function _syncEqFolderName(eq){
+  try{
+    if(!eq||eq.id==null||!navigator.onLine)return;
+    const key=String(eq.id);
+    if(_eqFolderSyncing[key])return;
+    _eqFolderSyncing[key]=true;
+    try{
+      const desired=_eqFolderName(eq);
+      let c=_eqFolderCache[key];
+      let id,name;
+      if(c){id=c.id;name=c.name;}
+      else{
+        const q=`appProperties has { key='kkEqId' and value='${key}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+        const resp=await _driveGet('/files',{q,fields:'files(id,name,parents)',pageSize:1});
+        const f=resp&&resp.files&&resp.files[0];
+        if(!f)return;
+        id=f.id;name=f.name;
+      }
+      const token=await _getDriveToken();
+      if(name!==desired){
+        const r=await _fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${id}?fields=id,name`,{
+          method:'PATCH',
+          headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
+          body:JSON.stringify({name:desired})
+        },20000);
+        if(r.ok){const u=await r.json();if(c)c.name=u.name||desired;}
+      }
+      await _syncEqPhotoNames(eq,id,token);
+    }finally{delete _eqFolderSyncing[key];}
+  }catch(e){console.warn('機器フォルダー名の更新に失敗しました（保存には影響しません）:',e);}
+}
 async function _findOrCreateFolder(name,parentId){
   const key=`${parentId}::${name}`;
   if(_folderCache[key])return _folderCache[key];
@@ -7721,6 +7800,7 @@ async function _saveEq(eq){
     await _shrinkOversizedPhotos(toSave);
     await db.collection('equipments').doc(String(eq.id)).set(toSave);
     _backupEquipmentsToDrive(false);
+    _syncEqFolderName(eq);
     return true;
   }catch(e){
     console.error(e);
