@@ -460,6 +460,28 @@ optgroup{font-weight:700}
 .btn-drive:hover{background:rgba(255,255,255,.3)}
 .btn-drive.connected{background:rgba(134,239,172,.3);border-color:rgba(134,239,172,.6)}
 .header-user{font-size:11px;opacity:.85;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ════ 点検表の出力（2026-11-20） ════ */
+.btn-inspect{background:#fff;color:var(--primary);border:1px solid var(--primary);box-shadow:none;margin-right:6px}
+#inspectOverlay{display:none;position:fixed;inset:0;z-index:5000;background:#e5e7eb;overflow:auto;-webkit-overflow-scrolling:touch}
+#inspectOverlay.show{display:block}
+.insp-bar{position:sticky;top:0;z-index:2;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:10px 12px;background:#fff;border-bottom:1px solid #d1d5db}
+.insp-bar button{white-space:nowrap;border:none;border-radius:6px;padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer}
+.insp-bar .insp-close{background:#e5e7eb;color:#111}
+.insp-bar .insp-print{background:var(--primary);color:#fff}
+.insp-note{font-size:12px;color:#555;padding:6px 12px}
+.insp-page{position:relative;width:min(100%,794px);aspect-ratio:210/297;margin:10px auto;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.25);overflow:hidden}
+.insp-page img{position:absolute;inset:0;width:100%;height:100%;display:block}
+.insp-f{position:absolute;color:#111;line-height:1.15;white-space:nowrap;font-family:"Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",sans-serif;font-weight:500}
+.insp-f.wrap{white-space:pre-line}
+@media print{
+  @page{size:A4 portrait;margin:0}
+  body.printing-inspect>*:not(#inspectOverlay){display:none!important}
+  body.printing-inspect #inspectOverlay{position:static;display:block;background:#fff;overflow:visible}
+  body.printing-inspect .insp-bar,body.printing-inspect .insp-note{display:none}
+  body.printing-inspect .insp-page{width:210mm;height:297mm;aspect-ratio:auto;margin:0;box-shadow:none;page-break-after:always;break-after:page}
+  body.printing-inspect .insp-page:last-child{page-break-after:auto;break-after:auto}
+}
 </style>
 </head>
 <body>
@@ -607,11 +629,19 @@ optgroup{font-weight:700}
         <button class="btn-back" onclick="closeDetail()">← 一覧</button>
         <div class="detail-title" id="detailTitle"></div>
         <button class="btn-delete-eq" onclick="confirmDeleteEquipment()" title="機器を削除">🗑</button>
+        <button class="btn-edit btn-inspect" onclick="openInspectionSheetForCurrent()" title="点検表を出力">📋 点検表</button>
         <button class="btn-edit" onclick="openEditModal()">編集</button>
       </div>
       <div class="detail-body" id="detailBody"></div>
     </div>
   </div>
+</div>
+
+<!-- ════ 点検表の出力 ════ -->
+<div id="inspectOverlay">
+  <div class="insp-bar"><button class="insp-close" onclick="closeInspectionSheet()">← 戻る</button><span id="inspCount" style="font-size:12px;color:#555;flex:1;text-align:center"></span><button class="insp-print" onclick="printInspectionSheet()">🖨 印刷／PDF</button></div>
+  <div class="insp-note">点検日・点検結果・特記事項・点検実施者は、印刷後に手書きで記入します。</div>
+  <div id="inspPages"></div>
 </div>
 
 <!-- ════ 機器追加/編集モーダル ════ -->
@@ -1397,7 +1427,73 @@ const DEFAULT_EQUIPMENT_NAMES=[
    伸びるため、拡大表示に対して十分な解像度に抑えてある。 */
 // 端末（特にiPhone/Safari）が古いキャッシュを表示していないかを判別するための版数。
 // 画面右上のタイトル横に表示されるので、不具合調査のときはまずこの数字を確認する。
-const APP_BUILD='2026-11-18a';
+
+/* ════ 点検表の出力（2026-11-20） ════
+   点検表の元データ（画像）の上に、機器の情報（お客様名・型式・製造番号・ベイ）を重ねて出力する。
+   位置は元画像（A4・150dpi：1241×1754px）上のピクセルで指定し、ページ幅に対する割合に変換して置く。
+   点検表の種類を増やすときは INSPECTION_TEMPLATES に1件足す（画像・各項目の位置・対象の機器名）。 */
+const INSPECTION_IMG_W=1241,INSPECTION_IMG_H=1754;
+const INSPECTION_TEMPLATES=[
+  {id:'lift2',label:'柱式リフト保守定期点検表',img:'tpl_lift2.jpg',
+   // 対象の機器名（これらを含む機器に使う）
+   match:eq=>/２柱|2柱|埋設|門型/.test(String(eq.name||'')),
+   // 右上の種別チェック（機器名から自動で✓を入れる）：埋設／土間置／門型2柱／アーチ
+   checks:[{x:82,y:371},{x:251,y:370},{x:439,y:371},{x:589,y:370}],
+   pickCheck:eq=>{const n=String(eq.name||'');return /門型/.test(n)?2:/埋設/.test(n)?0:/２柱|2柱/.test(n)?1:-1;},
+   customer:{x:88,y:214,w:340,h:104,size:30},
+   model:{x:650,y:256,w:300,size:30},
+   serial:{x:650,y:302,w:300,size:30},
+   bay:{x:650,y:348,w:300,size:30}}
+];
+function _inspectionTemplateFor(eq){return INSPECTION_TEMPLATES.find(t=>t.match(eq))||null;}
+function _inspPct(v,total){return (v/total*100).toFixed(3)+'%';}
+function _inspEsc(v){return String(v==null?'':v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function _inspTextWidth(t,size){let w=0;for(const ch of String(t))w+=(ch.charCodeAt(0)<256?0.55:1)*size;return w;}
+function _inspField(f,text,wrap){
+  if(!text)return '';
+  // 長くて枠に入らない文字は、枠に収まる大きさまで小さくする（下限は元の6割）。
+  const longest=String(text).split('\n').reduce((m,l)=>Math.max(m,_inspTextWidth(l,f.size)),0);
+  const size=longest>f.w?Math.max(f.size*0.6,f.size*f.w/longest):f.size;
+  // 文字の大きさはページ幅に連動させる（印刷・画面のどちらでも同じ見た目になる）
+  const fs=(size/INSPECTION_IMG_W*100).toFixed(3)+'cqw';
+  const pos=`left:${_inspPct(f.x,INSPECTION_IMG_W)};width:${_inspPct(f.w,INSPECTION_IMG_W)};`+
+    (wrap?`top:${_inspPct(f.y,INSPECTION_IMG_H)};height:${_inspPct(f.h,INSPECTION_IMG_H)};display:flex;align-items:center;white-space:pre-line;`
+         :`bottom:${_inspPct(INSPECTION_IMG_H-f.y,INSPECTION_IMG_H)};`);
+  return `<div class="insp-f${wrap?' wrap':''}" style="${pos}font-size:${fs}">${_inspEsc(text)}</div>`;
+}
+function _inspectionPageHtml(eq,t){
+  const co=getCompany(eq.companyId),st=getStore(eq.companyId,eq.storeId);
+  const customer=[co&&co.name,st&&st.name].filter(Boolean).join('\n');
+  const ci=t.pickCheck?t.pickCheck(eq):-1;
+  const chk=(ci>=0&&t.checks[ci])?`<div class="insp-f" style="left:${_inspPct(t.checks[ci].x-2,INSPECTION_IMG_W)};top:${_inspPct(t.checks[ci].y-8,INSPECTION_IMG_H)};font-size:${(36/INSPECTION_IMG_W*100).toFixed(3)}cqw;font-weight:700">✓</div>`:'';
+  return `<div class="insp-page" style="container-type:inline-size"><img src="${t.img}" alt="">`+
+    _inspField(t.customer,customer,true)+_inspField(t.model,eq.model)+_inspField(t.serial,eq.serial)+_inspField(t.bay,eq.bay)+chk+`</div>`;
+}
+function openInspectionSheet(list){
+  const pages=[],skipped=[];
+  list.forEach(eq=>{const t=_inspectionTemplateFor(eq);if(t)pages.push(_inspectionPageHtml(eq,t));else skipped.push(eq.name||'');});
+  if(!pages.length){showToast('⚠ この機器用の点検表はまだ登録されていません','error');return;}
+  document.getElementById('inspPages').innerHTML=pages.join('');
+  document.getElementById('inspCount').textContent=`${pages.length}枚`+(skipped.length?`（対象外${skipped.length}台）`:'');
+  document.getElementById('inspectOverlay').classList.add('show');
+  document.getElementById('inspectOverlay').scrollTop=0;
+}
+// 一覧（店舗・絞り込みの結果）の機器の点検表を、一覧と同じ並びでまとめて出力する（撤去済みは除く）
+function openInspectionSheetForList(){
+  const list=getFiltered().filter(eq=>!eq.retired).sort(compareEquipment);
+  openInspectionSheet(list);
+}
+function openInspectionSheetForCurrent(){if(currentEq)openInspectionSheet([currentEq]);}
+function closeInspectionSheet(){document.getElementById('inspectOverlay').classList.remove('show');document.getElementById('inspPages').innerHTML='';}
+function printInspectionSheet(){
+  document.body.classList.add('printing-inspect');
+  const done=()=>{document.body.classList.remove('printing-inspect');window.removeEventListener('afterprint',done);};
+  window.addEventListener('afterprint',done);
+  setTimeout(()=>{try{window.print();}catch(e){done();}},100);
+  setTimeout(done,60000);
+}
+
+const APP_BUILD='2026-11-20a';
 // 【新表示の試験運用】写真のDrive保存状態の表示と、通知の出し方を新しくしたもの。
 // まず利用者の端末だけで試すため、URLに ?beta=1 を付けて開いた端末でのみ有効にする
 // （以後その端末では記憶される。?beta=0 で元の表示に戻る）。問題なければ全員に有効化する。
@@ -2317,6 +2413,7 @@ function renderList(){
       bannerHTML=`<div class="store-info-banner">
         <div class="store-info-banner-head">
           <div class="store-info-banner-title">🏬 ${storeLabel(bst)}${bc?`<span class="store-info-banner-company">（${companyLabel(bc)}）</span>`:''}</div>
+          <button class="btn-edit-item" onclick="openInspectionSheetForList()" title="この一覧の機器の点検表をまとめて出力">📋 点検表</button>
           <button class="btn-edit-item" onclick="editStoreFromBanner('${filters.companyId}','${filters.storeId}')" title="店舗情報を編集">✏️ 編集</button>
         </div>
         ${metaParts.length?`<div class="store-info-banner-meta">${metaParts.join('　')}</div>`:'<div class="store-info-banner-meta store-info-banner-empty">住所・工場長などの情報は未登録です</div>'}
