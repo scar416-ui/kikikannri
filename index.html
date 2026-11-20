@@ -1433,17 +1433,39 @@ const DEFAULT_EQUIPMENT_NAMES=[
    位置は元画像（A4・150dpi：1241×1754px）上のピクセルで指定し、ページ幅に対する割合に変換して置く。
    点検表の種類を増やすときは INSPECTION_TEMPLATES に1件足す（画像・各項目の位置・対象の機器名）。 */
 const INSPECTION_IMG_W=1241,INSPECTION_IMG_H=1754;
+// 「◇型式・◇製造番号・◇ベイ」の欄とお客様名の枠は、柱式（2柱・門型）以外の4種類で共通の位置
+const _INSP_COMMON={
+  customer:{x:75,y:214,w:370,h:104,size:30},
+  model:{x:650,y:256,w:300,size:30},
+  serial:{x:650,y:302,w:300,size:30},
+  bay:{x:650,y:348,w:300,size:30}
+};
 const INSPECTION_TEMPLATES=[
-  {id:'lift2',label:'柱式リフト保守定期点検表',img:'tpl_lift2.jpg',
-   // 対象の機器名（これらを含む機器に使う）
-   match:eq=>{const n=String(eq.name||'');return /リフト/.test(n)&&/２柱|2柱|埋設|門型|アーチ/.test(n);},
+  {id:'lift2',label:'柱式リフト保守定期点検表（2柱・門型2柱・アーチ）',img:'tpl_lift2.jpg',
+   match:eq=>{const n=String(eq.name||'');return /リフト/.test(n)&&/２柱|2柱|門型|アーチ/.test(n);},
    // 右上の種別チェック（機器名から自動で✓を入れる）：埋設／土間置／門型2柱／アーチ
    checks:[{x:82,y:371},{x:251,y:370},{x:439,y:371},{x:589,y:370}],
    pickCheck:eq=>{const n=String(eq.name||'');return /門型/.test(n)?2:/アーチ/.test(n)?3:/埋設/.test(n)?0:/２柱|2柱/.test(n)?1:-1;},
    customer:{x:88,y:214,w:340,h:104,size:30},
    model:{x:650,y:256,w:300,size:30},
    serial:{x:650,y:302,w:300,size:30},
-   bay:{x:650,y:348,w:300,size:30}}
+   bay:{x:650,y:348,w:300,size:30}},
+  // 4柱式（ドライブオン有無のチェックは機器名から判別できないため、手書き）
+  {id:'lift4',label:'4柱式リフト保守定期点検表',img:'tpl_lift4.jpg',
+   match:eq=>{const n=String(eq.name||'');return /リフト/.test(n)&&/４柱|4柱|４ポール|4ポール/.test(n);},
+   checks:[],pickCheck:()=>-1,..._INSP_COMMON},
+  // パンタ式（アーム無／アーム無(土間置)／アーム付／アヴェンタスのチェックは手書き）
+  {id:'panta',label:'パンタ式リフト保守定期点検表',img:'tpl_panta.jpg',
+   match:eq=>/パンタ/.test(String(eq.name||'')),
+   checks:[],pickCheck:()=>-1,..._INSP_COMMON},
+  // マルチユース（＝ドライブオンリフト）（フラットキット付／無のチェックは手書き）
+  {id:'multi',label:'マルチユースリフト保守定期点検表（ドライブオンリフト）',img:'tpl_multi.jpg',
+   match:eq=>/ドライブオン|マルチユース/.test(String(eq.name||'')),
+   checks:[],pickCheck:()=>-1,..._INSP_COMMON},
+  // 埋設シリンダー式（アーム無／アーム付・FLATのチェックは手書き）
+  {id:'buried',label:'埋設シリンダー式リフト保守定期点検表',img:'tpl_buried.jpg',
+   match:eq=>{const n=String(eq.name||'');return /リフト/.test(n)&&/埋設/.test(n);},
+   checks:[],pickCheck:()=>-1,..._INSP_COMMON}
 ];
 function _inspectionTemplateFor(eq){return INSPECTION_TEMPLATES.find(t=>t.match(eq))||null;}
 function _inspPct(v,total){return (v/total*100).toFixed(3)+'%';}
@@ -1493,7 +1515,7 @@ function printInspectionSheet(){
   setTimeout(done,60000);
 }
 
-const APP_BUILD='2026-11-20b';
+const APP_BUILD='2026-11-20c';
 // 【新表示の試験運用】写真のDrive保存状態の表示と、通知の出し方を新しくしたもの。
 // まず利用者の端末だけで試すため、URLに ?beta=1 を付けて開いた端末でのみ有効にする
 // （以後その端末では記憶される。?beta=0 で元の表示に戻る）。問題なければ全員に有効化する。
