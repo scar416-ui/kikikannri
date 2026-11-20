@@ -462,6 +462,24 @@ optgroup{font-weight:700}
 .header-user{font-size:11px;opacity:.85;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ════ 点検表の出力（2026-11-20） ════ */
+.exp-doc{width:min(100%,1123px);margin:10px auto;background:#fff;padding:14px 16px;box-shadow:0 1px 6px rgba(0,0,0,.25);color:#111;font-size:12px}
+.exp-head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid var(--primary);padding-bottom:6px;margin-bottom:10px}
+.exp-title{font-size:18px;font-weight:700}.exp-date{font-size:11px;color:#555}
+.exp-sec{margin-bottom:14px}
+.exp-sec-h{font-size:13px;font-weight:700;margin:8px 0 4px}.exp-sum{font-size:11px;font-weight:400;color:#555;margin-left:10px}
+.exp-t{width:100%;border-collapse:collapse;font-size:11px}
+.exp-t th,.exp-t td{border:1px solid #bdbdbd;padding:3px 5px;text-align:left;vertical-align:top;word-break:break-all}
+.exp-t th{background:#f2f1ee;font-weight:700}
+.exp-t thead{display:table-header-group}.exp-t tr{break-inside:avoid;page-break-inside:avoid}
+.exp-t tr:nth-child(even) td{background:#f9f8f6}
+.exp-t tr.hi td{background:#fff176}
+@media print{
+  body.printing-inspect .exp-doc{width:auto;margin:0;padding:0;box-shadow:none}
+  body.printing-inspect .exp-t,body.printing-inspect .exp-head{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body.printing-inspect .exp-t tr.hi td{background:#fff176!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body.printing-inspect .exp-sec-h{break-after:avoid;page-break-after:avoid}
+}
+
 .btn-inspect{background:#fff;color:var(--primary);border:1px solid var(--primary);box-shadow:none;margin-right:6px}
 #inspectOverlay{display:none;position:fixed;inset:0;z-index:5000;background:#e5e7eb;overflow:auto;-webkit-overflow-scrolling:touch}
 #inspectOverlay.show{display:block}
@@ -640,7 +658,7 @@ optgroup{font-weight:700}
 <!-- ════ 点検表の出力 ════ -->
 <div id="inspectOverlay">
   <div class="insp-bar"><button class="insp-close" onclick="closeInspectionSheet()">← 戻る</button><span id="inspCount" style="font-size:12px;color:#555;flex:1;text-align:center"></span><button class="insp-print" onclick="printInspectionSheet()">🖨 印刷／PDF</button></div>
-  <div class="insp-note">点検日・点検結果・特記事項・点検実施者は、印刷後に手書きで記入します。</div>
+  <div class="insp-note" id="inspNote">点検日・点検結果・特記事項・点検実施者は、印刷後に手書きで記入します。</div>
   <div id="inspPages"></div>
 </div>
 
@@ -1188,6 +1206,7 @@ optgroup{font-weight:700}
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeExportModal()">キャンセル</button>
       <button class="btn-cancel" id="ex_csv_btn" onclick="runExport('csv')">📄 CSVで出力</button>
+      <button class="btn-cancel" id="ex_pdf_btn" onclick="runExport('pdf')">🖨 PDFで出力</button>
       <button class="btn-save" onclick="runExport('xlsx')">📥 Excelで出力</button>
     </div>
   </div>
@@ -1432,6 +1451,7 @@ const DEFAULT_EQUIPMENT_NAMES=[
    点検表の元データ（画像）の上に、機器の情報（お客様名・型式・製造番号・ベイ）を重ねて出力する。
    位置は元画像（A4・150dpi：1241×1754px）上のピクセルで指定し、ページ幅に対する割合に変換して置く。
    点検表の種類を増やすときは INSPECTION_TEMPLATES に1件足す（画像・各項目の位置・対象の機器名）。 */
+let _inspPageCss='',_inspDocTitle='';
 const INSPECTION_IMG_W=1241,INSPECTION_IMG_H=1754;
 // 「◇型式・◇製造番号・◇ベイ」の欄とお客様名の枠は、柱式（2柱・門型）以外の4種類で共通の位置
 const _INSP_COMMON={
@@ -1467,6 +1487,54 @@ const INSPECTION_TEMPLATES=[
    match:eq=>{const n=String(eq.name||'');return /リフト/.test(n)&&/埋設/.test(n);},
    checks:[],pickCheck:()=>-1,..._INSP_COMMON}
 ];
+
+/* ════ PDF出力（印刷画面から「PDFで保存」する方式） ════
+   機器一覧の表を印刷用の画面に組み立てて表示する。印刷するとA4横の一覧になり、PDFに保存できる。
+   標準・販社提案資料：店舗ごとの表（販社提案資料は件数サマリーと危険機器の色付き）、岐阜日産形式：1枚の表。 */
+function _expTable(head,rows,hiRows){
+  const th=head.map(h=>`<th>${_inspEsc(h)}</th>`).join('');
+  const tr=rows.map((r,i)=>`<tr${hiRows&&hiRows[i]?' class="hi"':''}>${r.map(c=>`<td>${_inspEsc(c)}</td>`).join('')}</tr>`).join('');
+  return `<table class="exp-t"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`;
+}
+function _expEqRow(eq){
+  const si=statusInfo(eq.status);
+  return [eq.bay||'',eq.name||'',eq.maker||'',eq.model||'',eq.serial||'',_ymJa(eq.nextcheck),si.label||'',eq.note||''];
+}
+function _expPdfHtml(d,fmt){
+  const today=todayStr();
+  const who=d.store?`${d.company.name}　${d.store.name}`:(d.company?d.company.name:'全社');
+  const kindLabel={standard:'設備機器一覧',gifu_nissan:'機器管理リスト',proposal:'機器一覧'}[fmt]||'設備機器一覧';
+  let html=`<div class="exp-head"><div class="exp-title">${_inspEsc(who)}${fmt==='proposal'?'　様':''}　${kindLabel}</div><div class="exp-date">出力日：${_inspEsc(today)}　／　${d.list.length}台</div></div>`;
+  if(fmt==='gifu_nissan'){
+    const aoa=buildNissanAoa(d);
+    return html+_expTable(aoa[0],aoa.slice(1));
+  }
+  const HEAD=['ベイ','機器名称','メーカー','型式','製造番号','製造年月','ステータス','備考'];
+  d.companies.forEach(c=>{
+    sortedStores(c).forEach(st=>{
+      if(d.store&&st.id!==d.store.id)return;
+      const data=d.list.filter(e=>e.companyId===c.id&&e.storeId===st.id).sort(compareEquipment);
+      if(!data.length)return;
+      let sum='';
+      if(fmt==='proposal'){
+        const n=cls=>data.filter(e=>statusInfo(e.status).cls===cls).length;
+        sum=`<span class="exp-sum">総台数 ${data.length}台｜注意・経過観察 ${n('badge-caution')}台｜部品供給不可 ${n('badge-parts')}台｜危険 ${n('badge-danger')}台</span>`;
+      }
+      html+=`<div class="exp-sec"><div class="exp-sec-h">${d.scope==='all'?_inspEsc(companyLabel(c))+'　':''}${_inspEsc(storeLabel(st))}${sum}</div>`+
+        _expTable(HEAD,data.map(_expEqRow),fmt==='proposal'?data.map(e=>statusInfo(e.status).cls==='badge-danger'):null)+`</div>`;
+    });
+  });
+  return html;
+}
+function openExportPdf(d,fmt,base){
+  document.getElementById('inspPages').innerHTML=`<div class="exp-doc">${_expPdfHtml(d,fmt)}</div>`;
+  document.getElementById('inspCount').textContent=`${d.list.length}台`;
+  document.getElementById('inspNote').textContent='「🖨 印刷／PDF」から、PDFとして保存できます（A4横）。';
+  _inspPageCss='@page{size:A4 landscape;margin:10mm}';
+  _inspDocTitle=base;
+  document.getElementById('inspectOverlay').classList.add('show');
+  document.getElementById('inspectOverlay').scrollTop=0;
+}
 function _inspectionTemplateFor(eq){return INSPECTION_TEMPLATES.find(t=>t.match(eq))||null;}
 function _inspPct(v,total){return (v/total*100).toFixed(3)+'%';}
 function _inspEsc(v){return String(v==null?'':v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
@@ -1495,6 +1563,8 @@ function openInspectionSheet(list){
   const pages=[],skipped=[];
   list.forEach(eq=>{const t=_inspectionTemplateFor(eq);if(t)pages.push(_inspectionPageHtml(eq,t));else skipped.push(eq.name||'');});
   if(!pages.length){showToast('⚠ この機器用の点検表はまだ登録されていません','error');return;}
+  _inspPageCss='';_inspDocTitle='';
+  document.getElementById('inspNote').textContent='点検日・点検結果・特記事項・点検実施者は、印刷後に手書きで記入します。';
   document.getElementById('inspPages').innerHTML=pages.join('');
   document.getElementById('inspCount').textContent=`${pages.length}枚`+(skipped.length?`（対象外${skipped.length}台）`:'');
   document.getElementById('inspectOverlay').classList.add('show');
@@ -1509,13 +1579,17 @@ function openInspectionSheetForCurrent(){if(currentEq)openInspectionSheet([curre
 function closeInspectionSheet(){document.getElementById('inspectOverlay').classList.remove('show');document.getElementById('inspPages').innerHTML='';}
 function printInspectionSheet(){
   document.body.classList.add('printing-inspect');
-  const done=()=>{document.body.classList.remove('printing-inspect');window.removeEventListener('afterprint',done);};
+  // 一覧のPDFはA4横。ページの向き・余白と、保存時のファイル名（タイトル）を印刷の間だけ切り替える。
+  let st=null,oldTitle=document.title;
+  if(_inspPageCss){st=document.createElement('style');st.textContent='@media print{'+_inspPageCss+'}';document.head.appendChild(st);}
+  if(_inspDocTitle)document.title=_inspDocTitle;
+  const done=()=>{document.body.classList.remove('printing-inspect');if(st&&st.parentNode)st.parentNode.removeChild(st);document.title=oldTitle;window.removeEventListener('afterprint',done);};
   window.addEventListener('afterprint',done);
   setTimeout(()=>{try{window.print();}catch(e){done();}},100);
   setTimeout(done,60000);
 }
 
-const APP_BUILD='2026-11-20c';
+const APP_BUILD='2026-11-20d';
 // 【新表示の試験運用】写真のDrive保存状態の表示と、通知の出し方を新しくしたもの。
 // まず利用者の端末だけで試すため、URLに ?beta=1 を付けて開いた端末でのみ有効にする
 // （以後その端末では記憶される。?beta=0 で元の表示に戻る）。問題なければ全員に有効化する。
@@ -6534,16 +6608,19 @@ function onExportFormatChange(){
   if(fmt==='proposal'){
     // 販社提案資料は「1社まるごと・全店舗」を連続シートで出力する固定仕様のため、
     // 出力単位（全機器／販社別／店舗別）の選択自体を不要にし、販社選択だけ残す。
-    document.getElementById('sc_company').checked=true;
-    if(scopeBox)scopeBox.style.display='none';
-    document.getElementById('ex_company_group').style.display='block';
-    document.getElementById('ex_store_group').style.display='none';
+    // 出力単位は「販社別（全店舗）」か「店舗別」から選ぶ（全機器は不可）。
+    if(document.getElementById('sc_all').checked)document.getElementById('sc_company').checked=true;
+    if(scopeBox)scopeBox.style.display='';
+    const scAll=document.getElementById('sc_all').closest('.scope-option');if(scAll)scAll.style.display='none';
     if(csvBtn)csvBtn.style.display='none';
+    onExportScopeChange();
   }else{
+    const scAll=document.getElementById('sc_all').closest('.scope-option');if(scAll)scAll.style.display='';
     if(scopeBox)scopeBox.style.display='';
     if(csvBtn)csvBtn.style.display='';
     onExportScopeChange();
   }
+  const pdfBtn=document.getElementById('ex_pdf_btn');if(pdfBtn)pdfBtn.style.display=(fmt==='raw')?'none':'';
   updateExportPreview();
 }
 function onExportCompanyChange(){
@@ -6811,7 +6888,7 @@ function _proposalNote(eq){
   return{text:'-',kind:null};
 }
 
-async function exportProposalWorkbook(company,base){
+async function exportProposalWorkbook(company,base,onlyStore){
   if(typeof ExcelJS==='undefined'){showToast('⚠ 出力機能の読み込みに失敗しました。再読み込みしてお試しください','error');return;}
   showToast('📤 販社提案資料を作成中...','info');
   try{
@@ -6821,7 +6898,7 @@ async function exportProposalWorkbook(company,base){
     const COLS=7;
     const wb=new ExcelJS.Workbook();
     // シートタブ名はExcelの制約（31文字以内、\ / ? * [ ] : が使用不可）に合わせて販社名から作る
-    const sheetName=((company&&company.name)||'機器一覧').replace(/[\\\/\?\*\[\]:]/g,'_').slice(0,31)||'機器一覧';
+    const sheetName=((onlyStore&&onlyStore.name)||(company&&company.name)||'機器一覧').replace(/[\\\/\?\*\[\]:]/g,'_').slice(0,31)||'機器一覧';
     const ws=wb.addWorksheet(sheetName);
     ws.columns=[{width:13},{width:20},{width:24},{width:14},{width:11},{width:10},{width:34}];
     ws.pageSetup={paperSize:9,orientation:'portrait',fitToPage:true,fitToWidth:1,fitToHeight:0,
@@ -6844,13 +6921,14 @@ async function exportProposalWorkbook(company,base){
     const titleCell=ws.getCell(1,1);
     titleCell.value={richText:[
       {text:`${(company&&company.name)||'-'}　様\n`,font:{size:17,bold:true,color:{argb:INK}}},
-      {text:'機器一覧',font:{size:10,color:{argb:INK_SOFT}}}
+      {text:onlyStore?`機器一覧　${onlyStore.name}`:'機器一覧',font:{size:10,color:{argb:INK_SOFT}}}
     ]};
     titleCell.alignment={vertical:'middle',wrapText:true};
     ws.mergeCells(1,6,1,7);
     const dateCell=ws.getCell(1,6);
-    const stores=sortedStores(company);
-    const alive=equipments.filter(e=>!e.retired&&e.companyId===company.id);
+    // 店舗を指定したときは、その店舗だけを出力する（表紙の台数・店舗数もその店舗の分になる）
+    const stores=sortedStores(company).filter(st=>!onlyStore||st.id===onlyStore.id);
+    const alive=equipments.filter(e=>!e.retired&&e.companyId===company.id&&(!onlyStore||e.storeId===onlyStore.id));
     const storeCount=stores.filter(st=>alive.some(e=>e.storeId===st.id)).length;
     dateCell.value={richText:[
       {text:`出力日：${todayStr()}\n`,font:{size:10,color:{argb:INK_SOFT}}},
@@ -7120,10 +7198,12 @@ function updateExportPreview(){
   const fmt=document.getElementById('ex_format').value;
   const d=_exportScopeData();
   if(!d){el.innerHTML='販社・店舗を選択してください';return;}
-  const fmtLabel={standard:'標準（社内用）',gifu_nissan:'岐阜日産形式',raw:'元データ（全項目）',proposal:'📊 販社提案資料（全店舗）'}[fmt];
+  const fmtLabel={standard:'標準（社内用）',gifu_nissan:'岐阜日産形式',raw:'元データ（全項目）',proposal:d.store?'📊 販社提案資料（店舗別）':'📊 販社提案資料（全店舗）'}[fmt];
   let naiyo;
   if(fmt==='proposal'){
-    naiyo=d.company?`1社連続シート（${sortedStores(d.company).length}店舗分・店舗ごとに見出し＋状況件数＋機器一覧、改ページ区切り）`:'販社を選択してください';
+    naiyo=!d.company?'販社を選択してください'
+      :d.store?`${d.store.name}の1店舗分（見出し＋状況件数＋機器一覧）`
+      :`1社連続シート（${sortedStores(d.company).length}店舗分・店舗ごとに見出し＋状況件数＋機器一覧、改ページ区切り）`;
   }else if(fmt==='standard'){
     naiyo=d.scope==='all'?`サマリーシート ＋ 販社別シート（${d.companies.length}社）`
       :d.scope==='company'?`サマリーシート ＋ 店舗別シート`
@@ -7136,7 +7216,7 @@ function updateExportPreview(){
     <strong>📄 出力内容：</strong>${naiyo}<br>
     <strong>📊 機器数：</strong>${d.list.length} 件（撤去済みを除く）<br>
     <strong>📅 出力日：</strong>${todayStr()}<br>
-    <strong>📁 ファイル名：</strong>${base}.xlsx ／ ${base}.csv`;
+    <strong>📁 ファイル名：</strong>${base}.xlsx ／ ${base}.csv ／ ${base}.pdf`;
 }
 
 async function runExport(kind){
@@ -7147,10 +7227,17 @@ async function runExport(kind){
   if(!d.list.length){showToast('⚠ 出力対象の機器がありません','error');return;}
   const base=_exportFileBase(d,fmt);
 
+  if(kind==='pdf'){
+    if(fmt==='raw'){showToast('⚠ 元データはPDFに対応していません（Excel・CSVをご利用ください）','error');return;}
+    if(fmt==='proposal'&&!d.company){showToast('⚠ 販社を選択してください','error');return;}
+    openExportPdf(d,fmt,base);
+    closeExportModal();return;
+  }
+
   if(fmt==='proposal'){
     if(kind==='csv'){showToast('⚠ 販社提案資料はExcel専用です（CSV非対応）','error');return;}
     if(!d.company){showToast('⚠ 販社を選択してください','error');return;}
-    await exportProposalWorkbook(d.company,base);
+    await exportProposalWorkbook(d.company,base,d.store||null);
     closeExportModal();return;
   }
 
