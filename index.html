@@ -1436,10 +1436,10 @@ const INSPECTION_IMG_W=1241,INSPECTION_IMG_H=1754;
 const INSPECTION_TEMPLATES=[
   {id:'lift2',label:'柱式リフト保守定期点検表',img:'tpl_lift2.jpg',
    // 対象の機器名（これらを含む機器に使う）
-   match:eq=>/２柱|2柱|埋設|門型/.test(String(eq.name||'')),
+   match:eq=>{const n=String(eq.name||'');return /リフト/.test(n)&&/２柱|2柱|埋設|門型|アーチ/.test(n);},
    // 右上の種別チェック（機器名から自動で✓を入れる）：埋設／土間置／門型2柱／アーチ
    checks:[{x:82,y:371},{x:251,y:370},{x:439,y:371},{x:589,y:370}],
-   pickCheck:eq=>{const n=String(eq.name||'');return /門型/.test(n)?2:/埋設/.test(n)?0:/２柱|2柱/.test(n)?1:-1;},
+   pickCheck:eq=>{const n=String(eq.name||'');return /門型/.test(n)?2:/アーチ/.test(n)?3:/埋設/.test(n)?0:/２柱|2柱/.test(n)?1:-1;},
    customer:{x:88,y:214,w:340,h:104,size:30},
    model:{x:650,y:256,w:300,size:30},
    serial:{x:650,y:302,w:300,size:30},
@@ -1493,7 +1493,7 @@ function printInspectionSheet(){
   setTimeout(done,60000);
 }
 
-const APP_BUILD='2026-11-20a';
+const APP_BUILD='2026-11-20b';
 // 【新表示の試験運用】写真のDrive保存状態の表示と、通知の出し方を新しくしたもの。
 // まず利用者の端末だけで試すため、URLに ?beta=1 を付けて開いた端末でのみ有効にする
 // （以後その端末では記憶される。?beta=0 で元の表示に戻る）。問題なければ全員に有効化する。
