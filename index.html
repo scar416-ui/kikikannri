@@ -1485,7 +1485,24 @@ const INSPECTION_TEMPLATES=[
   // 埋設シリンダー式（アーム無／アーム付・FLATのチェックは手書き）
   {id:'buried',label:'埋設シリンダー式リフト保守定期点検表',img:'tpl_buried.jpg',
    match:eq=>{const n=String(eq.name||'');return /リフト/.test(n)&&/埋設/.test(n);},
-   checks:[],pickCheck:()=>-1,..._INSP_COMMON}
+   checks:[],pickCheck:()=>-1,..._INSP_COMMON},
+  // エアーコンプレッサー（タンク付きのレシプロ式）。この点検表には「ベイ」の欄がないため、
+  // 型式・製造番号の下の空き罫線にベイを書く。
+  {id:'comp_tank',label:'エアーコンプレッサー保守定期点検表',img:'tpl_comp_tank.jpg',
+   match:eq=>/レシプロ式コンプレッサー/.test(String(eq.name||'')),
+   checks:[],pickCheck:()=>-1,
+   customer:{x:205,y:240,w:330,h:75,size:28},
+   model:{x:704,y:288,w:210,size:28},
+   serial:{x:704,y:345,w:210,size:28},
+   bay:{x:612,y:374,w:300,size:24}},
+  // パッケージ式エアーコンプレッサー（DR付も同じ点検表）
+  {id:'comp_pkg',label:'パッケージ式エアーコンプレッサー保守定期点検表',img:'tpl_comp_pkg.jpg',
+   match:eq=>/パッケージコンプレッサー/.test(String(eq.name||'')),
+   checks:[],pickCheck:()=>-1,
+   customer:{x:143,y:208,w:330,h:80,size:28},
+   model:{x:704,y:260,w:210,size:28},
+   serial:{x:704,y:317,w:210,size:28},
+   bay:{x:612,y:346,w:300,size:24}}
 ];
 
 /* ════ PDF出力（印刷画面から「PDFで保存」する方式） ════
@@ -1589,7 +1606,7 @@ function printInspectionSheet(){
   setTimeout(done,60000);
 }
 
-const APP_BUILD='2026-11-20d';
+const APP_BUILD='2026-11-20e';
 // 【新表示の試験運用】写真のDrive保存状態の表示と、通知の出し方を新しくしたもの。
 // まず利用者の端末だけで試すため、URLに ?beta=1 を付けて開いた端末でのみ有効にする
 // （以後その端末では記憶される。?beta=0 で元の表示に戻る）。問題なければ全員に有効化する。
